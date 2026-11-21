@@ -3,7 +3,7 @@
 ## Einstieg als neuer Spieler
 
 Naxos beginnt am freien Bauplatz. Die erste verfügbare Backstube erhält den
-Controllerfokus. Das Tutorial führt durch den Bau, den ersten Tag, den Preis
+Controllerfokus. Das Tutorial führt durch Bau, Preiswahl, Tagesstart
 und Nilis Lieferung. Für spätere Systeme gibt es Hinweise am passenden Hafen
 und die bebilderte Spielhilfe im Haupt- und Pausenmenü.
 
@@ -43,5 +43,11 @@ mit den heutigen Vorräten. Die drei Wettertage stehen zusammen im Tagesplan.
   das Wiederherstellen eines Spielstands während des Tages.
 - Gerenderte Stichproben im Querformat mit 1280 × 800 und 1024 × 576
   sowie normaler und großer Oberfläche.
-- Android-15-Emulator mit Vulkan und virtuellem Xbox Wireless Controller.
-  Der physische Android-Tablet-Test mit Bluetooth oder USB steht noch aus.
+- Android 15 mit Vulkan und einem virtuellen Xbox Wireless Controller.
+  Im ersten Tag wurden Backstube und Brunnen gebaut, der Brotpreis
+  geändert und Nilis Lieferung erledigt. Die über GitHub geladene APK
+  übernahm den Spielstand bytegleich und setzte ihn bis zur Abrechnung
+  und zum zweiten Morgen fort.
+- APK-Signatur v2 und v3, 16-KiB-Ausrichtung beider nativer Bibliotheken
+  und SHA-256-Abgleich des GitHub-Downloads geprüft.
+- Der physische Android-Tablet-Test mit Bluetooth oder USB steht noch aus.
