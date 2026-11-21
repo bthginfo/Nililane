@@ -1,53 +1,58 @@
-# Spielreview und Abnahme
+# Spielreview und Abnahme · Nililane 2.0
 
 ## Einstieg als neuer Spieler
 
-Naxos beginnt am freien Bauplatz. Die erste verfügbare Backstube erhält den
-Controllerfokus. Das Tutorial führt durch Bau, Preiswahl, Tagesstart
-und Nilis Lieferung. Für spätere Systeme gibt es Hinweise am passenden Hafen
-und die bebilderte Spielhilfe im Haupt- und Pausenmenü.
+Naxos führt durch Bauen, Preiswahl, Tagesstart und die erste Hafenbitte. Der
+Wasserlauf von Amorgos zeigt anschließend Nilis neue Touren. Das Menü erklärt
+bei jeder Aufgabe die Voraussetzungen und den Nutzen. Die Zeit bleibt bei
+der Zielwahl stehen. Auf der Insel markieren ein Ring und das HUD das Ziel.
+Nili nimmt die Fracht sichtbar auf, und der Fortschritt steht neben dem
+Tourensymbol.
 
 ## Veröffentlichung
 
-Ein Paket enthält ARM64 und x86_64. Das Paket ist für Android 8 und neuer
-mit Vulkan 1.1 vorgesehen. Modelle, Schriften, Bilder und Töne liegen im
-Paket. Android lädt ohne Netzwerkberechtigung. Die Release-Dateien enthalten
-die APK und ihre SHA-256-Prüfsumme. Die Herkunft der übernommenen und neuen
-Assets ist dokumentiert. [Asset-Herkunft](../assets/QUELLEN.md)
+Die signierte APK enthält ARM64 und x86_64 und verwendet dieselbe Paket-ID
+und dasselbe Veröffentlichungszertifikat wie 1.0.0. Android 8 und Vulkan 1.1
+sind die Mindestvoraussetzungen. Modelle, Schriften, Bilder und Musik liegen
+im Offline-Paket. Die README führt zur APK und ihrer SHA-256-Prüfsumme.
+[Asset-Herkunft](../assets/QUELLEN.md)
 
 ## Spielentwicklung
 
-Der Simulationstest spielt alle 48 Kapitel mit regulären Bau-, Preis-, Ausbau-
-und Hafenaktionen und prüft die Freischaltung von Rom. Die Nachfrage in
-mehreren Häfen wurde nach den Durchläufen angepasst. Wasseraufträge zählen
-die tatsächlich bereitgestellte Menge und behalten ihren erreichten Höchstwert
-beim Wetterwechsel. Laufende Besuche, Vorräte, Preise und bereits erfüllte
-Hafenbitten gehen ins lokale Autosave.
-
-Die Referenzstrategien ergeben bei Normaltempo etwa sechs Stunden geöffnete
-Gasse für Griechenland und gut sieben für Rom. Die Planung kommt dazu.
-Acht Stunden pro Reise sind ein Designziel für einen ersten Durchlauf.
+- 48 Häfen lassen sich mit regulären Bau-, Preis-, Ausbau- und Hafenaktionen
+  abschließen. Die Kampagne schaltet jeden Hafen nach dem vorherigen frei.
+  Ostia wird nach Korinth verfügbar.
+- Eine 1.0-Gasse behält beim Laden ihre Parzellen, Preise, Vorräte,
+  Tageszeit, Hafenbitten und Sternrekorde. Neue Bauplätze ergänzen die
+  bisherigen Platznummern. Laufende Touren bleiben im Autosave erhalten
+  und werden nach dem Laden genau einmal abgerechnet.
+- Ein gegliederter Laufzyklus setzt die Füße der Gäste auf, abgerundete
+  Wegpunkte geben die Blickrichtung vor. Die Figur läuft von der Wohnung
+  oder Fähre zur Straße, dann zum konkreten Laden und wieder zurück.
+  Baugerüste, Ausbauteile und Staub verschwinden nach der Animation.
+- Die Referenzstrategien ergeben bei Normaltempo gut fünf Stunden
+  geöffnete Gasse für Griechenland und gut sechs für Rom. Planung,
+  Tourenauswahl, Berichte und Wiederholungen kommen dazu. Rund acht
+  Stunden pro Reise bleiben das Ziel für einen ersten Durchlauf.
 
 ## Oberfläche und Bedienung
 
-Menüs haben eine sichtbare Vorauswahl, eine eigene Fokusumrandung und
-Bedienhinweise. Beim Rücksprung aus der Spielhilfe oder den Einstellungen
-landet der Fokus bei der vorherigen Aktion. Die Hauptanzeige zeigt die
-Zufriedenheit während des Tages. Das Hafenbuch erklärt die vier Ursachen
-unerfüllter Wünsche. Die Ausbauvorschau zeigt aktuelle und geplante Mengen
-mit den heutigen Vorräten. Die drei Wettertage stehen zusammen im Tagesplan.
+Die Kampagnenkarte ergänzt die Hafenbilder um Größe, Küstenform und die
+beiden Parzellenreihen. Im Grundstücksmenü stehen der nächste sichtbare
+Ausbau und seine Wirkung. Bei gezoomter Kamera folgt der Ausschnitt
+der Auswahl am Rand. Die Zufriedenheit bleibt in der Hauptanzeige.
+Das Hafenbuch zeigt bei geöffnetem Hafen zwei aktuelle Gästestimmen
+zusammen mit den häufigsten Gründen für unerfüllte Wünsche.
 
 ## Prüfungen
 
-- Rust-Tests für beide Kampagnen, Vorrat und Besuchsregeln, Lieferketten und
-  das Wiederherstellen eines Spielstands während des Tages.
-- Gerenderte Stichproben im Querformat mit 1280 × 800 und 1024 × 576
-  sowie normaler und großer Oberfläche.
-- Android 15 mit Vulkan und einem virtuellen Xbox Wireless Controller.
-  Im ersten Tag wurden Backstube und Brunnen gebaut, der Brotpreis
-  geändert und Nilis Lieferung erledigt. Die über GitHub geladene APK
-  übernahm den Spielstand bytegleich und setzte ihn bis zur Abrechnung
-  und zum zweiten Morgen fort.
-- APK-Signatur v2 und v3, 16-KiB-Ausrichtung beider nativer Bibliotheken
-  und SHA-256-Abgleich des GitHub-Downloads geprüft.
-- Der physische Android-Tablet-Test mit Bluetooth oder USB steht noch aus.
+- Formatierung, Clippy mit Warnungen als Fehler und neun Rust-Tests.
+- Gerenderte Stichproben in Griechenland und Rom im Querformat.
+- Android 15 mit Vulkan und simulierten Gamepad-Eingaben. Nach der
+  Installation über 1.0.0 haben A und Y den vorhandenen Tag samt Bauplätzen,
+  Brotpreis und Verkaufszahlen fortgesetzt. In Amorgos haben R3,
+  Steuerkreuz und A einen Wasserlauf ausgewählt und zur Backstube
+  geschickt. Der Betrieb erhielt die Lieferung einmal.
+- APK-Signatur v2 und v3, 16-KiB-Ausrichtung beider Bibliotheken und
+  SHA-256-Abgleich des GitHub-Downloads.
+- Der Test auf einem physischen Android-Tablet steht noch aus.

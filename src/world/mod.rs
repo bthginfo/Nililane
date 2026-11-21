@@ -1,10 +1,14 @@
 mod actors;
 mod buildings;
+mod construction;
 mod landscape;
 mod mesh;
+mod motion;
+mod people;
 mod roman;
 mod ships;
 mod sky;
+mod upgrades;
 
 use std::collections::HashMap;
 
@@ -12,19 +16,22 @@ use bevy::{
     core_pipeline::tonemapping::Tonemapping,
     pbr::{CascadeShadowConfigBuilder, DirectionalLightShadowMap},
     prelude::*,
-    render::camera::ScalingMode,
+    render::{camera::ScalingMode, mesh::skinning::SkinnedMeshInverseBindposes},
     window::PrimaryWindow,
 };
 
 use crate::{
     campaign::{CHAPTERS, Region},
+    errands::{Job, Stop},
     game::{Game, View},
-    model::{COLS, Kind, Origin, Phase, Weather},
+    layout::{Layout, lot_col, lot_row},
+    model::{Kind, Phase, Weather},
     save::Campaign,
 };
 
 use self::{
     buildings::GOLD,
+    construction::{Assembly, Part, Parts},
     mesh::{Batch, v},
 };
 
@@ -32,9 +39,9 @@ pub const LOT_STEP: f32 = 3.20;
 
 pub fn lot_position(lot: usize, columns: usize) -> Vec3 {
     v(
-        (lot % COLS) as f32 * LOT_STEP - (columns as f32 - 1.0) * LOT_STEP * 0.5,
+        lot_col(lot) as f32 * LOT_STEP - (columns as f32 - 1.0) * LOT_STEP * 0.5,
         0.065,
-        if lot < COLS { -2.34 } else { 2.38 },
+        if lot_row(lot) == 0 { -2.34 } else { 2.38 },
     )
 }
 
@@ -51,14 +58,14 @@ pub(crate) struct Selected;
 #[derive(Component)]
 pub(crate) struct Hippo;
 #[derive(Component)]
+pub(crate) struct JobPack(Job);
+#[derive(Component)]
+pub(crate) struct Destination;
+#[derive(Component)]
 pub(crate) struct Limb {
     side: f32,
     leg: bool,
 }
-#[derive(Component)]
-pub(crate) struct Resident(usize);
-#[derive(Component)]
-pub(crate) struct Receipt(usize);
 #[derive(Component)]
 pub(crate) struct Wave(usize);
 #[derive(Component)]
@@ -78,8 +85,8 @@ pub struct Art {
     sea_weather: Option<Weather>,
     gold: Handle<StandardMaterial>,
     kinds: HashMap<(Region, Kind, u8), Handle<Mesh>>,
-    guests: [[Handle<Mesh>; 24]; 2],
-    receipts: [Handle<Mesh>; 2],
+    additions: HashMap<(Region, Kind, u8, u8), Handle<Mesh>>,
+    work: Parts,
     hulls: [[Handle<Mesh>; 3]; 2],
     sails: [[Handle<Mesh>; 3]; 2],
     house: Handle<Scene>,
@@ -96,6 +103,7 @@ pub fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     assets: Res<AssetServer>,
+    mut bind_poses: ResMut<Assets<SkinnedMeshInverseBindposes>>,
 ) {
     commands.spawn((
         StreetCamera,
@@ -155,8 +163,6 @@ pub fn setup(
         unlit: true,
         ..default()
     });
-    let guests = [Region::Greece, Region::Rome]
-        .map(|region| std::array::from_fn(|i| meshes.add(actors::resident(i, region))));
     let scene =
         |path: &'static str, index| assets.load(GltfAssetLabel::Scene(index).from_asset(path));
     let hulls = [Region::Greece, Region::Rome]
@@ -175,8 +181,8 @@ pub fn setup(
         hulls,
         sails,
         kinds: HashMap::new(),
-        guests,
-        receipts: [false, true].map(|served| meshes.add(actors::response_marker(served))),
+        additions: HashMap::new(),
+        work: Parts::prepare(&mut meshes, &mut materials),
         house: scene("embedded://models/villages/aegean.glb", 0),
         store: scene("embedded://models/villages/aegean.glb", 1),
         tower: scene("embedded://models/works/aegean.glb", 0),
@@ -203,6 +209,15 @@ pub fn setup(
         bevy::pbr::NotShadowCaster,
     ));
 
+    commands.spawn((
+        Destination,
+        Mesh3d(meshes.add(actors::destination())),
+        MeshMaterial3d(art.gold.clone()),
+        Transform::default(),
+        Visibility::Hidden,
+        bevy::pbr::NotShadowCaster,
+    ));
+
     commands
         .spawn((
             Hippo,
@@ -211,6 +226,16 @@ pub fn setup(
         ))
         .with_children(|parent| {
             parent.spawn(SceneRoot(scene("embedded://models/hippo.glb", 0)));
+            for job in Job::ALL {
+                parent.spawn((
+                    JobPack(job),
+                    Mesh3d(meshes.add(actors::pack(job))),
+                    MeshMaterial3d(art.matte.clone()),
+                    Transform::default(),
+                    Visibility::Hidden,
+                    bevy::pbr::NotShadowCaster,
+                ));
+            }
             for side in [-1.0, 1.0] {
                 for leg in [false, true] {
                     let (pivot, geometry) = actors::hippo_limb(side, leg);
@@ -223,26 +248,14 @@ pub fn setup(
                 }
             }
         });
-    for i in 0..160 {
-        commands.spawn((
-            Resident(i),
-            Mesh3d(art.guests[0][i % 24].clone()),
-            MeshMaterial3d(art.matte.clone()),
-            Transform::default(),
-            Visibility::Hidden,
-            bevy::pbr::NotShadowCaster,
-        ));
-    }
-    for n in 0..12 {
-        commands.spawn((
-            Receipt(n),
-            Mesh3d(art.receipts[1].clone()),
-            MeshMaterial3d(art.sea.clone()),
-            Transform::default(),
-            Visibility::Hidden,
-            bevy::pbr::NotShadowCaster,
-        ));
-    }
+    people::stage(
+        &mut commands,
+        &mut meshes,
+        &mut bind_poses,
+        &mut materials,
+        &art.matte,
+        &art.sea,
+    );
     let bird = meshes.add(actors::bird());
     for i in 0..4 {
         commands.spawn((
@@ -291,15 +304,12 @@ pub fn sync(
     mut meshes: ResMut<Assets<Mesh>>,
     terrain: Query<Entity, With<Island>>,
     parcels: Query<Entity, With<Parcels>>,
-    mut props: Query<
-        (Option<&Resident>, Option<&Boat>, Option<&Sail>, &mut Mesh3d),
-        Or<(With<Resident>, With<Boat>, With<Sail>)>,
-    >,
+    mut props: Query<(Option<&Boat>, Option<&Sail>, &mut Mesh3d), Or<(With<Boat>, With<Sail>)>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let town = game.visible_town(&save);
     let ch = &CHAPTERS[town.chapter];
-    let cols = ch.columns;
+    let cols = ch.layout.width();
     let region = Region::of(town.chapter);
     let weather = if game.view == View::Street {
         town.weather(ch)
@@ -323,10 +333,8 @@ pub fn sync(
             .chapter
             .is_none_or(|chapter| Region::of(chapter) != region)
         {
-            for (resident, boat, sail, mut mesh) in &mut props {
-                if let Some(resident) = resident {
-                    mesh.0 = art.guests[region as usize][resident.0 % 24].clone();
-                } else if let Some(boat) = boat {
+            for (boat, sail, mut mesh) in &mut props {
+                if let Some(boat) = boat {
                     mesh.0 = art.hulls[region as usize][boat.0].clone();
                 } else if let Some(sail) = sail {
                     mesh.0 = art.sails[region as usize][sail.0].clone();
@@ -339,7 +347,7 @@ pub fn sync(
         let mut root = commands.spawn((Island, Transform::default(), Visibility::default()));
         root.with_children(|parent| {
             parent.spawn((
-                Mesh3d(meshes.add(landscape::terrain(cols, town.chapter))),
+                Mesh3d(meshes.add(landscape::terrain(ch.layout, town.chapter))),
                 MeshMaterial3d(art.matte.clone()),
             ));
             parent.spawn((
@@ -403,34 +411,86 @@ pub fn sync(
                 for (i, building) in town.lots.iter().enumerate() {
                     let Some(building) = building else { continue };
                     let at = lot_position(i, cols);
-                    let key = (region, building.kind, building.level);
-                    let mesh = art
-                        .kinds
-                        .entry(key)
-                        .or_insert_with(|| {
-                            meshes.add(match region {
-                                Region::Greece => buildings::model(building.kind, building.level),
-                                Region::Rome => roman::model(building.kind, building.level),
-                            })
-                        })
-                        .clone();
-                    parent.spawn((
-                        Mesh3d(mesh),
-                        MeshMaterial3d(art.matte.clone()),
-                        Transform::from_translation(at),
-                    ));
-                    if building.kind == Kind::House && region == Region::Greece {
+                    let work = game.work[i].filter(|_| game.view == View::Street);
+                    let before = work.map_or(building.level, |work| work.from);
+                    let kind = building.kind;
+                    if before > 0 {
+                        let mesh = building_mesh(&mut art, &mut meshes, region, kind, before);
                         parent.spawn((
-                            SceneRoot(art.house.clone()),
-                            Transform::from_translation(at + v(0.0, 0.0, -0.24))
-                                .with_scale(Vec3::splat(0.74 + 0.025 * f32::from(building.level))),
+                            Mesh3d(mesh),
+                            MeshMaterial3d(art.matte.clone()),
+                            Transform::from_translation(at),
                         ));
+                    }
+                    if let Some(work) = work {
+                        let mesh = if before == 0 {
+                            building_mesh(&mut art, &mut meshes, region, kind, building.level)
+                        } else {
+                            art.additions
+                                .entry((region, kind, before, building.level))
+                                .or_insert_with(|| {
+                                    meshes.add(construction::addition(
+                                        region,
+                                        kind,
+                                        before,
+                                        building.level,
+                                    ))
+                                })
+                                .clone()
+                        };
+                        parent.spawn((
+                            Mesh3d(mesh),
+                            MeshMaterial3d(art.matte.clone()),
+                            Transform::from_translation(at),
+                            Assembly {
+                                at,
+                                work,
+                                rest: 1.0,
+                                part: Part::Structure,
+                            },
+                        ));
+                        art.work.spawn(parent, at, work, &art.matte);
+                    }
+                    if kind == Kind::House && region == Region::Greece {
+                        let at = at + v(0.0, 0.0, -0.24);
+                        let mut shell = parent.spawn((
+                            SceneRoot(art.house.clone()),
+                            Transform::from_translation(at).with_scale(Vec3::splat(0.765)),
+                        ));
+                        if let Some(work) = work.filter(|w| w.from == 0) {
+                            shell.insert(Assembly {
+                                at,
+                                work,
+                                rest: 0.765,
+                                part: Part::Structure,
+                            });
+                        }
                     }
                 }
             });
         art.world_version = Some(game.world_version);
     }
 }
+
+fn building_mesh(
+    art: &mut Art,
+    meshes: &mut Assets<Mesh>,
+    region: Region,
+    kind: Kind,
+    level: u8,
+) -> Handle<Mesh> {
+    art.kinds
+        .entry((region, kind, level))
+        .or_insert_with(|| {
+            meshes.add(match region {
+                Region::Greece => buildings::model(kind, level),
+                Region::Rome => roman::model(kind, level),
+            })
+        })
+        .clone()
+}
+
+pub use construction::animate as animate_construction;
 
 type CameraRig<'w, 's> =
     Query<'w, 's, (&'static mut Transform, &'static mut Projection), With<StreetCamera>>;
@@ -448,6 +508,7 @@ type Extras<'w, 's> = Query<
     Or<(With<Wave>, With<Boat>, With<Bird>, With<Sail>, With<Wake>)>,
 >;
 
+pub use people::animate as animate_people;
 pub use sky::{animate as animate_weather, setup as setup_weather};
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn animate(
@@ -456,21 +517,20 @@ pub fn animate(
     window: Single<&Window, With<PrimaryWindow>>,
     time: Res<Time>,
     mut ambient: ResMut<AmbientLight>,
-    art: Res<Art>,
     mut rigs: ParamSet<(
         CameraRig,
         Query<(&mut Transform, &mut DirectionalLight), With<Sun>>,
         Query<(&mut Transform, &mut Visibility), With<Selected>>,
         Query<&mut Transform, With<Hippo>>,
-        Query<(&mut Transform, &mut Visibility, &Resident)>,
         Extras,
         Query<(&mut Transform, &Limb)>,
-        Query<(&mut Transform, &mut Visibility, &Receipt, &mut Mesh3d)>,
+        Query<(&mut Transform, &mut Visibility), With<Destination>>,
+        Query<(&JobPack, &mut Visibility)>,
     )>,
 ) {
     let town = game.visible_town(&save);
     let chapter = &CHAPTERS[town.chapter];
-    let cols = chapter.columns;
+    let cols = chapter.layout.width();
     let t = game.clock;
     let playing = game.view == View::Street;
     let clock = match &town.phase {
@@ -522,8 +582,12 @@ pub fn animate(
         };
         let look = v(yaw, 0.86, 1.15).normalize();
         let right = v(look.z, 0.0, -look.x).normalize();
-        let target =
-            right * (height * aspect * offset + game.pan.x) + v(0.0, 0.38, 0.28 + game.pan.y);
+        let mut framing = height * aspect * offset + game.pan.x;
+        if playing && game.zoom > 0.04 && game.pan.x.abs() < 0.12 {
+            let plot = lot_position(game.selected, cols).dot(right);
+            framing = framing.clamp(plot - height * aspect * 0.17, plot + height * aspect * 0.32);
+        }
+        let target = right * framing + v(0.0, 0.38, 0.28 + game.pan.y);
         let eye = target + look * 36.0;
         camera.translation = camera.translation.lerp(eye, blend);
         let rotation = Transform::from_translation(eye)
@@ -551,144 +615,101 @@ pub fn animate(
         };
         transform.translation = p + Vec3::Y * (t * 3.7).sin() * 0.017;
     }
-    let mut gait = 0.0;
-    if let Ok(mut hippo) = rigs.p3().single_mut() {
-        let home = if playing {
-            v(
-                p.x + 0.47,
-                0.06,
-                if game.selected < COLS { -0.57 } else { 1.20 },
-            )
-        } else {
-            v((t * 0.29).sin() * 3.25, 0.052, -0.02)
-        };
-        let moving = hippo.translation.distance_squared(home) > 0.035;
-        gait = if moving {
-            (t * 10.4).sin()
-        } else {
-            (t * 4.1).sin() * 0.12
-        };
-        let bob =
-            (t * if moving { 10.4 } else { 4.1 }).sin().abs() * if moving { 0.086 } else { 0.025 };
-        hippo.translation = hippo.translation.lerp(home + Vec3::Y * bob, blend * 0.62);
-        let yaw = if moving {
-            (home.x - hippo.translation.x).signum() * 0.87
-        } else {
-            0.13
-        };
-        let rot = Quat::from_rotation_y(yaw) * Quat::from_rotation_z((t * 8.4).sin() * 0.028);
-        hippo.rotation = hippo.rotation.slerp(rot, blend);
-    }
-    for (mut transform, limb) in &mut rigs.p6() {
-        let amount = if limb.leg { 0.40 } else { -0.34 };
-        transform.rotation = Quat::from_rotation_x(gait * limb.side * amount);
-    }
     let lives = if let Phase::Open(day) = &town.phase {
         Some(day)
     } else {
         None
     };
-    for (mut transform, mut visibility, actor) in &mut rigs.p4() {
-        let i = actor.0;
-        let place = if let Some(day) = lives {
-            day.visits.get(i).and_then(|visit| {
-                let age = day.seconds - visit.at;
-                if !(-6.0..5.0).contains(&age) {
-                    return None;
-                }
-                let origin = match visit.origin {
-                    Origin::Home(lot) => gate(usize::from(lot), cols),
-                    Origin::Ferry => v(landscape::quay(cols), 0.133, 5.65),
-                };
-                let shop = if visit.resolved {
-                    visit.shop.map(usize::from)
-                } else {
-                    town.target(&day.stock, visit, chapter)
-                };
-                let goal = shop
-                    .map(|lot| gate(lot, cols))
-                    .unwrap_or(v(0.0, 0.055, 0.34));
-                let approaching = age < 0.0;
-                let elapsed = if approaching {
-                    (age + 6.0) / 6.0
-                } else {
-                    ((age - 0.85) / 4.15).clamp(0.0, 1.0)
-                };
-                let (from, to) = if approaching {
-                    (origin, goal)
-                } else {
-                    (goal, origin)
-                };
-                Some((
-                    walk(from, to, elapsed, (i % 3) as f32 * 0.23 - 0.23),
-                    (to.x - from.x).signum() * 1.22,
-                    age.abs() > 0.85,
-                ))
-            })
-        } else if i < if playing { 3 } else { 9 } {
-            let phase = t * 0.26 + i as f32 * 1.77;
-            Some((
-                v(
-                    phase.sin() * cols as f32 * 1.25,
-                    0.052,
-                    0.38 * (i % 3) as f32 - 0.38,
-                ),
-                phase.cos().signum() * 1.16,
-                true,
-            ))
-        } else {
-            None
-        };
-        if let Some((at, yaw, moving)) = place {
-            *visibility = Visibility::Inherited;
-            let stride = (t * 11.0 + i as f32 * 6.6).sin() * if moving { 1.0 } else { 0.17 };
-            transform.translation = at + Vec3::Y * stride.abs() * 0.067;
-            transform.rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_z(stride * 0.084);
-            transform.scale = Vec3::splat(0.87 + (i % 5) as f32 * 0.06);
-        } else {
-            *visibility = Visibility::Hidden;
-        }
-    }
-    let mut recent = [None; 12];
-    if let Some(day) = lives {
-        for (slot, visit) in day
-            .visits
-            .iter()
-            .rev()
-            .filter(|v| v.resolved && (0.0..1.45).contains(&(day.seconds - v.at)))
-            .enumerate()
-            .take(recent.len())
-        {
-            recent[slot] = Some(visit);
-        }
-        for (mut transform, mut visible, mark, mut mesh) in &mut rigs.p7() {
-            let Some(visit) = recent[mark.0] else {
-                *visible = Visibility::Hidden;
-                continue;
-            };
-            let fade = (day.seconds - visit.at) / 1.45;
+    let route = lives.and_then(|day| day.route.map(|route| (day.seconds, route)));
+    let pending = game
+        .job
+        .and_then(|job| job.plan(town, chapter, game.selected).ok());
+    if let Ok((mut transform, mut visible)) = rigs.p6().single_mut() {
+        let pin = route.map(|(_, route)| route).or(pending);
+        if let Some(pin) = pin.filter(|_| playing) {
             *visible = Visibility::Inherited;
-            let p = visit.shop.map_or(v(0.0, 0.0, 0.36), |lot| {
-                let p = lot_position(usize::from(lot), cols);
-                p + v(
-                    0.17,
-                    0.0,
-                    if usize::from(lot) < COLS { 0.95 } else { -0.94 },
-                )
-            });
-            transform.translation = p + v((mark.0 % 3) as f32 * 0.15, 1.15 + fade * 0.50, 0.05);
-            transform.scale = Vec3::splat(0.95 + (fade * std::f32::consts::PI).sin() * 0.63);
-            let geometry = &art.receipts[usize::from(visit.shop.is_some())];
-            if &mesh.0 != geometry {
-                mesh.0 = geometry.clone();
-            }
-        }
-    } else {
-        for (_, mut visible, _, _) in &mut rigs.p7() {
+            transform.translation = motion::stop(pin.delivery, chapter.layout);
+            transform.rotation = Quat::from_rotation_y((t * 2.6).sin() * 0.24);
+        } else {
             *visible = Visibility::Hidden;
         }
     }
-    for (mut transform, wave, boat, bird, sail, wake) in &mut rigs.p5() {
+    for (pack, mut visible) in &mut rigs.p7() {
+        let show = route.is_some_and(|(seconds, route)| {
+            pack.0 == route.job
+                && seconds >= route.pickup_at + 0.45
+                && seconds < route.finish - 0.25
+        });
+        let next = if show {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        if *visible != next {
+            *visible = next;
+        }
+    }
+    let mut gait = 0.0;
+    if let Ok(mut hippo) = rigs.p3().single_mut() {
+        if let Some((seconds, route)) = route {
+            let motion = motion::job_walk(route, seconds, chapter.layout);
+            let beat = motion.distance * 8.8;
+            gait = if motion.moving { beat.sin() } else { 0.0 };
+            let working = if seconds < route.depart_at && seconds >= route.pickup_at {
+                ((seconds - route.pickup_at) / (route.depart_at - route.pickup_at)
+                    * std::f32::consts::PI)
+                    .sin()
+            } else if seconds >= route.arrival {
+                ((seconds - route.arrival) / (route.finish - route.arrival) * std::f32::consts::PI)
+                    .sin()
+            } else {
+                0.0
+            };
+            let bob = 0.047 * gait.abs() - 0.070 * working;
+            hippo.translation = motion.at + Vec3::Y * (bob - 0.033);
+            let tilt = Quat::from_rotation_x(0.21 * working) * Quat::from_rotation_z(gait * 0.045);
+            hippo.rotation = hippo
+                .rotation
+                .slerp(Quat::from_rotation_y(motion.yaw) * tilt, blend * 1.13);
+        } else {
+            let home = if playing {
+                if let Some(day) = lives {
+                    let dock = if day.route.is_none() && day.tally.routes_today() == 0 {
+                        day.favor_at.map_or(day.nili_at, Stop::Parcel)
+                    } else {
+                        day.nili_at
+                    };
+                    let stop = motion::stop(dock, chapter.layout);
+                    stop + v(0.18, -0.045, 0.09)
+                } else {
+                    v(
+                        p.x + 0.47,
+                        0.056,
+                        if lot_row(game.selected) == 0 {
+                            -0.32
+                        } else {
+                            0.79
+                        },
+                    )
+                }
+            } else {
+                v((t * 0.29).sin() * 3.25, 0.052, -0.02)
+            };
+            let walk = home - hippo.translation;
+            let moving = walk.length_squared() > 0.035;
+            gait = (t * if moving { 10.4 } else { 4.1 }).sin() * if moving { 1.0 } else { 0.07 };
+            let bob = gait.abs() * 0.058;
+            hippo.translation = hippo.translation.lerp(home + Vec3::Y * bob, blend * 0.62);
+            let yaw = if moving { walk.x.atan2(walk.z) } else { 0.22 };
+            let rot = Quat::from_rotation_y(yaw) * Quat::from_rotation_z(gait * 0.038);
+            hippo.rotation = hippo.rotation.slerp(rot, blend);
+        }
+    }
+    for (mut transform, limb) in &mut rigs.p5() {
+        let amount = if limb.leg { 0.40 } else { -0.34 };
+        transform.rotation = Quat::from_rotation_x(gait * limb.side * amount);
+    }
+    for (mut transform, wave, boat, bird, sail, wake) in &mut rigs.p4() {
         if let Some(wave) = wave {
             let a = t * (0.52 + swell * 0.54) + wave.0 as f32 * 2.4;
             transform.translation = v(
@@ -704,7 +725,7 @@ pub fn animate(
                     ((s - 0.11).abs() - 0.31).max(0.0) * (15.0 + swell * 3.3)
                 });
                 (
-                    landscape::quay(cols) + 2.18 + drift,
+                    landscape::quay(chapter.layout) + 2.18 + drift,
                     6.88 + drift * 0.25,
                     -0.14,
                 )
@@ -750,40 +771,20 @@ pub fn animate(
     }
 }
 
-fn gate(lot: usize, cols: usize) -> Vec3 {
-    let p = lot_position(lot, cols);
-    if lot < COLS {
-        p + v(0.18, 0.0, 1.05)
-    } else {
-        p + v(-1.38, 0.0, -0.39)
-    }
-}
-
-fn walk(from: Vec3, to: Vec3, t: f32, path_z: f32) -> Vec3 {
-    let a = v(from.x, 0.048, path_z);
-    let b = v(to.x, 0.048, path_z);
-    if t < 0.27 {
-        from.lerp(a, t / 0.27)
-    } else if t < 0.73 {
-        a.lerp(b, (t - 0.27) / 0.46)
-    } else {
-        b.lerp(to, (t - 0.73) / 0.27)
-    }
-}
-
 pub fn pick(
     camera: &Camera,
     transform: &GlobalTransform,
     position: Vec2,
-    cols: usize,
+    layout: Layout,
 ) -> Option<usize> {
+    let cols = layout.width();
     let size = camera.logical_viewport_size()?;
     if position.x > size.x * 0.75 || position.y > size.y * 0.86 {
         return None;
     }
     let radius = if cols > 4 { 47.0 } else { 62.0 } * (size.x / 1280.0).clamp(0.55, 2.5);
-    (0..2)
-        .flat_map(|row| (0..cols).map(move |col| row * COLS + col))
+    layout
+        .lots()
         .filter_map(|lot| {
             let point = camera
                 .world_to_viewport(transform, lot_position(lot, cols) + Vec3::Y * 0.53)

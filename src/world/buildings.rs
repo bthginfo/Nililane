@@ -1,6 +1,9 @@
 use bevy::prelude::*;
 
-use super::mesh::{Batch, Tint, shift, v};
+use super::{
+    mesh::{Batch, Tint, shift, v},
+    upgrades::{bench, canopy, crane, crate_box, rail},
+};
 use crate::model::Kind;
 
 pub const IVORY: Tint = [239, 211, 165];
@@ -28,20 +31,277 @@ pub fn model(kind: Kind, level: u8) -> Mesh {
             unreachable!("Roman buildings have their own meshes")
         }
     }
-    for n in 1..level {
-        let x = [-1.09, 1.09, 0.64][usize::from(n - 1)];
-        if kind == Kind::Grove {
-            olive(&mut b, v(x, 0.0, -0.66), 0.72);
-        } else {
-            amphora(&mut b, v(x, 0.04, 0.87), 0.72, BLUE);
-            b.slab(v(x, 0.37, 0.86), v(0.048, 0.65, 0.048), OAK);
+    for tier in 2..=level {
+        append_upgrade(&mut b, kind, tier);
+    }
+    b.mesh()
+}
+
+pub fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8) {
+    let wood = [155, 111, 75];
+    match (kind, tier) {
+        (Kind::House, 2) => {
+            b.slab(v(0.0, 1.02, 1.10), v(1.96, 0.13, 0.62), IVORY);
+            rail(b, v(0.0, 1.08, 1.38), 1.86, TEAL);
+            for x in [-0.72, 0.72] {
+                flowerpot(b, v(x, 1.10, 1.18), 0.52, [214, 120, 139]);
+            }
+        }
+        (Kind::House, 3) => {
+            for x in [-1.10, 1.10] {
+                column(b, v(x, 0.05, 0.99), 0.98, 0.098);
+            }
+            b.slab(v(0.0, 1.02, 1.05), v(2.46, 0.096, 0.62), MARBLE);
+            b.slab(v(0.0, 2.22, -0.34), v(1.15, 0.14, 0.78), IVORY);
+            canopy(b, v(0.0, 2.29, -0.34), 1.12, 0.78, 0.48, BLUE, false);
+        }
+        (Kind::House, 4) => {
+            awning(b, 0.45, 1.75, 2.17, BLUE);
+            b.slab(v(0.0, 0.103, 0.91), v(2.51, 0.13, 0.61), IVORY);
+            b.slab(v(0.0, 0.03, 1.15), v(1.12, 0.09, 0.22), CREAM);
+            for x in [-1.13, 1.13] {
+                cypress(b, v(x, 0.08, 0.45), 0.58);
+            }
+        }
+        (Kind::Well, 2) => {
+            canopy(b, v(0.0, 0.0, 0.01), 1.83, 1.32, 1.60, TEAL, true);
+            b.frustum(v(-0.8, 1.03, 0.01), 0.18, 0.18, 0.12, 10, OAK);
+        }
+        (Kind::Well, 3) => {
+            b.slab(v(0.0, 0.21, 0.79), v(1.31, 0.21, 0.49), MARBLE);
+            b.slab(v(0.0, 0.319, 0.79), v(1.14, 0.016, 0.36), [66, 157, 167]);
+            b.beam(v(0.0, 0.49, 0.41), v(0.0, 0.487, 0.75), 0.096, CREAM);
+            b.slab(v(0.0, 0.39, 0.78), v(0.065, 0.16, 0.046), [103, 183, 182]);
+        }
+        (Kind::Well, 4) => {
+            b.slab(v(0.0, 1.78, -0.28), v(0.98, 0.13, 0.68), MARBLE);
+            b.frustum(v(0.0, 1.83, -0.28), 0.46, 0.50, 0.32, 10, BLUE);
+            b.frustum(v(0.0, 2.15, -0.28), 0.54, 0.49, 0.12, 10, IVORY);
+            b.frustum(v(0.0, 2.27, -0.28), 0.38, 0.08, 0.21, 10, TEAL);
+            for x in [-0.97, 0.97] {
+                b.slab(v(x, 0.40, -0.36), v(0.17, 0.79, 0.22), CREAM);
+            }
+        }
+        (Kind::Grove, 2) => {
+            olive(b, v(0.0, 0.073, -0.68), 1.23);
+            b.slab(v(0.0, 0.15, -0.76), v(2.42, 0.25, 0.19), CREAM);
+        }
+        (Kind::Grove, 3) => {
+            canopy(b, v(0.0, 0.02, 0.63), 2.50, 0.91, 1.15, HERB, false);
+            bench(b, v(0.0, 0.04, 0.76), 1.53);
+        }
+        (Kind::Grove, 4) => {
+            for i in 0..7 {
+                let x = i as f32 * 0.33 - 0.99;
+                b.gem(
+                    v(x, 1.32 + (x * 6.0).sin() * 0.09, 0.95),
+                    0.26,
+                    0.19,
+                    0.29,
+                    x + 0.9,
+                    shift(HERB, 8 + (i * 9 % 26) as i16),
+                );
+                b.gem(v(x, 1.16, 1.11), 0.062, 0.073, 0.052, x, [128, 79, 121]);
+            }
+            b.slab(v(0.0, 0.08, 1.06), v(2.30, 0.15, 0.22), IVORY);
+            amphora(b, v(1.22, 0.02, 0.85), 0.92, BLUE);
+        }
+        (Kind::Bakery, 2) => {
+            oven(b, v(0.83, 0.07, 0.81), TERRACOTTA);
+            b.slab(v(0.86, 0.16, 0.87), v(0.90, 0.18, 0.70), CREAM);
+        }
+        (Kind::Bakery, 3) => bake_shelf(b, v(-0.55, 0.125, 0.94), TEAL),
+        (Kind::Bakery, 4) => {
+            b.slab(v(-0.62, 1.95, -0.39), v(0.65, 0.56, 0.69), IVORY);
+            b.slab(v(-0.62, 2.27, -0.39), v(0.83, 0.16, 0.84), CREAM);
+            b.slab(v(-0.62, 2.48, -0.41), v(0.44, 0.34, 0.47), TERRACOTTA);
+            b.frustum(v(-0.62, 2.58, -0.41), 0.30, 0.12, 0.25, 10, MARBLE);
+        }
+        (Kind::Potter, 2) => oven(b, v(0.78, 0.09, 0.81), [151, 90, 72]),
+        (Kind::Potter, 3) => {
+            shelf(b, v(-0.72, 0.12, 0.88), TEAL);
+        }
+        (Kind::Potter, 4) => {
+            canopy(
+                b,
+                v(0.0, 1.93, -0.24),
+                1.58,
+                0.96,
+                0.56,
+                [198, 99, 77],
+                true,
+            );
+            b.slab(v(0.0, 1.97, -0.27), v(1.69, 0.14, 1.02), CREAM);
+            for i in 0..4 {
+                amphora(
+                    b,
+                    v(-0.54 + i as f32 * 0.36, 2.05, -0.16),
+                    0.69,
+                    if i % 2 == 0 { BLUE } else { TERRACOTTA },
+                );
+            }
+        }
+        (Kind::Stoa, 2) => {
+            for x in [-0.81, 0.81] {
+                bench(b, v(x, 0.21, 0.44), 0.76);
+            }
+            b.slab(v(0.0, 0.085, 1.02), v(2.71, 0.16, 0.35), IVORY);
+        }
+        (Kind::Stoa, 3) => {
+            for x in [-1.15, 1.15] {
+                column(b, v(x, 0.18, 0.97), 1.51, 0.111);
+            }
+            b.slab(v(0.0, 1.79, 1.0), v(2.64, 0.22, 0.44), MARBLE);
+            b.slab(v(0.0, 1.92, 1.01), v(2.68, 0.066, 0.51), BLUE);
+        }
+        (Kind::Stoa, 4) | (Kind::Shrine, 3) => {
+            let y = if kind == Kind::Stoa { 1.96 } else { 1.98 };
             b.face(
-                &[v(x, 0.51, 0.84), v(x + 0.27, 0.57, 0.86), v(x, 0.68, 0.84)],
-                GOLD,
+                &[v(-1.2, y, 0.93), v(1.2, y, 0.93), v(0.0, y + 0.54, 0.93)],
+                MARBLE,
+            );
+            for side in [-1.0, 1.0] {
+                b.beam(v(1.22 * side, y, 0.96), v(0.0, y + 0.56, 0.96), 0.076, BLUE);
+            }
+            b.gem(v(0.0, y + 0.22, 0.961), 0.17, 0.14, 0.039, 0.29, GOLD);
+        }
+        (Kind::Taverna, 2) => {
+            for x in [-0.82, 0.82] {
+                bench(b, v(x, 0.10, 1.02), 0.73);
+            }
+            b.slab(v(0.0, 0.097, 0.90), v(2.72, 0.19, 0.61), CREAM);
+        }
+        (Kind::Taverna, 3) => {
+            canopy(b, v(0.0, 0.08, 0.97), 2.54, 0.64, 1.56, BLUE, false);
+        }
+        (Kind::Taverna, 4) => {
+            b.slab(v(0.53, 2.14, -0.37), v(0.91, 0.42, 0.80), IVORY);
+            b.slab(v(0.53, 2.39, -0.37), v(1.06, 0.15, 0.86), CREAM);
+            canopy(b, v(0.53, 2.40, -0.31), 1.10, 0.95, 0.51, BLUE, true);
+            for x in [0.18, 0.87] {
+                amphora(b, v(x, 2.50, -0.30), 0.68, TERRACOTTA);
+            }
+        }
+        (Kind::Inn, 2) => {
+            b.slab(v(0.0, 1.44, 0.74), v(2.31, 0.14, 0.55), CREAM);
+            rail(b, v(0.0, 1.48, 0.99), 2.19, TEAL);
+            for x in [-0.79, 0.79] {
+                flowerpot(b, v(x, 1.51, 0.85), 0.60, [223, 130, 154]);
+            }
+        }
+        (Kind::Inn, 3) => {
+            canopy(b, v(0.0, 1.48, 0.78), 2.32, 0.68, 0.93, BLUE, false);
+            b.slab(v(0.0, 2.39, 0.79), v(2.39, 0.072, 0.73), GOLD);
+        }
+        (Kind::Inn, 4) => rooftop(b, v(0.10, 2.59, -0.27), 1.30, BLUE),
+        (Kind::Storehouse, 2) => {
+            for x in [-0.99, 0.98] {
+                crate_box(b, v(x, 0.12, 0.91), v(0.50, 0.41, 0.41), wood);
+            }
+            awning(b, 0.62, 1.24, 2.46, BLUE);
+        }
+        (Kind::Storehouse, 3) => crane(b, v(1.01, 0.15, 0.10), 2.16),
+        (Kind::Storehouse, 4) => rooftop(b, v(-0.40, 1.76, -0.21), 1.46, [141, 107, 78]),
+        (Kind::Press, 2) => canopy(b, v(0.0, 0.10, 0.09), 2.48, 1.70, 1.50, HERB, true),
+        (Kind::Press, 3) => {
+            b.slab(v(0.0, 0.19, 0.92), v(2.43, 0.28, 0.44), CREAM);
+            for x in [-0.83, -0.29, 0.29, 0.83] {
+                amphora(
+                    b,
+                    v(x, 0.33, 0.94),
+                    0.95,
+                    if x.abs() > 0.5 { TERRACOTTA } else { GOLD },
+                );
+            }
+        }
+        (Kind::Press, 4) => {
+            b.frustum(v(0.0, 1.63, -0.3), 0.49, 0.55, 0.54, 11, CREAM);
+            b.frustum(v(0.0, 2.17, -0.3), 0.56, 0.49, 0.11, 11, GOLD);
+            b.frustum(v(0.0, 2.28, -0.3), 0.49, 0.12, 0.22, 11, HERB);
+        }
+        (Kind::Shrine, 2) => {
+            b.slab(v(0.0, 0.08, 1.08), v(2.35, 0.13, 0.29), CREAM);
+            b.slab(v(0.0, 0.19, 0.97), v(2.13, 0.13, 0.31), IVORY);
+            b.slab(v(0.0, 0.47, 0.90), v(0.69, 0.44, 0.39), MARBLE);
+            b.slab(v(0.0, 0.68, 0.91), v(0.83, 0.08, 0.43), GOLD);
+        }
+        (Kind::Shrine, 4) => {
+            for x in [-1.23, 1.23] {
+                column(b, v(x, 0.09, 0.94), 0.79, 0.12);
+                b.frustum(v(x, 0.87, 0.94), 0.083, 0.24, 0.16, 9, OAK);
+                b.gem(v(x, 1.13, 0.94), 0.12, 0.16, 0.13, x, GOLD);
+                b.gem(
+                    v(x - 0.034, 1.21, 0.94),
+                    0.048,
+                    0.13,
+                    0.065,
+                    x,
+                    [234, 130, 62],
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+pub(super) fn oven(b: &mut Batch, p: Vec3, brick: Tint) {
+    b.frustum(p, 0.40, 0.43, 0.35, 12, brick);
+    b.frustum(p + Vec3::Y * 0.35, 0.43, 0.31, 0.26, 12, shift(brick, 12));
+    b.frustum(p + Vec3::Y * 0.61, 0.31, 0.085, 0.18, 12, shift(brick, 21));
+    b.slab(p + v(0.0, 0.29, 0.395), v(0.30, 0.26, 0.047), [69, 48, 44]);
+    b.gem(
+        p + v(0.019, 0.265, 0.427),
+        0.069,
+        0.083,
+        0.016,
+        0.3,
+        [246, 155, 72],
+    );
+    b.slab(p + v(0.0, 0.425, 0.403), v(0.36, 0.067, 0.083), CREAM);
+}
+
+pub(super) fn bake_shelf(b: &mut Batch, p: Vec3, tint: Tint) {
+    for x in [-0.46, 0.46] {
+        b.slab(p + v(x, 0.44, 0.0), v(0.064, 0.88, 0.36), tint);
+    }
+    for y in [0.40, 0.74] {
+        b.slab(p + v(0.0, y, 0.0), v(0.99, 0.067, 0.37), OAK);
+        for i in 0..4 {
+            b.gem(
+                p + v(i as f32 * 0.215 - 0.32, y + 0.12, 0.03),
+                0.097,
+                0.087,
+                0.12,
+                i as f32 * 0.11,
+                shift(GOLD, i * 6),
             );
         }
     }
-    b.mesh()
+}
+
+pub(super) fn shelf(b: &mut Batch, p: Vec3, tint: Tint) {
+    for x in [-0.43, 0.43] {
+        b.slab(p + v(x, 0.49, 0.0), v(0.064, 0.98, 0.34), OAK);
+    }
+    for y in [0.33, 0.72] {
+        b.slab(p + v(0.0, y, 0.0), v(0.95, 0.064, 0.35), OAK);
+        for i in 0..3 {
+            amphora(
+                b,
+                p + v(i as f32 * 0.25 - 0.25, y + 0.034, 0.056),
+                0.53,
+                if i % 2 == 0 { tint } else { TERRACOTTA },
+            );
+        }
+    }
+}
+
+fn rooftop(b: &mut Batch, p: Vec3, width: f32, tile: Tint) {
+    b.slab(p + v(0.0, 0.23, 0.0), v(width, 0.57, 0.99), IVORY);
+    b.slab(p + v(0.0, 0.52, 0.0), v(width + 0.12, 0.083, 1.07), CREAM);
+    window(b, p.x, p.y + 0.29, p.z + 0.51, TEAL);
+    b.slab(p + v(0.0, 0.58, 0.0), v(width + 0.17, 0.065, 1.11), tile);
+    canopy(b, p + Vec3::Y * 0.61, width, 0.93, 0.25, tile, true);
 }
 
 fn stone_base(b: &mut Batch, x: f32, z: f32) {

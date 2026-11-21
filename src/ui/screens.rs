@@ -1,7 +1,8 @@
 use super::*;
 use crate::{
     campaign::{Chapter, Goal, REGION_SIZE, Region},
-    model::{COLS, Town},
+    layout::{lot_col, lot_row},
+    model::Town,
 };
 
 pub fn title(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign) {
@@ -47,7 +48,7 @@ pub fn title(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign) {
             label(
                 brand,
                 hud,
-                "NILIS REISE DURCH DIE ÄGÄIS",
+                "NILIS HAFENREISEN DURCH DIE ANTIKE",
                 14.0,
                 Face::Bold,
                 GOLD,
@@ -312,6 +313,40 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
                         GOLD,
                     );
                     label(caption, hud, ch.name, 27.0, Face::Serif, SAND);
+                    label(
+                        caption,
+                        hud,
+                        format!(
+                            "{} · {} Bauplätze",
+                            ch.layout.shore.name(),
+                            ch.layout.count()
+                        ),
+                        15.0,
+                        Face::Body,
+                        MUTED,
+                    );
+                    for bank in 0..2 {
+                        caption.spawn(row(3.0)).with_children(|lots| {
+                            for col in 0..ch.layout.row(bank) {
+                                let dock = crate::layout::lot_id(bank, col) == ch.layout.dock();
+                                lots.spawn((
+                                    Node {
+                                        width: Val::Px(14.0),
+                                        height: Val::Px(8.0),
+                                        ..default()
+                                    },
+                                    BorderRadius::all(Val::Px(2.0)),
+                                    BackgroundColor(if dock {
+                                        GOLD
+                                    } else if bank == 0 {
+                                        JADE
+                                    } else {
+                                        LINE
+                                    }),
+                                ));
+                            }
+                        });
+                    }
                 });
                 let message = if save.unlocked(game.chart) {
                     ch.greeting.to_owned()
@@ -406,7 +441,17 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town)
                 })
                 .insert(BackgroundColor(LINE));
             icon(summary, hud, weather_icon(weather), 30.0);
-            label(summary, hud, weather.name(), 17.0, Face::Bold, SAND);
+            summary.spawn(column(0.0)).with_children(|sky| {
+                label(sky, hud, weather.name(), 17.0, Face::Bold, SAND);
+                label(
+                    sky,
+                    hud,
+                    format!("{} · {} Plätze", ch.layout.shore.name(), ch.layout.count()),
+                    14.0,
+                    Face::Body,
+                    MUTED,
+                );
+            });
         });
         if matches!(town.phase, Phase::Open(_)) {
             card(stack, frame_node(Val::Px(290.0), 6.0, 10.0), INK).with_children(|time| {
@@ -545,7 +590,10 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town)
     });
 
     let (place, tile, desc) = parcel_labels(town, game.selected);
-    let (primary, hot, ico, action) = if can_aid(town, game.selected) {
+    let plan = game.job.map(|job| (job, job.plan(town, ch, game.selected)));
+    let (primary, hot, ico, action) = if plan.is_some() {
+        ("Nili losschicken", "A", "nili", Action::Dispatch)
+    } else if can_aid(town, game.selected) {
         ("Nili hilft", "A", "nili", Action::Aid)
     } else if town.planning() && town.lots[game.selected].is_none() {
         ("Bauen", "A", "hammer", Action::Plot)
@@ -560,7 +608,77 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town)
         ..column(9.0)
     };
     p.spawn(footer).with_children(|foot| {
-        if let Some(coach) = tutorial(town, game.selected, ch) {
+        if let Some((job, status)) = plan {
+            card(foot, frame_node(Val::Px(520.0), 4.0, 10.0), DEEP).with_children(|help| {
+                help.spawn(row(7.0)).with_children(|r| {
+                    icon(r, hud, job.icon(), 29.0);
+                    label(r, hud, job.name(), 20.0, Face::Bold, GOLD);
+                });
+                let note = match status {
+                    Ok(route) => format!(
+                        "{} → {}  ·  {:.0} s",
+                        route.pickup.label(town),
+                        route.delivery.label(town),
+                        route.finish - route.started
+                    ),
+                    Err(reason) => reason.label(job).to_string(),
+                };
+                label(help, hud, note, 16.0, Face::Body, SAND);
+                label(
+                    help,
+                    hud,
+                    "Steuerkreuz oder Tipp wählt das Ziel. Der Tag wartet.",
+                    15.0,
+                    Face::Body,
+                    MUTED,
+                );
+            });
+        } else if let Phase::Open(day) = &town.phase
+            && let Some(route) = day.route
+        {
+            card(foot, frame_node(Val::Px(420.0), 6.0, 9.0), DEEP).with_children(|info| {
+                info.spawn(row(7.0)).with_children(|r| {
+                    icon(r, hud, route.job.icon(), 30.0);
+                    label(
+                        r,
+                        hud,
+                        format!("{} · {}", route.job.name(), route.delivery.label(town)),
+                        18.0,
+                        Face::Bold,
+                        GOLD,
+                    );
+                    r.spawn((
+                        Dynamic::Route,
+                        Text::new(""),
+                        TextColor(SAND),
+                        TextFont {
+                            font: hud.fonts[0].clone(),
+                            font_size: 15.0,
+                            ..default()
+                        },
+                    ));
+                });
+                info.spawn((
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Px(4.0),
+                        ..default()
+                    },
+                    BackgroundColor(LINE),
+                ))
+                .with_children(|track| {
+                    track.spawn((
+                        RouteBar,
+                        Node {
+                            width: Val::Percent(route.progress(day.seconds) * 100.0),
+                            height: Val::Percent(100.0),
+                            ..default()
+                        },
+                        BackgroundColor(GOLD),
+                    ));
+                });
+            });
+        } else if let Some(coach) = tutorial(town, game.selected, ch) {
             card(
                 foot,
                 Node {
@@ -614,8 +732,32 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town)
                 });
             });
             bar.spawn(row(8.0)).with_children(|actions| {
-                button(actions, hud, action, primary, ico, hot, Style::Quiet, false);
-                if town.planning() {
+                button(
+                    actions,
+                    hud,
+                    action,
+                    primary,
+                    ico,
+                    hot,
+                    if plan.is_some() {
+                        Style::Primary
+                    } else {
+                        Style::Quiet
+                    },
+                    plan.is_some_and(|(_, status)| status.is_err()),
+                );
+                if plan.is_some() {
+                    button(
+                        actions,
+                        hud,
+                        Action::Back,
+                        "Touren",
+                        "",
+                        "B",
+                        Style::Quiet,
+                        false,
+                    );
+                } else if town.planning() {
                     button(
                         actions,
                         hud,
@@ -651,6 +793,18 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town)
         ..column(7.0)
     })
     .with_children(|actions| {
+        if town.chapter > 0 {
+            button(
+                actions,
+                hud,
+                Action::Nili,
+                "Nilis Touren",
+                "nili",
+                "R3",
+                Style::Quiet,
+                false,
+            );
+        }
         button(
             actions,
             hud,
@@ -694,6 +848,10 @@ pub fn goal(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, goal: Goal) {
                     Goal::Variety(_) => "book",
                     Goal::MarketDay(_) => "coin",
                     Goal::Water(_) => "water",
+                    Goal::Route(job, _) => job.icon(),
+                    Goal::RouteVariety(_) => "nili",
+                    Goal::FerryDay(_) => "ferry",
+                    Goal::GoodDay(_) => "mood",
                 };
                 row.spawn(row_node()).with_children(|line| {
                     icon(line, hud, if done { "check" } else { image }, 22.0);
@@ -746,7 +904,11 @@ fn parcel_labels(town: &Town, lot: usize) -> (&'static str, &'static str, String
             _ => format!(
                 "Stufe {}  ·  {}",
                 b.level,
-                if lot < COLS { "Gasse" } else { "Promenade" }
+                if lot_row(lot) == 0 {
+                    "Gasse"
+                } else {
+                    "Promenade"
+                }
             ),
         };
         (b.kind.name(), kind_icon(b.kind), stock)
@@ -756,14 +918,34 @@ fn parcel_labels(town: &Town, lot: usize) -> (&'static str, &'static str, String
             "hammer",
             format!(
                 "{}  ·  Platz {}",
-                if lot < COLS { "Gasse" } else { "Promenade" },
-                lot % COLS + 1
+                if lot_row(lot) == 0 {
+                    "Gasse"
+                } else {
+                    "Promenade"
+                },
+                lot_col(lot) + 1
             ),
         )
     }
 }
 
 fn tutorial(town: &Town, lot: usize, ch: &Chapter) -> Option<(&'static str, &'static str)> {
+    if town.chapter == 1 && town.day == 1 {
+        if town.planning() && town.count(Kind::Well) == 0 {
+            return Some((
+                "1 · Ein Brunnen für den Ofen",
+                "Setz einen Brunnen gleich neben die Backstube. Auch direkt gegenüber zählt als Nachbar.",
+            ));
+        }
+        if let Phase::Open(day) = &town.phase
+            && day.tally.routes[crate::errands::Job::Water as usize] == 0
+        {
+            return Some((
+                "2 · Nilis erste Tour",
+                "Drück den rechten Stick oder tippe auf Nilis Touren. Wähle Wasserlauf und schicke Nili zur Backstube.",
+            ));
+        }
+    }
     if town.chapter != 0 || town.day > 2 {
         if let Phase::Open(day) = &town.phase
             && day.favor_at.is_none()

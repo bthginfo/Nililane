@@ -37,6 +37,30 @@ def motif(name, length, notes):
 
 motif("build_place", 0.49, [(0, 179, 14, 0.26), (0.05, 258, 15, 0.18),
     (0.11, 391, 12, 0.12), (0.17, 523, 8, 0.13)])
+
+def assembly():
+    """Four short wood and mallet strikes synchronized with the scaffold."""
+    taps = [(0.016, 0.80, 139), (0.167, 0.65, 190), (0.423, 0.72, 156),
+            (0.511, 0.40, 208)]
+    length = 0.78
+    samples = array("f", [0.0]) * int(length * RATE)
+    rng = random.Random(205)
+    for start, gain, frequency in taps:
+        offset = int(start * RATE)
+        low = 0.0
+        for j in range(int(0.18 * RATE)):
+            t = j / RATE
+            low = 0.66 * low + 0.34 * rng.uniform(-1.0, 1.0)
+            w = 2 * pi * frequency * t
+            body = sin(w + 2 * pi * 38 * t * exp(-t * 180)) * exp(-t * 34)
+            wood = (sin(w * 2.51) * 0.24 + sin(w * 4.1) * 0.11) * exp(-t * 79)
+            click = low * exp(-130 * t) * 0.33
+            samples[offset + j] += gain * (body * 0.46 + wood + click) * min(1.0, t * 2200)
+    render("tier_assembly", length, lambda t: samples[round(t * RATE)])
+
+
+assembly()
+
 motif("market_sale", 0.33, [(0, 787, 20, 0.125), (0.022, 1175, 15, 0.102)])
 motif("ferry_bell", 0.87, [(0, 392, 5, 0.168), (0.08, 523, 5, 0.15),
     (0.20, 587, 6, 0.11)])

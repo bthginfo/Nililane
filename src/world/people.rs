@@ -1,0 +1,831 @@
+use bevy::{
+    pbr::NotShadowCaster,
+    prelude::*,
+    render::mesh::{
+        VertexAttributeValues,
+        skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
+    },
+};
+
+use crate::{
+    campaign::{CHAPTERS, Region},
+    game::{Game, View},
+    layout::Layout,
+    model::{Origin, Phase, Visit},
+    save::Campaign,
+};
+
+use super::{
+    actors,
+    buildings::{CREAM, GOLD, MARBLE, OAK},
+    mesh::{Batch, Tint, shift, v},
+    motion::{self, Motion, Path},
+};
+
+const STYLES: usize = 24;
+const RESIDENTS: usize = 72;
+const BONES: usize = 9;
+const HIP: f32 = 0.405;
+const THIGH: f32 = 0.207;
+const SHIN: f32 = 0.182;
+const ANKLE: f32 = 0.046;
+
+#[derive(Component)]
+pub struct Joint;
+
+#[derive(Component)]
+pub struct Resident(usize);
+
+#[derive(Component)]
+pub struct Receipt(usize);
+
+struct Outfit {
+    mesh: Handle<Mesh>,
+    bind: Handle<SkinnedMeshInverseBindposes>,
+    rest: [Vec3; BONES],
+}
+
+#[derive(Resource)]
+pub struct Cast {
+    clothes: [[Outfit; STYLES]; 2],
+    receipts: [Handle<Mesh>; 2],
+}
+
+pub fn stage(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    bind_poses: &mut Assets<SkinnedMeshInverseBindposes>,
+    materials: &mut Assets<StandardMaterial>,
+    matte: &Handle<StandardMaterial>,
+    unlit: &Handle<StandardMaterial>,
+) {
+    let clothes = [Region::Greece, Region::Rome].map(|region| {
+        std::array::from_fn(|index| {
+            let (mesh, rest) = outfit(index, region);
+            Outfit {
+                mesh: meshes.add(mesh),
+                bind: bind_poses.add(SkinnedMeshInverseBindposes::from(
+                    rest.iter()
+                        .map(|p| Mat4::from_translation(-*p))
+                        .collect::<Vec<_>>(),
+                )),
+                rest,
+            }
+        })
+    });
+    let shadow = meshes.add(Ellipse::new(0.21, 0.15));
+    let shade = materials.add(StandardMaterial {
+        base_color: Color::srgba(0.19, 0.12, 0.09, 0.30),
+        alpha_mode: AlphaMode::Blend,
+        unlit: true,
+        ..default()
+    });
+    for i in 0..RESIDENTS {
+        let look = &clothes[0][i % STYLES];
+        let actor = commands
+            .spawn((
+                Resident(i),
+                Mesh3d(look.mesh.clone()),
+                MeshMaterial3d(matte.clone()),
+                Transform::default(),
+                Visibility::Hidden,
+                NotShadowCaster,
+            ))
+            .id();
+        let joints = look
+            .rest
+            .iter()
+            .map(|&at| {
+                commands
+                    .spawn((Joint, ChildOf(actor), Transform::from_translation(at)))
+                    .id()
+            })
+            .collect();
+        commands.entity(actor).insert(SkinnedMesh {
+            inverse_bindposes: look.bind.clone(),
+            joints,
+        });
+        commands.spawn((
+            ChildOf(actor),
+            Mesh3d(shadow.clone()),
+            MeshMaterial3d(shade.clone()),
+            Transform::from_xyz(0.0, -0.016, 0.014)
+                .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+            NotShadowCaster,
+        ));
+    }
+    let receipts = [false, true].map(|served| meshes.add(actors::response_marker(served)));
+    for n in 0..12 {
+        commands.spawn((
+            Receipt(n),
+            Mesh3d(receipts[1].clone()),
+            MeshMaterial3d(unlit.clone()),
+            Transform::default(),
+            Visibility::Hidden,
+            NotShadowCaster,
+        ));
+    }
+    commands.insert_resource(Cast { clothes, receipts });
+}
+
+fn outfit(index: usize, region: Region) -> (Mesh, [Vec3; BONES]) {
+    let style = index % 8;
+    let roman = region == Region::Rome;
+    let cloth = if roman {
+        [
+            [198, 162, 124],
+            [167, 57, 65],
+            [67, 112, 110],
+            [116, 137, 88],
+            [139, 88, 125],
+            [62, 100, 138],
+            [191, 133, 65],
+            [141, 80, 54],
+        ][style]
+    } else {
+        [
+            [47, 122, 137],
+            [191, 104, 86],
+            [192, 143, 74],
+            [78, 107, 151],
+            [151, 96, 144],
+            [100, 129, 71],
+            [214, 147, 78],
+            [56, 119, 110],
+        ][style]
+    };
+    let skin = [
+        [233, 179, 137],
+        [183, 119, 84],
+        [240, 197, 155],
+        [158, 106, 79],
+        [204, 145, 102],
+        [122, 83, 65],
+    ][(index * 7 + index / 3) % 6];
+    let hair = [
+        [73, 48, 36],
+        [123, 75, 46],
+        [46, 35, 29],
+        [83, 54, 41],
+        [168, 109, 61],
+        [164, 151, 132],
+    ][(index * 3 + index / 2) % 6];
+    let width = 0.148 + (index % 5) as f32 * 0.013;
+    let delicate = matches!(style, 1 | 4 | 7);
+    let hem = if delicate { 0.162 } else { 0.259 } + (index % 3) as f32 * 0.012;
+    let belt = if roman {
+        [157, 62, 48]
+    } else {
+        shift(cloth, -29)
+    };
+    let mantle = if roman && matches!(style, 1 | 3 | 5 | 7) {
+        [236, 216, 182]
+    } else {
+        shift(cloth, 36)
+    };
+    let mut b = Batch::default();
+    let mut end = [0; BONES];
+    let mut joint = [Vec3::ZERO; BONES];
+    joint[0] = v(0.0, HIP, 0.0);
+    let pleats = [
+        (hem, width * 1.15, 0.132),
+        (hem + 0.038, width * 1.16, 0.135),
+        (0.46, width * 0.84, 0.105),
+        (0.58, width * 1.11, 0.122),
+        (0.655, width * 0.69, 0.099),
+    ];
+    for (i, pair) in pleats.windows(2).enumerate() {
+        let [(y0, x0, z0), (y1, x1, z1)] = [pair[0], pair[1]];
+        wrap(
+            &mut b,
+            (y0, x0, z0),
+            (y1, x1, z1),
+            if i == 0 { mantle } else { cloth },
+            12,
+            true,
+        );
+    }
+    wrap(
+        &mut b,
+        (0.458, width * 0.88, 0.113),
+        (0.489, width * 0.87, 0.120),
+        belt,
+        12,
+        false,
+    );
+    b.gem(v(0.044, 0.475, 0.127), 0.022, 0.020, 0.010, 0.18, GOLD);
+
+    if roman || matches!(style, 0 | 1 | 4 | 7) {
+        let a = v(-width * 0.82, 0.652, 0.078);
+        let center = v(-width * 0.26, 0.479, 0.139);
+        let lower = v(width * 0.94, 0.303, 0.127);
+        let back = v(-width * 0.68, 0.563, -0.129);
+        b.face(
+            &[
+                a,
+                center,
+                v(-width * 0.54, 0.443, 0.115),
+                v(-width * 1.13, 0.54, 0.050),
+            ],
+            mantle,
+        );
+        b.face(
+            &[
+                v(-width * 0.54, 0.443, 0.115),
+                center,
+                v(width * 0.98, 0.416, 0.124),
+                lower,
+            ],
+            shift(mantle, -8),
+        );
+        b.face(
+            &[
+                a,
+                v(-width * 1.13, 0.54, 0.050),
+                back,
+                v(-width * 0.49, 0.65, -0.071),
+            ],
+            shift(mantle, -15),
+        );
+        b.beam(
+            center + v(0.0, 0.013, 0.003),
+            lower + v(0.0, 0.055, 0.002),
+            0.018,
+            shift(mantle, 17),
+        );
+        b.gem(a + v(0.016, -0.026, 0.023), 0.027, 0.029, 0.013, 0.2, GOLD);
+    }
+    b.frustum(v(0.0, 0.61, 0.014), 0.058, 0.062, 0.103, 8, skin);
+    head(&mut b, index, roman, skin, hair, cloth);
+    if matches!(style, 0 | 2 | 6) {
+        b.beam(
+            v(width * 0.66, 0.594, 0.127),
+            v(-width * 0.63, 0.414, 0.127),
+            0.021,
+            OAK,
+        );
+        b.block(
+            v(-width * 0.82, 0.379, 0.142),
+            v(0.117, 0.125, 0.075),
+            Quat::from_rotation_z(-0.16),
+            if style == 2 { CREAM } else { OAK },
+        );
+        b.gem(
+            v(-width * 0.82, 0.396, 0.184),
+            0.021,
+            0.015,
+            0.009,
+            0.1,
+            GOLD,
+        );
+    }
+    end[0] = b.vertices();
+
+    for (side_index, side) in [-1.0, 1.0].into_iter().enumerate() {
+        let base = 1 + side_index * 4;
+        let shoulder = v(side * width * 1.06, 0.590, 0.013);
+        b.gem(
+            shoulder + v(0.0, -0.039, 0.0),
+            0.068,
+            0.086,
+            0.074,
+            0.17,
+            if side < 0.0 && roman { mantle } else { cloth },
+        );
+        b.beam(
+            shoulder + v(0.0, -0.079, 0.0),
+            shoulder + v(side * 0.021, -0.172, 0.033),
+            0.074,
+            skin,
+        );
+        b.gem(
+            shoulder + v(side * 0.022, -0.180, 0.032),
+            0.040,
+            0.052,
+            0.043,
+            0.35,
+            skin,
+        );
+        b.gem(
+            shoulder + v(side * 0.023, -0.225, 0.048),
+            0.037,
+            0.055,
+            0.036,
+            0.10,
+            skin,
+        );
+        b.gem(
+            shoulder + v(side * 0.022, -0.272, 0.066),
+            0.038,
+            0.042,
+            0.032,
+            0.25,
+            skin,
+        );
+        if delicate {
+            b.gem(
+                shoulder + v(side * 0.022, -0.230, 0.049),
+                0.041,
+                0.014,
+                0.043,
+                0.30,
+                GOLD,
+            );
+        }
+        joint[base] = shoulder;
+        end[base] = b.vertices();
+
+        let x = side * width * 0.51;
+        let hip = v(x, HIP, 0.0);
+        let knee = hip - Vec3::Y * THIGH;
+        let shin = knee - Vec3::Y * SHIN;
+        b.frustum(
+            knee - v(0.0, 0.012, 0.0),
+            0.050,
+            0.068,
+            THIGH + 0.018,
+            8,
+            skin,
+        );
+        joint[base + 1] = hip;
+        end[base + 1] = b.vertices();
+
+        b.frustum(shin, 0.035, 0.054, SHIN + 0.020, 8, skin);
+        b.gem(
+            knee - v(0.0, 0.047, -0.005),
+            0.052,
+            0.109,
+            0.051,
+            0.22,
+            skin,
+        );
+        joint[base + 2] = knee;
+        end[base + 2] = b.vertices();
+
+        b.gem(shin + v(0.0, -0.021, 0.044), 0.056, 0.027, 0.096, 0.2, OAK);
+        b.gem(
+            shin + v(0.0, -0.003, 0.038),
+            0.047,
+            0.035,
+            0.076,
+            0.22,
+            skin,
+        );
+        for z in [0.021, 0.064] {
+            b.beam(
+                shin + v(-0.037, 0.014, z),
+                shin + v(0.036, 0.016, z + 0.024),
+                0.020,
+                shift(OAK, 26),
+            );
+        }
+        joint[base + 3] = shin;
+        end[base + 3] = b.vertices();
+    }
+
+    let mut indices = vec![[0_u16; 4]; b.vertices()];
+    let mut begin = 0;
+    for (bone, end) in end.into_iter().enumerate() {
+        indices[begin..end].fill([bone as u16, 0, 0, 0]);
+        begin = end;
+    }
+    let weights = vec![[1.0_f32, 0.0, 0.0, 0.0]; indices.len()];
+    let mesh = b
+        .mesh()
+        .with_inserted_attribute(
+            Mesh::ATTRIBUTE_JOINT_INDEX,
+            VertexAttributeValues::Uint16x4(indices),
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, weights);
+    (mesh, joint)
+}
+
+fn wrap(
+    b: &mut Batch,
+    base: (f32, f32, f32),
+    top: (f32, f32, f32),
+    tint: Tint,
+    sides: usize,
+    folds: bool,
+) {
+    let ring = |i: usize, (y, rx, rz): (f32, f32, f32)| {
+        let angle = (i as f32 + 0.5) / sides as f32 * std::f32::consts::TAU;
+        let pleat = if folds && i % 2 == 1 { 0.97 } else { 1.016 };
+        v(angle.cos() * rx * pleat, y, angle.sin() * rz * pleat)
+    };
+    for i in 0..sides {
+        b.face(
+            &[
+                ring(i, base),
+                ring(i, top),
+                ring(i + 1, top),
+                ring(i + 1, base),
+            ],
+            if folds {
+                shift(tint, (i * 13 % 21) as i16 - 8)
+            } else {
+                tint
+            },
+        );
+    }
+}
+
+fn head(b: &mut Batch, index: usize, roman: bool, skin: Tint, hair: Tint, cloth: Tint) {
+    let w = 0.130 + (index % 4) as f32 * 0.009;
+    let style = index % 8;
+    let rings = [
+        (0.685, w * 0.50, 0.072),
+        (0.732, w * 0.82, 0.108),
+        (0.799, w, 0.123),
+        (0.863, w * 0.96, 0.117),
+        (0.922, w * 0.68, 0.087),
+    ];
+    for pair in rings.windows(2) {
+        wrap(b, pair[0], pair[1], skin, 10, false);
+    }
+    b.gem(v(0.0, 0.898, -0.029), w + 0.019, 0.111, 0.133, 0.31, hair);
+    b.gem(
+        v(0.0, 0.827, -0.086),
+        w + 0.008,
+        0.118,
+        0.076,
+        0.45,
+        shift(hair, -2),
+    );
+    match style {
+        1 | 6 => {
+            b.gem(v(0.0, 0.944, -0.142), 0.079, 0.075, 0.070, 0.45, hair);
+            b.gem(v(0.0, 0.929, -0.108), 0.078, 0.032, 0.069, 0.29, cloth);
+        }
+        2 if !roman => {
+            b.frustum(v(0.0, 0.90, 0.0), 0.207, 0.135, 0.062, 12, CREAM);
+            b.frustum(v(0.0, 0.957, 0.0), 0.137, 0.091, 0.069, 10, shift(GOLD, 11));
+        }
+        3 | 5 => {
+            b.gem(v(0.0, 0.716, 0.068), w * 0.77, 0.062, 0.058, 0.47, hair);
+            b.gem(v(0.0, 0.751, 0.112), 0.072, 0.019, 0.019, 0.21, hair);
+        }
+        _ => {
+            for n in 0..7 {
+                let angle = 0.08 + n as f32 * 0.44;
+                b.gem(
+                    v(
+                        angle.cos() * w * 0.91,
+                        0.882 + (n % 2) as f32 * 0.017,
+                        angle.sin() * 0.101,
+                    ),
+                    0.043,
+                    0.050,
+                    0.046,
+                    angle,
+                    shift(hair, (n % 4) as i16 * 4),
+                );
+            }
+        }
+    }
+    if roman && matches!(style, 0 | 4) {
+        for side in [-1.0, 1.0] {
+            for i in 0..4 {
+                let x = side * (w - i as f32 * 0.019);
+                let z = 0.026 + i as f32 * 0.024;
+                b.gem(
+                    v(x, 0.895 + i as f32 * 0.005, z),
+                    0.027,
+                    0.015,
+                    0.022,
+                    i as f32,
+                    [112, 142, 76],
+                );
+            }
+        }
+    }
+    b.gem(
+        v(0.0, 0.782, 0.126),
+        0.031,
+        0.039,
+        0.036,
+        0.38,
+        shift(skin, 9),
+    );
+    b.gem(
+        v(0.0, 0.736, 0.106),
+        0.038,
+        0.011,
+        0.012,
+        0.3,
+        shift(skin, -37),
+    );
+    for side in [-1.0, 1.0] {
+        let eye = v(side * w * 0.48, 0.807, 0.112);
+        b.gem(eye, 0.030, 0.023, 0.017, 0.12, [70, 47, 38]);
+        b.gem(
+            eye + v(-0.006, 0.008, 0.014),
+            0.008,
+            0.008,
+            0.004,
+            0.2,
+            MARBLE,
+        );
+        b.beam(
+            eye + v(-0.022, 0.031, 0.0),
+            eye + v(0.019, 0.033 + side * 0.006, -0.003),
+            0.013,
+            hair,
+        );
+        b.gem(
+            v(side * w * 0.76, 0.768, 0.092),
+            0.031,
+            0.020,
+            0.018,
+            0.27,
+            shift(skin, -8),
+        );
+        b.gem(v(side * w, 0.781, 0.0), 0.033, 0.043, 0.033, 0.11, skin);
+        if matches!(style, 1 | 4 | 7) {
+            b.gem(
+                v(side * (w + 0.008), 0.747, 0.027),
+                0.018,
+                0.030,
+                0.015,
+                0.2,
+                GOLD,
+            );
+        }
+    }
+}
+
+fn pose(outfit: &Outfit, distance: f32, movement: f32, idle: f32) -> [Transform; BONES] {
+    let mut joints = outfit.rest.map(Transform::from_translation);
+    let cycle = distance / 0.56;
+    let beat = cycle * std::f32::consts::TAU;
+    let bob = (0.018 * (beat * 2.0).cos().abs() - 0.007) * movement;
+    joints[0].translation.y += bob + 0.004 * idle;
+    joints[0].rotation = Quat::from_rotation_z(beat.sin() * 0.037 * movement);
+    for (side, offset) in [0.0, 0.5].into_iter().enumerate() {
+        let phase = (cycle + offset).rem_euclid(1.0);
+        let base = 1 + side * 4;
+        let shoulder = outfit.rest[base];
+        joints[base].translation =
+            joints[0].rotation * (shoulder - outfit.rest[0]) + joints[0].translation;
+        joints[base].rotation =
+            Quat::from_rotation_x(-0.33 * (phase * std::f32::consts::TAU).cos() * movement - 0.06);
+
+        let hip = outfit.rest[base + 1] + v(0.0, bob, 0.0);
+        let (z, y, pivot) = if phase < 0.60 {
+            ((0.30 - phase) * 0.56, 0.0, 0.0)
+        } else {
+            let swing = (phase - 0.60) / 0.40;
+            let lift = (swing * std::f32::consts::PI).sin();
+            (
+                -0.168 + 0.336 * (swing * swing * (3.0 - 2.0 * swing)),
+                lift * 0.093,
+                0.22 * lift,
+            )
+        };
+        let desired = v(hip.x, ANKLE + y * movement, z * movement);
+        let delta = (desired - hip).clamp_length_max(THIGH + SHIN - 0.001);
+        let reach = delta.length().max(0.01);
+        let axis = delta / reach;
+        let along = (THIGH * THIGH - SHIN * SHIN + reach * reach) / (2.0 * reach);
+        let knee = hip
+            + axis * along
+            + v(0.0, axis.z, -axis.y) * (THIGH * THIGH - along * along).max(0.0).sqrt();
+        let foot = hip + delta;
+        joints[base + 1] = Transform::from_translation(hip).with_rotation(Quat::from_rotation_arc(
+            Vec3::NEG_Y,
+            (knee - hip).normalize(),
+        ));
+        joints[base + 2] = Transform::from_translation(knee).with_rotation(
+            Quat::from_rotation_arc(Vec3::NEG_Y, (foot - knee).normalize()),
+        );
+        joints[base + 3] = Transform::from_translation(foot)
+            .with_rotation(Quat::from_rotation_x(pivot * movement));
+    }
+    joints
+}
+
+struct Walk {
+    motion: Motion,
+    marked: Option<(Vec3, bool, f32)>,
+    effort: f32,
+}
+
+fn visit_walk(visit: &Visit, index: usize, seconds: f32, layout: Layout) -> Option<Walk> {
+    let age = seconds - visit.at;
+    if !(-5.9..15.0).contains(&age) {
+        return None;
+    }
+    let lane = [-0.70, -0.31, 0.12, 0.58][index % 4];
+    let companion = visit.guided_to;
+    let mut origin = match visit.origin {
+        Origin::Home(lot) => motion::entrance(usize::from(lot), layout),
+        Origin::Ferry => motion::stop(crate::errands::Stop::Pier, layout),
+    } + Vec3::X * ((index % 3) as f32 - 1.0) * 0.16;
+    if let Some(lot) = companion {
+        let target = motion::entrance(usize::from(lot), layout);
+        if age < 0.0 {
+            return (age >= -1.85).then(|| Walk {
+                motion: Motion::still(
+                    target + v((index % 2) as f32 * 0.33 - 0.21, 0.0, 0.16),
+                    0.23,
+                    0.0,
+                ),
+                marked: None,
+                effort: 0.0,
+            });
+        }
+        origin = motion::stop(crate::errands::Stop::Pier, layout);
+    }
+    let entry = v(origin.x, 0.071, lane);
+    let approach = Path::direct(origin, entry);
+    let pre = (approach.length() / 1.23).clamp(0.55, 5.7);
+    if age < 0.0 {
+        return (age >= -pre).then(|| Walk {
+            motion: approach.sample(age + pre, pre, index as f32 * 0.127),
+            marked: None,
+            effort: ((age + pre) * 5.0).clamp(0.0, 1.0),
+        });
+    }
+
+    let goal = if let Some(lot) = visit.shop.or(companion) {
+        motion::entrance(usize::from(lot), layout)
+    } else {
+        let x = origin.x - origin.x.signum() * (1.0 + (index % 4) as f32 * 0.37);
+        v(x, 0.072, lane + if lane >= 0.0 { 0.17 } else { -0.13 })
+    };
+    let towards = if companion.is_some() {
+        Path::direct(goal, goal)
+    } else {
+        Path::road(entry, goal, lane)
+    };
+    let length = towards.length();
+    let start = approach.length() + index as f32 * 0.127;
+    let travel = if companion.is_some() {
+        0.0
+    } else {
+        (length / 1.71).max(0.32)
+    };
+    let entering_yaw = approach.sample(pre, pre, 0.0).yaw;
+    if age < travel {
+        let mut step = towards.sample(age, travel, start);
+        step.yaw = motion::turn(entering_yaw, step.yaw, age * 4.0);
+        return Some(Walk {
+            motion: step,
+            marked: None,
+            effort: 1.0,
+        });
+    }
+    let pause = 1.18;
+    let exit = Path::road(goal, origin, lane);
+    let wait = age - travel;
+    let stop = towards.sample(travel, travel, start);
+    let marked = (wait < 1.27).then_some((goal, visit.shop.is_some(), wait / 1.27));
+    if wait < pause {
+        let turn = (wait - 0.43).max(0.0) / (pause - 0.43);
+        let yaw = motion::turn(stop.yaw, exit.sample(0.0, 1.0, 0.0).yaw, turn);
+        return Some(Walk {
+            motion: Motion::still(goal, yaw, stop.distance),
+            marked,
+            effort: (1.0 - wait * 4.0).max(0.0),
+        });
+    }
+    let going = wait - pause;
+    let duration = (exit.length() / 1.85).max(0.55);
+    (going < duration).then(|| Walk {
+        motion: exit.sample(going, duration, stop.distance),
+        marked,
+        effort: (going * 4.0).min((duration - going) * 5.0).clamp(0.0, 1.0),
+    })
+}
+
+type Residents<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static Resident,
+        &'static mut Transform,
+        &'static mut Visibility,
+        &'static mut Mesh3d,
+        &'static mut SkinnedMesh,
+    ),
+    (Without<Joint>, Without<Receipt>),
+>;
+
+#[allow(clippy::type_complexity)]
+pub fn animate(
+    game: Res<Game>,
+    save: Res<Campaign>,
+    cast: Res<Cast>,
+    mut residents: Residents,
+    mut joints: Query<&mut Transform, (With<Joint>, Without<Receipt>)>,
+    mut receipts: Query<
+        (&Receipt, &mut Transform, &mut Visibility, &mut Mesh3d),
+        (Without<Joint>, Without<Resident>),
+    >,
+) {
+    let town = game.visible_town(&save);
+    let region = Region::of(town.chapter);
+    let layout = CHAPTERS[town.chapter].layout;
+    let mut active = Vec::with_capacity(RESIDENTS);
+    let mut notices = Vec::with_capacity(12);
+    if let Phase::Open(day) = &town.phase {
+        if let Some(route) = day.route.filter(|route| {
+            route.job == crate::errands::Job::Welcome && day.seconds >= route.depart_at
+        }) {
+            let path = motion::delivery_path(route, layout);
+            for n in 0..2 {
+                let offset = 0.40 + n as f32 * 0.30;
+                let mut motion = path.sample(
+                    day.seconds - route.depart_at - offset,
+                    route.arrival - route.depart_at,
+                    0.0,
+                );
+                motion.at += v(-0.24 + n as f32 * 0.37, 0.0, 0.09);
+                let effort = f32::from(motion.moving);
+                active.push((
+                    day.visits.len() + n,
+                    Walk {
+                        motion,
+                        marked: None,
+                        effort,
+                    },
+                ));
+            }
+        }
+        for (i, visit) in day.visits.iter().enumerate() {
+            if active.len() == RESIDENTS {
+                break;
+            }
+            if let Some(walk) = visit_walk(visit, i, day.seconds, layout) {
+                if let Some(mark) = walk.marked {
+                    notices.push(mark);
+                }
+                active.push((i, walk));
+            }
+        }
+    } else {
+        let playing = game.view == View::Street;
+        let town_width = (layout.width() as f32 - 1.0) * super::LOT_STEP * 0.5;
+        for i in 0..if playing { 5 } else { 10 } {
+            let phase = game.clock * 0.22 + i as f32 * 1.71;
+            let speed = phase.cos();
+            let x = phase.sin() * town_width;
+            let at = v(x, 0.074, [-0.66, -0.28, 0.19, 0.61][i % 4]);
+            let walk = Motion {
+                at,
+                yaw: speed.atan2((phase * 0.9).sin() * 0.42),
+                distance: x + town_width,
+                moving: true,
+            };
+            active.push((
+                i,
+                Walk {
+                    motion: walk,
+                    marked: None,
+                    effort: speed.abs().min(1.0),
+                },
+            ));
+        }
+    }
+    for (actor, mut transform, mut visible, mut mesh, mut skin) in &mut residents {
+        let Some((i, walk)) = active.get(actor.0) else {
+            if *visible != Visibility::Hidden {
+                *visible = Visibility::Hidden;
+            }
+            continue;
+        };
+        *visible = Visibility::Inherited;
+        let look = &cast.clothes[region as usize][(i * 7 + town.chapter) % STYLES];
+        if mesh.0 != look.mesh {
+            mesh.0 = look.mesh.clone();
+            skin.inverse_bindposes = look.bind.clone();
+        }
+        transform.translation = walk.motion.at;
+        transform.rotation = Quat::from_rotation_y(walk.motion.yaw);
+        transform.scale = Vec3::splat(0.98 + (i % 7) as f32 * 0.047);
+        let pose = pose(
+            look,
+            walk.motion.distance,
+            walk.effort,
+            (game.clock * 2.3 + *i as f32).sin(),
+        );
+        for (&joint, placed) in skin.joints.iter().zip(pose) {
+            if let Ok(mut transform) = joints.get_mut(joint) {
+                *transform = placed;
+            }
+        }
+    }
+    for (mark, mut transform, mut visible, mut mesh) in &mut receipts {
+        if let Some(&(p, success, fraction)) = notices.get(mark.0) {
+            *visible = Visibility::Inherited;
+            transform.translation = p + v(0.11, 1.29 + fraction * 0.32, 0.11);
+            transform.scale = Vec3::splat(0.78 + (fraction * std::f32::consts::PI).sin() * 0.50);
+            let icon = &cast.receipts[usize::from(success)];
+            if &mesh.0 != icon {
+                mesh.0 = icon.clone();
+            }
+        } else if *visible != Visibility::Hidden {
+            *visible = Visibility::Hidden;
+        }
+    }
+}

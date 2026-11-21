@@ -12,10 +12,12 @@ Hippogrove aus Waldwinkel. [Hippogrove-Revision](https://github.com/bthginfo/Hip
   Gasthaus, Figuren, Boote und Ufer entstehen in `src/world/`.
   `roman.rs` enthält die römische Architektur und das andere Tiberufer.
   `ships.rs` baut Rümpfe, Takelage, Segel, Ladung und Bugwellen.
+  `people.rs` baut römische und griechische Figuren mit einem gemeinsamen
+  Skelett. `construction.rs` steuert Gerüst, Ausbauteile und Staub.
   `sky.rs` zeichnet Wolken, Regenschlieren und Sturmwellen.
 - Die Bildtafeln und Spielsymbole in `ui/` kommen aus `art/make_ui.py`.
   `art/make_audio.py` erzeugt das Meeresrauschen und die Klangmotive
-  für Bau, Verkauf, Hafenglocke und Nilis Hilfe sowie das Regenbett und
+  für Bau, Ausbau, Verkauf, Hafenglocke und Nilis Hilfe sowie das Regenbett und
   die römische Musik mit Leier, Flöte und Rahmentrommel.
 - DM Sans und DM Serif Text stehen unter der SIL Open Font License.
   Die Lizenztexte liegen bei den Schriften in `fonts/`.

@@ -5,8 +5,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     campaign::CHAPTERS,
-    model::{LOTS, MAX_LEVEL, Phase, Town, is_open},
+    model::{MAX_LEVEL, Origin, Phase, Town, is_open},
 };
+
+const VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Default, Deserialize, Serialize)]
 pub struct Record {
@@ -27,7 +29,7 @@ pub struct Campaign {
 impl Default for Campaign {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: VERSION,
             records: vec![Record::default(); CHAPTERS.len()],
             town: None,
             music: true,
@@ -42,14 +44,40 @@ impl Campaign {
         let Ok(file) = fs::File::open(path()) else {
             return Self::default();
         };
-        let Ok(mut progress) = serde_json::from_reader::<_, Self>(file) else {
-            return Self::default();
-        };
-        if progress.version != 1 || !progress.town.as_ref().is_none_or(valid_town) {
-            return Self::default();
+        Self::decode(file).unwrap_or_default()
+    }
+
+    fn decode(input: impl io::Read) -> Option<Self> {
+        let mut progress: Self = serde_json::from_reader(input).ok()?;
+        if !(1..=VERSION).contains(&progress.version)
+            || !progress.town.as_ref().is_none_or(valid_town)
+        {
+            return None;
         }
+        if progress.version == 1
+            && let Some(town) = &mut progress.town
+        {
+            if let Some(tally) = town
+                .last_day
+                .as_ref()
+                .filter(|tally| tally.responses() >= 12)
+            {
+                town.totals.best_mood = tally.satisfaction().unwrap_or(0);
+            }
+            if let Phase::Open(day) = &mut town.phase {
+                day.tally.ferry_served = day
+                    .visits
+                    .iter()
+                    .filter(|visit| visit.origin == Origin::Ferry && visit.shop.is_some())
+                    .count() as u32;
+                if let Some(lot) = day.favor_at {
+                    day.nili_at = crate::errands::Stop::Parcel(lot);
+                }
+            }
+        }
+        progress.version = VERSION;
         progress.records.resize(CHAPTERS.len(), Record::default());
-        progress
+        Some(progress)
     }
 
     pub fn save(&self) -> io::Result<()> {
@@ -93,12 +121,22 @@ fn valid_town(town: &Town) -> bool {
         return false;
     }
     if let Phase::Open(day) = &town.phase {
-        return day.seconds.is_finite()
+        let valid_slot = |slot| is_open(chapter, usize::from(slot));
+        return (0.0..chapter.day_seconds()).contains(&day.seconds)
+            && day.visits.iter().all(|visit| {
+                (0.0..=chapter.day_seconds()).contains(&visit.at)
+                    && visit.shop.is_none_or(valid_slot)
+                    && visit.guided_to.is_none_or(valid_slot)
+                    && match visit.origin {
+                        Origin::Home(slot) => valid_slot(slot),
+                        Origin::Ferry => true,
+                    }
+            })
+            && day.favor_at.is_none_or(valid_slot)
+            && day.nili_at.valid(town, chapter)
             && day
-                .visits
-                .iter()
-                .all(|v| v.shop.is_none_or(|slot| usize::from(slot) < LOTS))
-            && day.favor_at.is_none_or(|slot| usize::from(slot) < LOTS);
+                .route
+                .is_none_or(|route| route.valid(town, chapter, day.seconds));
     }
     true
 }
@@ -129,4 +167,56 @@ fn desktop_dir() -> PathBuf {
         return PathBuf::from(path).join(".local/share");
     }
     PathBuf::from(".")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Kind, Price};
+
+    #[test]
+    fn version_one_open_day_keeps_ids_inventory_and_progress() {
+        let mut progress = Campaign::default();
+        progress.record(0, 3, 3);
+        let chapter = &CHAPTERS[1];
+        let mut town = Town::new(1, chapter);
+        assert!(town.build(chapter, 8, Kind::Well));
+        assert!(town.set_price(7, Price::Fair));
+        assert!(town.open(chapter));
+        town.tick(chapter, 29.0);
+        assert!(town.aid(8));
+        progress.town = Some(town.clone());
+        let mut old = serde_json::to_value(&progress).unwrap();
+        old["version"] = 1.into();
+        old["town"]["lots"].as_array_mut().unwrap().truncate(12);
+        let old_day = old["town"]["phase"]["Open"].as_object_mut().unwrap();
+        old_day
+            .get_mut("stock")
+            .unwrap()
+            .as_array_mut()
+            .unwrap()
+            .truncate(12);
+        old_day.remove("nili_at");
+        old_day.remove("route");
+        old_day
+            .get_mut("tally")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .remove("routes");
+        let data = serde_json::to_vec(&old).unwrap();
+        let resumed = Campaign::decode(data.as_slice()).unwrap();
+        assert_eq!(resumed.version, 2);
+        assert!(resumed.unlocked(1));
+        assert_eq!(resumed.records[0].stars, 3);
+        let town2 = resumed.town.unwrap();
+        assert_eq!(town.lots, town2.lots);
+        let (Phase::Open(before), Phase::Open(after)) = (town.phase, town2.phase) else {
+            unreachable!()
+        };
+        assert_eq!(before.stock, after.stock);
+        assert_eq!(before.seconds, after.seconds);
+        assert_eq!(after.nili_at, crate::errands::Stop::Parcel(8));
+        assert_eq!(after.favor_at, Some(8));
+    }
 }

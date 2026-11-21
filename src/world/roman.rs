@@ -1,8 +1,12 @@
 use bevy::prelude::*;
 
 use super::{
-    buildings::{BLUE, GOLD, MARBLE, OAK, TEAL, amphora, awning, cypress, flowerpot, olive, roof},
+    buildings::{
+        BLUE, GOLD, MARBLE, OAK, TEAL, amphora, awning, bake_shelf, cypress, flowerpot, olive,
+        oven, roof, shelf,
+    },
     mesh::{Batch, Grain, Tint, shift, v},
+    upgrades::{bench, canopy, crane, crate_box, rail},
 };
 use crate::model::Kind;
 
@@ -30,22 +34,245 @@ pub fn model(kind: Kind, level: u8) -> Mesh {
         Kind::Bakery | Kind::Potter | Kind::Taverna | Kind::Inn => shop(&mut b, kind),
         Kind::Press | Kind::Shrine => unreachable!("Roman districts use separate amenities"),
     }
-    for (x, z) in [(-1.15, 0.78), (1.12, 0.78), (0.68, 1.01)]
-        .into_iter()
-        .take(usize::from(level - 1))
-    {
-        amphora(&mut b, v(x, 0.09, z), 0.75, [151, 77, 67]);
-        b.slab(v(x, 0.55, z), v(0.045, 0.76, 0.045), OAK);
-        b.face(
-            &[
-                v(x, 0.89, z + 0.021),
-                v(x, 0.66, z + 0.021),
-                v(x + 0.24, 0.67, z + 0.021),
-            ],
-            GOLD,
-        );
+    for tier in 2..=level {
+        append_upgrade(&mut b, kind, tier);
     }
     b.mesh()
+}
+
+pub fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8) {
+    match (kind, tier) {
+        (Kind::House, 2) | (Kind::Inn, 2) => {
+            b.slab(v(0.0, 1.41, 0.67), v(2.44, 0.13, 0.58), TRAVERTINE);
+            rail(b, v(0.0, 1.46, 0.94), 2.26, WINE);
+            for x in [-0.83, 0.83] {
+                flowerpot(b, v(x, 1.48, 0.85), 0.59, [209, 108, 120]);
+            }
+        }
+        (Kind::House, 3) => tower(b, v(-0.49, 2.18, -0.43), 1.04, 0.60, PLASTER),
+        (Kind::House, 4) => {
+            for x in [-0.70, 0.70] {
+                arch(b, v(x, 0.13, 0.72), 0.75, 0.69, 0.14, 0.17, BRICK);
+            }
+            b.slab(v(0.0, 1.31, 0.72), v(2.69, 0.13, 0.42), TRAVERTINE);
+            b.slab(v(0.0, 0.067, 1.07), v(2.43, 0.13, 0.31), BASALT);
+        }
+        (Kind::Villa, 2) => {
+            mosaic(b, v(0.0, 0.184, 0.79), 16, 4, 0.15);
+            for x in [-0.88, 0.88] {
+                b.frustum(v(x, 0.19, 0.60), 0.23, 0.16, 0.13, 10, TRAVERTINE);
+                cypress(b, v(x, 0.30, 0.75), 0.60);
+            }
+        }
+        (Kind::Villa, 3) => {
+            b.slab(v(0.0, 1.49, 0.65), v(2.40, 0.15, 0.88), TRAVERTINE);
+            rail(b, v(0.0, 1.56, 1.06), 2.25, BRICK);
+            canopy(b, v(0.0, 1.55, 0.62), 2.32, 0.73, 0.92, WINE, false);
+        }
+        (Kind::Villa, 4) => tower(b, v(-0.49, 1.84, -0.50), 1.24, 0.96, PLASTER),
+        (Kind::Well, 2) => {
+            for x in [-0.77, 0.77] {
+                arch(b, v(x, 0.15, -0.38), 0.52, 0.62, 0.137, 0.24, TRAVERTINE);
+            }
+            b.slab(v(0.0, 1.43, -0.39), v(2.40, 0.14, 0.54), TRAVERTINE);
+            b.slab(v(0.0, 1.54, -0.36), v(2.48, 0.10, 0.61), TILE);
+        }
+        (Kind::Well, 3) => {
+            pool(b, v(0.0, 0.146, 0.82), 2.28, 0.52);
+            for x in [-0.52, 0.52] {
+                b.frustum(v(x, 0.17, 0.58), 0.094, 0.094, 0.58, 9, TRAVERTINE);
+                b.beam(v(x, 0.70, 0.58), v(x, 0.70, 0.80), 0.082, GOLD);
+                b.slab(v(x, 0.47, 0.81), v(0.038, 0.39, 0.037), POOL);
+            }
+        }
+        (Kind::Well, 4) => tower(b, v(0.0, 1.56, -0.39), 1.56, 0.75, TRAVERTINE),
+        (Kind::Grove, 2) => {
+            olive(b, v(0.0, 0.153, -0.52), 1.16);
+            mosaic(b, v(0.0, 0.18, 0.08), 14, 3, 0.16);
+        }
+        (Kind::Grove, 3) => {
+            canal_gallery(b, v(0.0, 0.12, 0.74), 1.12, 0.53);
+            bench(b, v(0.0, 0.15, 0.51), 1.36);
+        }
+        (Kind::Grove, 4) => {
+            for i in 0..9 {
+                let x = i as f32 * 0.26 - 1.04;
+                b.gem(
+                    v(x, 1.79 + (x * 4.0).cos() * 0.071, 0.86),
+                    0.24,
+                    0.16,
+                    0.26,
+                    x,
+                    shift([94, 128, 79], (i * 7 % 17) as i16),
+                );
+                b.gem(v(x, 1.61, 0.96), 0.061, 0.065, 0.069, x, [146, 74, 119]);
+            }
+            for x in [-1.16, 1.16] {
+                flowerpot(b, v(x, 0.14, 1.00), 0.98, [202, 131, 154]);
+            }
+        }
+        (Kind::Bakery, 2) => oven(b, v(0.83, 0.115, 0.79), BRICK),
+        (Kind::Bakery, 3) => bake_shelf(b, v(-0.66, 0.132, 0.91), WINE),
+        (Kind::Bakery, 4) => {
+            b.slab(v(0.60, 2.05, -0.49), v(0.58, 0.69, 0.61), BRICK);
+            masonry(b, v(0.60, 1.75, -0.18), 0.57, 0.55, BRICK);
+            b.slab(v(0.60, 2.43, -0.49), v(0.78, 0.14, 0.77), TRAVERTINE);
+            b.frustum(v(0.60, 2.49, -0.49), 0.31, 0.11, 0.26, 9, TILE);
+        }
+        (Kind::Potter, 2) => oven(b, v(0.80, 0.117, 0.78), [185, 98, 64]),
+        (Kind::Potter, 3) => shelf(b, v(-0.71, 0.12, 0.87), [89, 113, 124]),
+        (Kind::Potter, 4) => {
+            tower(b, v(-0.57, 1.82, -0.40), 1.11, 0.66, BRICK);
+            for x in [-0.94, -0.52, -0.11] {
+                amphora(b, v(x, 2.04, 0.16), 0.61, TRAVERTINE);
+            }
+        }
+        (Kind::Taverna, 2) => {
+            for x in [-0.73, 0.73] {
+                bench(b, v(x, 0.073, 1.03), 0.81);
+            }
+            mosaic(b, v(0.0, 0.17, 0.84), 16, 4, 0.15);
+        }
+        (Kind::Taverna, 3) => {
+            canopy(b, v(0.0, 0.12, 0.80), 2.52, 0.81, 1.54, WINE, false);
+            b.slab(v(0.0, 0.59, 0.72), v(1.36, 0.12, 0.38), OAK);
+        }
+        (Kind::Taverna, 4) => tower(b, v(0.40, 1.82, -0.48), 1.34, 0.60, PLASTER),
+        (Kind::Inn, 3) => {
+            canopy(b, v(0.0, 1.47, 0.67), 2.30, 0.68, 0.87, WINE, true);
+            b.slab(v(0.0, 2.39, 0.68), v(2.38, 0.091, 0.71), TRAVERTINE);
+        }
+        (Kind::Inn, 4) => tower(b, v(0.04, 2.30, -0.40), 1.42, 0.97, [224, 176, 129]),
+        (Kind::Storehouse, 2) => {
+            for x in [-0.87, 0.78] {
+                crate_box(b, v(x, 0.15, 0.91), v(0.54, 0.41, 0.48), [155, 106, 71]);
+                crate_box(b, v(x, 0.56, 0.87), v(0.38, 0.27, 0.37), [170, 121, 85]);
+            }
+            b.slab(v(0.0, 0.09, 1.01), v(2.50, 0.17, 0.52), BASALT);
+        }
+        (Kind::Storehouse, 3) => crane(b, v(0.87, 0.14, 0.10), 2.33),
+        (Kind::Storehouse, 4) => tower(b, v(-0.46, 2.08, -0.41), 1.49, 0.65, BRICK),
+        (Kind::Stoa, 2) => {
+            for x in [-0.70, 0.70] {
+                bench(b, v(x, 0.15, 0.72), 0.90);
+            }
+            mosaic(b, v(0.0, 0.16, 0.66), 15, 5, 0.15);
+        }
+        (Kind::Stoa, 3) => canal_gallery(b, v(0.0, 0.15, 0.7), 0.97, 0.43),
+        (Kind::Stoa, 4) => {
+            rail(b, v(0.0, 1.82, 0.30), 2.35, TRAVERTINE);
+            canopy(b, v(0.0, 1.83, -0.16), 1.95, 1.04, 0.54, TILE, false);
+        }
+        (Kind::Aqueduct, 2) => {
+            for x in [-0.83, 0.0, 0.83] {
+                arch(b, v(x, 2.27, -0.09), 0.62, 0.30, 0.110, 0.36, BRICK);
+            }
+            b.slab(v(0.0, 2.99, -0.10), v(2.68, 0.13, 0.58), TRAVERTINE);
+            b.slab(v(0.0, 3.09, -0.10), v(2.53, 0.084, 0.48), TILE);
+        }
+        (Kind::Aqueduct, 3) => {
+            pool(b, v(0.0, 0.16, 0.83), 2.52, 0.55);
+            for x in [-0.74, 0.74] {
+                b.beam(v(x, 1.05, 0.09), v(x, 0.92, 0.68), 0.10, TRAVERTINE);
+                b.slab(v(x, 0.58, 0.69), v(0.049, 0.66, 0.040), POOL);
+            }
+        }
+        (Kind::Aqueduct, 4) => {
+            for x in [-1.01, 1.01] {
+                b.slab(v(x, 3.36, -0.12), v(0.61, 0.60, 0.57), BRICK);
+                b.frustum(v(x, 3.68, -0.12), 0.46, 0.02, 0.24, 4, TILE);
+            }
+            b.slab(v(0.0, 3.22, -0.11), v(2.74, 0.12, 0.56), TRAVERTINE);
+        }
+        (Kind::Baths, 2) => {
+            for x in [-0.70, 0.70] {
+                b.frustum(v(x, 0.17, 0.70), 0.40, 0.43, 0.17, 12, TRAVERTINE);
+                b.frustum(v(x, 0.34, 0.70), 0.34, 0.34, 0.027, 12, POOL);
+            }
+        }
+        (Kind::Baths, 3) => {
+            canal_gallery(b, v(0.0, 0.17, 0.76), 1.21, 0.45);
+            b.slab(v(0.0, 0.077, 1.10), v(2.55, 0.15, 0.30), TRAVERTINE);
+        }
+        (Kind::Baths, 4) => {
+            for x in [-0.92, 0.92] {
+                b.frustum(v(x, 1.40, -0.53), 0.36, 0.35, 0.21, 12, TRAVERTINE);
+                b.frustum(v(x, 1.60, -0.53), 0.37, 0.24, 0.26, 12, TILE);
+                b.frustum(v(x, 1.85, -0.53), 0.24, 0.06, 0.16, 12, shift(TILE, 12));
+                b.gem(v(x, 2.05, -0.53), 0.068, 0.102, 0.067, x, GOLD);
+            }
+            b.frustum(v(0.0, 1.95, -0.60), 0.19, 0.19, 0.19, 10, TRAVERTINE);
+            b.frustum(v(0.0, 2.14, -0.60), 0.216, 0.032, 0.17, 10, TILE);
+        }
+        (Kind::Forum, 2) => {
+            canopy(b, v(0.0, 0.15, 0.83), 2.62, 0.76, 1.38, WINE, false);
+            for x in [-0.82, 0.82] {
+                crate_box(b, v(x, 0.17, 0.83), v(0.40, 0.37, 0.34), PLASTER);
+            }
+        }
+        (Kind::Forum, 3) => {
+            for x in [-0.64, 0.64] {
+                arch(b, v(x, 2.03, -0.4), 0.73, 0.37, 0.12, 0.44, BRICK);
+            }
+            b.slab(v(0.0, 2.83, -0.41), v(2.73, 0.14, 0.63), TRAVERTINE);
+        }
+        (Kind::Forum, 4) => {
+            b.slab(v(0.0, 2.97, -0.38), v(2.71, 0.11, 0.73), TILE);
+            b.face(
+                &[
+                    v(-1.32, 3.01, 0.02),
+                    v(1.32, 3.01, 0.02),
+                    v(0.0, 3.46, 0.02),
+                ],
+                TRAVERTINE,
+            );
+            b.gem(v(0.0, 3.17, 0.075), 0.17, 0.11, 0.037, 0.31, GOLD);
+            for side in [-1.0, 1.0] {
+                b.beam(
+                    v(side * 1.34, 3.01, 0.034),
+                    v(0.0, 3.47, 0.034),
+                    0.086,
+                    TILE,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+fn canal_gallery(b: &mut Batch, p: Vec3, height: f32, depth: f32) {
+    for x in [-0.73, 0.73] {
+        arch(
+            b,
+            p + v(x, 0.0, 0.0),
+            0.87,
+            height,
+            0.137,
+            depth,
+            TRAVERTINE,
+        );
+    }
+    let y = height + 0.43;
+    b.slab(p + v(0.0, y, 0.0), v(2.69, 0.12, depth + 0.09), TRAVERTINE);
+    b.slab(p + v(0.0, y + 0.10, 0.0), v(2.72, 0.11, depth + 0.15), TILE);
+}
+
+fn tower(b: &mut Batch, p: Vec3, width: f32, height: f32, wall: Tint) {
+    b.slab(p + v(0.0, height * 0.38, 0.0), v(width, height, 0.84), wall);
+    let roof_y = p.y + height * 0.88;
+    b.slab(v(p.x, roof_y, p.z), v(width + 0.17, 0.17, 0.97), TRAVERTINE);
+    for x in [-0.23, 0.23] {
+        window(b, p + v(x, height * 0.46, 0.433), 0.24, height * 0.45);
+    }
+    for n in 0..10 {
+        let x = p.x + (n as f32 / 9.0 - 0.5) * width;
+        b.block(
+            v(x, roof_y + 0.14, p.z),
+            v(width / 9.4, 0.085, 1.04),
+            Quat::from_rotation_x(0.13),
+            shift(TILE, (n * 7 % 24) as i16 - 11),
+        );
+    }
 }
 
 fn foundation(b: &mut Batch, depth: f32) {

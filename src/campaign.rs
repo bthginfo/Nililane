@@ -1,7 +1,11 @@
 #[path = "districts.rs"]
 mod districts;
 
-use crate::model::{DAY_SECONDS, Favor, Kind, Service, Weather};
+use crate::{
+    errands::Job,
+    layout::Layout,
+    model::{DAY_SECONDS, Favor, Kind, Service, Weather},
+};
 
 pub const REGION_SIZE: usize = 24;
 pub const CHAPTER_COUNT: usize = REGION_SIZE * 2;
@@ -61,6 +65,10 @@ pub enum Goal {
     Variety(u32),
     MarketDay(u32),
     Water(u32),
+    Route(Job, u32),
+    RouteVariety(u32),
+    FerryDay(u32),
+    GoodDay(u32),
     Upgrade(Kind, u32),
     Pair(Kind, Kind, u32),
 }
@@ -77,6 +85,10 @@ impl Goal {
             | Self::Variety(n)
             | Self::MarketDay(n)
             | Self::Water(n)
+            | Self::Route(_, n)
+            | Self::RouteVariety(n)
+            | Self::FerryDay(n)
+            | Self::GoodDay(n)
             | Self::Upgrade(_, n)
             | Self::Pair(_, _, n) => n,
         }
@@ -104,6 +116,10 @@ impl Goal {
             Self::Variety(_) => "Wunscharten an einem Tag".into(),
             Self::MarketDay(_) => "Einnahmen an einem Tag".into(),
             Self::Water(_) => "Krüge Wasser bereitstellen".into(),
+            Self::Route(job, _) => job.name().into(),
+            Self::RouteVariety(_) => "Verschiedene Nili-Touren".into(),
+            Self::FerryDay(_) => "Fährgäste an einem Tag".into(),
+            Self::GoodDay(_) => "Zufriedenheit (%)".into(),
             Self::Upgrade(kind, _) => format!("{} · Ausbaustufe", kind.name()),
             Self::Pair(a, b, _) => format!("{} neben {}", a.name(), b.name()),
         }
@@ -118,7 +134,7 @@ pub struct Chapter {
     pub difficulty: &'static str,
     pub greeting: &'static str,
     pub hint: &'static str,
-    pub columns: usize,
+    pub layout: Layout,
     pub coins: u32,
     pub spring: u16,
     pub ferry: u16,
@@ -169,7 +185,7 @@ const GREEK_START: [Chapter; 12] = [
         difficulty: "Sanft",
         greeting: "Kleio winkt vom ersten Wohnhof. Als die Fähre wieder anlegt, soll es in der Gasse nach Brot duften. Nili kennt schon den besten Platz für den Ofen.",
         hint: "Baue nahe dem Wohnhof. Mit dem günstigen Preis kann jede Familie Brot kaufen.",
-        columns: 3,
+        layout: Layout::legacy(3),
         coins: 35,
         spring: 3,
         ferry: 2,
@@ -191,8 +207,8 @@ const GREEK_START: [Chapter; 12] = [
         district: "Amorgos",
         difficulty: "Sanft",
         greeting: "Der Meltemi trägt den Duft von wildem Thymian herüber. Auf Amorgos steht die Quelle tief. Kleio bittet Nili, die neuen Höfe um einen Brunnen anzulegen.",
-        hint: "Backstuben mit einem Brunnen höchstens zwei Plätze entfernt werden zuerst versorgt.",
-        columns: 4,
+        hint: "Öffne nach dem Bau den Hafentag. Drück den rechten Stick, um mit Nili Wasser zum Ofen zu bringen.",
+        layout: Layout::legacy(4),
         coins: 30,
         spring: 0,
         ferry: 3,
@@ -206,7 +222,11 @@ const GREEK_START: [Chapter; 12] = [
         guests: &[Bread],
         weather: &[Heat, Clear, Heat, Wind],
         favors: &[Jugs, Cargo, ShadeFavor],
-        goals: [Pair(Bakery, Well, 1), Build(Grove, 1), Serve(Bread, 28)],
+        goals: [
+            Pair(Bakery, Well, 1),
+            Route(Job::Water, 2),
+            Serve(Bread, 24),
+        ],
     },
     Chapter {
         region: Region::Greece,
@@ -215,7 +235,7 @@ const GREEK_START: [Chapter; 12] = [
         difficulty: "Leicht",
         greeting: "Doros bringt eine Musterfliese vom Südkai mit. Die Fährgäste haben Keramik bestellt und wollen beim Geruch von frischem Brot durch die Gasse schlendern.",
         hint: "Die Fähre legt rechts an. Stelle die Töpferei in die Nähe des Anlegers.",
-        columns: 4,
+        layout: Layout::legacy(4),
         coins: 40,
         spring: 2,
         ferry: 5,
@@ -229,7 +249,11 @@ const GREEK_START: [Chapter; 12] = [
         guests: &[Pottery, Bread, Pottery],
         weather: &[Clear, Wind, Feast, Cloud],
         favors: &[Cargo, Jugs],
-        goals: [Serve(Pottery, 16), Serve(Bread, 18), Upgrade(Potter, 2)],
+        goals: [
+            Serve(Pottery, 16),
+            Route(Job::Freight, 2),
+            Upgrade(Potter, 2),
+        ],
     },
     Chapter {
         region: Region::Greece,
@@ -238,7 +262,7 @@ const GREEK_START: [Chapter; 12] = [
         difficulty: "Mittel",
         greeting: "Im Pflaster des alten Platzes liegt ein Mosaik. Menon hat seine Zeichen gedeutet und einen Plan für eine Stoa entworfen. Unter dem Dach sollen Nachbarn und Reisende zusammenrücken.",
         hint: "Olivenhaine neben Wohnhöfen halten sie bei Hitze kühl. Eine Stoa schafft Rastplätze für alle.",
-        columns: 4,
+        layout: Layout::legacy(4),
         coins: 40,
         spring: 2,
         ferry: 5,
@@ -252,7 +276,11 @@ const GREEK_START: [Chapter; 12] = [
         guests: &[Shade, Pottery, Bread, Shade],
         weather: &[Heat, Clear, Heat, Feast],
         favors: &[ShadeFavor, Cargo, Jugs],
-        goals: [Serve(Shade, 22), Pair(House, Grove, 1), Renown(47)],
+        goals: [
+            Serve(Shade, 22),
+            Pair(House, Grove, 1),
+            Route(Job::Shade, 3),
+        ],
     },
     Chapter {
         region: Region::Greece,
@@ -261,7 +289,7 @@ const GREEK_START: [Chapter; 12] = [
         difficulty: "Mittel",
         greeting: "Am Abend hängen Feigen und Kränze über der Gasse. Eleni möchte vor dem Sonnenfest ihre erste Taverne eröffnen. Bei Nili ist ein Platz am gedeckten Tisch frei.",
         hint: "Jede Taverne verarbeitet zwei Laibe und zwei Olivenportionen. Direkt neben dem Ofen reicht es für eine Portion mehr.",
-        columns: 5,
+        layout: Layout::legacy(5),
         coins: 32,
         spring: 2,
         ferry: 7,
@@ -284,7 +312,7 @@ const GREEK_START: [Chapter; 12] = [
         difficulty: "Mittel",
         greeting: "Der Wind lässt die Heimfähren im Hafen liegen. Mara leiht Nili das Familienbuch der Insel. Darin steht, welche Gäste heute Abend noch eine Herberge suchen.",
         hint: "Gasthäuser am Kai sind für Reisende gut erreichbar. Zwei kleine Brunnen versorgen mehrere Betriebe zuverlässig.",
-        columns: 5,
+        layout: Layout::legacy(5),
         coins: 46,
         spring: 1,
         ferry: 8,
@@ -298,7 +326,7 @@ const GREEK_START: [Chapter; 12] = [
         guests: &[Bed, Meze, Bed, Pottery, Shade],
         weather: &[Wind, Clear, Feast, Heat],
         favors: &[Jugs, Cargo, ShadeFavor],
-        goals: [Serve(Bed, 24), Upgrade(Inn, 2), Renown(68)],
+        goals: [Serve(Bed, 24), Upgrade(Inn, 2), FerryDay(9)],
     },
     Chapter {
         region: Region::Greece,
@@ -307,7 +335,7 @@ const GREEK_START: [Chapter; 12] = [
         difficulty: "Knifflig",
         greeting: "Zwei Bootsbauer streiten darüber, auf welcher Seite der Bucht das schönere Geschirr gebrannt wird. Nili verteilt die Aufträge und lädt beide Werkstätten an denselben Tisch ein.",
         hint: "Nah gelegene und günstige Läden füllen die ersten Bestellungen. Zwei Töpfereien an verschiedenen Straßenenden erreichen mehr Nachbarn.",
-        columns: 6,
+        layout: Layout::legacy(6),
         coins: 50,
         spring: 1,
         ferry: 8,
@@ -321,7 +349,7 @@ const GREEK_START: [Chapter; 12] = [
         guests: &[Pottery, Bed, Pottery, Meze, Shade],
         weather: &[Wind, Heat, Feast, Cloud],
         favors: &[Cargo, Jugs, ShadeFavor],
-        goals: [Build(Potter, 2), Serve(Pottery, 38), Help(4)],
+        goals: [Build(Potter, 2), Serve(Pottery, 38), Route(Job::Welcome, 4)],
     },
     Chapter {
         region: Region::Greece,
@@ -330,7 +358,7 @@ const GREEK_START: [Chapter; 12] = [
         difficulty: "Knifflig",
         greeting: "Die Töpfer entzünden die ersten Tonlaternen. In drei Tagen kommt die Festfähre und die Stoa soll voller Stimmen sein. Nili legt die Liste der erwarteten Gäste auf den Brunnenrand.",
         hint: "An Festtagen sind die Fähren voller und die Budgets höher. Prüfe vor dem Öffnen, ob alle Werkstätten genug Wasser bekommen.",
-        columns: 6,
+        layout: Layout::legacy(6),
         coins: 52,
         spring: 1,
         ferry: 10,
@@ -344,7 +372,7 @@ const GREEK_START: [Chapter; 12] = [
         guests: &[Pottery, Shade, Bread, Pottery, Shade, Bed],
         weather: &[Heat, Wind, Feast, Clear],
         favors: &[Jugs, Cargo, ShadeFavor],
-        goals: [Pair(Potter, Well, 1), Upgrade(Stoa, 3), FeastGuests(13)],
+        goals: [Pair(Potter, Well, 1), Upgrade(Stoa, 3), GoodDay(76)],
     },
     Chapter {
         region: Region::Greece,
@@ -353,7 +381,7 @@ const GREEK_START: [Chapter; 12] = [
         difficulty: "Knifflig",
         greeting: "In einer windstillen Nacht leuchtet Diones Stern über dem alten Heiligtum. Morgen füllen Pilger die Arkaden. Menon und Nili wollen ihnen einen Hof mit Schatten und warmem Abendbrot schenken.",
         hint: "Vergleiche den Wasservorrat mit der Nachfrage. Beim Ausbau steigen Ertrag und Wasserbedarf.",
-        columns: 6,
+        layout: Layout::legacy(6),
         coins: 59,
         spring: 0,
         ferry: 10,
@@ -376,7 +404,7 @@ const GREEK_START: [Chapter; 12] = [
         difficulty: "Anspruchsvoll",
         greeting: "Der Hafenrat hat den Schreiber mit einer langen Liste geschickt. Zeit für eine kurze Pause im Schatten: Nili holt die großen Karten heraus und verteilt zwölf Bauplätze.",
         hint: "Günstige Preise passen zu Nachbarn. Feine Angebote am Kai eignen sich für Gäste mit größerem Budget.",
-        columns: 6,
+        layout: Layout::legacy(6),
         coins: 64,
         spring: 1,
         ferry: 11,
@@ -399,7 +427,7 @@ const GREEK_START: [Chapter; 12] = [
         difficulty: "Anspruchsvoll",
         greeting: "Die Wetterfahne klappert am Kai. Wenn die letzte Nachtfähre einläuft, finden ihre Gäste erst Schatten, dann Abendbrot und schließlich ein freies Bett. Mara bittet Nili, die Aussicht am Kai im Auge zu behalten.",
         hint: "Ein vielseitiger Hafen erfüllt alle fünf Wunscharten am selben Tag. Halte für die Fährgäste genügend Vorräte in Reichweite des Kais bereit.",
-        columns: 6,
+        layout: Layout::legacy(6),
         coins: 66,
         spring: 0,
         ferry: 12,
@@ -413,7 +441,7 @@ const GREEK_START: [Chapter; 12] = [
         guests: &[Bed, Bed, Pottery, Meze, Shade, Bread, Bed],
         weather: &[Wind, Heat, Clear, Feast, Wind],
         favors: &[Cargo, Jugs, ShadeFavor],
-        goals: [Variety(5), Serve(Bed, 37), Help(6)],
+        goals: [Variety(5), Serve(Bed, 37), RouteVariety(4)],
     },
     Chapter {
         region: Region::Greece,
@@ -422,7 +450,7 @@ const GREEK_START: [Chapter; 12] = [
         difficulty: "Anspruchsvoll",
         greeting: "Boote von allen Inseln liegen vor Anker. Eleni hat die Feigen, Doros die Schalen und Kleio das Brot. An Nilis langer Tafel soll Platz für jede Reisegeschichte sein.",
         hint: "Zwei Öfen sichern Brot für die Theke und die Tavernen. Plane die Herberge am Kai und bewahre Raum für einen schattigen Hof.",
-        columns: 6,
+        layout: Layout::legacy(6),
         coins: 73,
         spring: 1,
         ferry: 13,
@@ -454,6 +482,11 @@ pub static CHAPTERS: [Chapter; CHAPTER_COUNT] = {
     while i < CHAPTER_COUNT {
         chapters[i] = districts::ROMAN[i - REGION_SIZE];
         i += 1;
+    }
+    let mut index = 0;
+    while index < CHAPTER_COUNT {
+        chapters[index].layout = chapters[index].layout.for_chapter(index);
+        index += 1;
     }
     chapters
 };

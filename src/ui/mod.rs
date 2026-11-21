@@ -64,10 +64,14 @@ pub(crate) enum Dynamic {
     Goal(crate::campaign::Goal),
     Stock(usize),
     Mood,
+    Route,
 }
 
 #[derive(Component)]
 pub(crate) struct DynamicBar;
+
+#[derive(Component)]
+pub(crate) struct RouteBar;
 
 #[derive(Component)]
 pub(crate) struct GoalBar(crate::campaign::Goal);
@@ -165,6 +169,22 @@ pub fn draw(
     hud.root = Some(root);
 }
 
+fn job_preview(
+    town: &crate::model::Town,
+    chapter: &crate::campaign::Chapter,
+    job: crate::errands::Job,
+) -> Result<(), crate::errands::Blocked> {
+    use crate::errands::Blocked;
+    let mut latest = Blocked::Requirements;
+    for lot in job.targets(town, chapter) {
+        match job.plan(town, chapter, lot) {
+            Ok(_) => return Ok(()),
+            Err(reason) => latest = reason,
+        }
+    }
+    Err(latest)
+}
+
 fn first(game: &Game, save: &Campaign) -> Option<Action> {
     let action = match (game.view, game.panel) {
         (_, Panel::Options) => Action::LargeUi,
@@ -180,6 +200,14 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
         (View::Chart, _) => Action::Choose(game.chart),
         (View::Street, Panel::None) => return None,
         (View::Street, Panel::Pause) => Action::Back,
+        (View::Street, Panel::Nili) => {
+            let town = save.town.as_ref()?;
+            let chapter = &CHAPTERS[town.chapter];
+            crate::errands::Job::ALL
+                .into_iter()
+                .find(|&job| job_preview(town, chapter, job).is_ok())
+                .map_or(Action::Back, Action::ChooseJob)
+        }
         (View::Street, Panel::Build) => {
             let town = save.town.as_ref()?;
             let chapter = &CHAPTERS[town.chapter];
@@ -240,8 +268,20 @@ pub fn refresh(
     )>,
     mut texts: Query<(&Dynamic, &mut Text)>,
     mut toast: Query<&mut Visibility, With<ToastBox>>,
-    mut bar: Query<&mut Node, (With<DynamicBar>, Without<Root>, Without<GoalBar>)>,
-    mut goals: Query<(&GoalBar, &mut Node), (Without<DynamicBar>, Without<Root>)>,
+    mut bar: Query<
+        &mut Node,
+        (
+            With<DynamicBar>,
+            Without<Root>,
+            Without<GoalBar>,
+            Without<RouteBar>,
+        ),
+    >,
+    mut goals: Query<
+        (&GoalBar, &mut Node),
+        (Without<DynamicBar>, Without<Root>, Without<RouteBar>),
+    >,
+    mut route_bar: Query<&mut Node, (With<RouteBar>, Without<Root>)>,
 ) {
     let factor = if save.large_ui { 1.105 } else { 1.0 };
     let actual = (window.width() / 1280.0)
@@ -343,6 +383,30 @@ pub fn refresh(
                     }
                 }
             }
+            Dynamic::Route => {
+                if let Some(day) = day
+                    && let Some(route) = day.route
+                {
+                    let stage = if day.seconds < route.pickup_at {
+                        format!(
+                            "Zum Abholen · {}",
+                            route.pickup.label(town.expect("a day has a town"))
+                        )
+                    } else if day.seconds < route.depart_at {
+                        "Nili lädt auf …".into()
+                    } else if day.seconds >= route.arrival {
+                        "Am Ziel".into()
+                    } else {
+                        format!(
+                            "Unterwegs · {} s",
+                            (route.finish - day.seconds).ceil() as u32
+                        )
+                    };
+                    if text.0 != stage {
+                        text.0 = stage;
+                    }
+                }
+            }
             Dynamic::Mood => {
                 let rating = town
                     .and_then(|town| town.feedback())
@@ -387,6 +451,11 @@ pub fn refresh(
     }
     if let (Some(day), Ok(mut fill)) = (day, bar.single_mut()) {
         fill.width = Val::Percent(day.seconds / length * 100.0);
+    }
+    if let (Some(day), Ok(mut fill)) = (day, route_bar.single_mut())
+        && let Some(route) = day.route
+    {
+        fill.width = Val::Percent(route.progress(day.seconds) * 100.0);
     }
 }
 
@@ -689,6 +758,15 @@ fn shown_goal(town: &crate::model::Town, goal: crate::campaign::Goal) -> (u32, u
         Goal::Variety(_) => value.max(day.tally.served.iter().filter(|&&n| n > 0).count() as u32),
         Goal::MarketDay(_) => value.max(day.tally.income),
         Goal::Water(_) => value.max(u32::from(day.water)),
+        Goal::Route(job, _) => value + day.tally.routes[job as usize],
+        Goal::RouteVariety(_) => town
+            .totals
+            .routes
+            .iter()
+            .zip(day.tally.routes)
+            .filter(|&(record, today)| *record + today > 0)
+            .count() as u32,
+        Goal::FerryDay(_) => value.max(day.tally.ferry_served),
         _ => value,
     };
     (shown, need)

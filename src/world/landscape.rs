@@ -1,4 +1,7 @@
-use crate::campaign::Region;
+use crate::{
+    campaign::Region,
+    layout::{Layout, Shore, lot_id},
+};
 use bevy::prelude::*;
 
 use super::{
@@ -10,11 +13,12 @@ use super::{
     mesh::{Batch, Grain, Tint, shift, v},
 };
 
-pub fn quay(columns: usize) -> f32 {
-    lot_position(columns - 1, columns).x + 1.78
+pub fn quay(layout: Layout) -> f32 {
+    lot_position(layout.dock(), layout.width()).x + 1.78
 }
 
-pub fn terrain(columns: usize, chapter: usize) -> Mesh {
+pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
+    let columns = layout.width();
     let mut b = Batch::default();
     let roman = Region::of(chapter) == Region::Rome;
     let mut grain = Grain::new(401 + chapter as u32 * 4051);
@@ -33,7 +37,19 @@ pub fn terrain(columns: usize, chapter: usize) -> Mesh {
         (-wide + 0.33, 3.79),
         (-wide - 0.7, 1.2),
     ]
-    .map(|(x, z)| (x + grain.span(-0.23, 0.24), z + grain.span(-0.16, 0.19)));
+    .map(|(x, z)| {
+        let normalized = x / wide;
+        let (x, z) = match layout.shore {
+            Shore::Cove if z > 2.0 => (x, z + normalized.abs() * 0.86),
+            Shore::Headland if x < 0.0 => {
+                (x - 1.35 * normalized.abs(), z + 0.62 * normalized.abs())
+            }
+            Shore::Terrace if z < -3.0 => (x, z - 2.05 * (1.0 - normalized.abs().min(1.0))),
+            Shore::Lagoon if z > 2.0 => (x, z + 1.73 * (1.0 - normalized.abs().min(1.0))),
+            _ => (x, z),
+        };
+        (x + grain.span(-0.23, 0.24), z + grain.span(-0.16, 0.19))
+    });
     let (earth, edge) = if roman {
         let earth = [
             [176, 151, 124],
@@ -100,8 +116,8 @@ pub fn terrain(columns: usize, chapter: usize) -> Mesh {
     }
 
     for row in 0..2 {
-        for col in 0..columns {
-            let p = lot_position(row * crate::model::COLS + col, columns);
+        for col in 0..layout.row(row) {
+            let p = lot_position(lot_id(row, col), columns);
             b.slab(p.with_y(0.021), v(2.84, 0.048, 2.44), [206, 177, 132]);
             b.slab(p.with_y(0.040), v(2.65, 0.036, 2.21), [220, 192, 151]);
             let path_z = if row == 0 { -1.04 } else { 1.08 };
@@ -122,10 +138,16 @@ pub fn terrain(columns: usize, chapter: usize) -> Mesh {
                     IVORY,
                 );
             }
-            if col + 1 < columns {
+            if col + 1 < layout.row(row) {
                 let p = v(p.x + LOT_STEP / 2.0, 0.01, p.z + 0.57);
                 meadow(&mut b, p, 0.29, &mut grain);
             }
+        }
+    }
+    for row in 0..2 {
+        for col in layout.row(row)..columns {
+            let at = lot_position(lot_id(row, col), columns);
+            shore_garden(&mut b, at, roman, chapter + row + col, &mut grain);
         }
     }
     for n in 0..90 {
@@ -138,7 +160,7 @@ pub fn terrain(columns: usize, chapter: usize) -> Mesh {
         meadow(&mut b, v(x, 0.018, z), grain.span(0.14, 0.49), &mut grain);
     }
     promenade_wall(&mut b, wide);
-    harbor(&mut b, quay(columns));
+    harbor(&mut b, quay(layout));
     if roman {
         super::roman::skyline(&mut b, wide, chapter, &mut grain);
         super::roman::quay_landmark(&mut b, -wide + 1.28, chapter);
@@ -261,6 +283,41 @@ fn sculpt_terraces(b: &mut Batch, wide: f32, chapter: usize, grain: &mut Grain) 
         if h > 1.0 && i != 6 {
             b.slab(v(x + 0.13, 0.96 + h, -4.27), v(0.61, 0.15, 0.28), MARBLE);
         }
+    }
+}
+
+// Uneven rows end in small planted terraces. They leave the street open all the
+// way to the headland and distinguish land that does not have a building plot.
+fn shore_garden(b: &mut Batch, at: Vec3, roman: bool, seed: usize, grain: &mut Grain) {
+    let soil = if roman {
+        [175, 157, 116]
+    } else {
+        [179, 167, 114]
+    };
+    b.slab(at + v(0.0, 0.032, 0.18), v(2.32, 0.11, 1.70), soil);
+    for x in [-1.09, 1.09] {
+        b.slab(at + v(x, 0.11, 0.19), v(0.13, 0.25, 1.52), CREAM);
+        b.slab(at + v(x, 0.26, 0.19), v(0.18, 0.07, 1.61), IVORY);
+    }
+    for x in [-0.87, 0.87] {
+        b.slab(at + v(x * 0.8, 0.11, 0.94), v(0.86, 0.24, 0.13), CREAM);
+        b.slab(at + v(x * 0.8, 0.25, 0.94), v(0.91, 0.07, 0.18), IVORY);
+    }
+    if roman || seed.is_multiple_of(2) {
+        super::upgrades::bench(b, at + v(0.0, 0.11, 0.54), 1.31);
+        cypress(b, at + v(-0.64, 0.09, -0.31), grain.span(0.46, 0.68));
+        cypress(b, at + v(0.61, 0.09, -0.32), grain.span(0.51, 0.73));
+    } else {
+        olive(b, at + v(0.18, 0.09, -0.29), 0.80);
+        flowerpot(b, at + v(-0.76, 0.09, 0.42), 0.65, [220, 117, 152]);
+    }
+    for i in 0..7 {
+        meadow(
+            b,
+            at + v(-0.77 + i as f32 * 0.26, 0.09, grain.span(-0.27, 0.67)),
+            0.20,
+            grain,
+        );
     }
 }
 

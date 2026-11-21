@@ -1,21 +1,23 @@
-# Nililane
+# Nililane 2.0
 
 Nililane ist ein 3D-Straßenmanagementspiel in Rust und Bevy. Mit dem Nilpferd Nili
 reist du zuerst durch das antike Griechenland und danach durch das antike
 Rom. Du planst die Gasse am Morgen, versorgst Nachbarn und Fährgäste und hilfst
-tagsüber dort, wo sich die Lieferungen stauen.
+tagsüber dort, wo sich die Lieferungen stauen. Auf der Kampagnenkarte erkennst
+du die Größe des nächsten Hafens schon vor der Überfahrt.
 
-**[Nililane 1.0.0 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/41b99f3b4f3aba070bc5998357d921c89215eba4/Nililane-1.0.0.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/41b99f3b4f3aba070bc5998357d921c89215eba4/Nililane-1.0.0.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v1.0.0)
+**[Nililane 2.0.0 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/4142059fab2192a9e2e581902ba4c3e02c53b316/Nililane-2.0.0.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/4142059fab2192a9e2e581902ba4c3e02c53b316/Nililane-2.0.0.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.0.0)
 
-![Nili vor der Backstube und dem Brunnen in Naxos](docs/bilder/naxos.jpg)
+![Nili mit Bewohnern und dem ausgebauten Wohnhof in Naxos](docs/bilder/naxos.jpg)
 
-![Ein römisches Viertel mit Aquädukt, Thermen und Fährschiffen im Sturm](docs/bilder/capua.jpg)
+![Capua mit mehrstöckigem Aquädukt, Thermen und römischen Arkaden](docs/bilder/capua.jpg)
 
 ## Auf dem Tablet spielen
 
 Die signierte APK benötigt Android 8 oder neuer, Vulkan 1.1 und ein Gerät
 mit ARM64- oder x86_64-Prozessor. Öffne die APK auf dem Tablet und installiere
-sie. Nililane läuft offline und öffnet sich im Querformat.
+sie. Installiere sie über 1.0, um deine laufende Gasse und die Sternrekorde
+mitzunehmen. Nililane läuft offline und öffnet sich im Querformat.
 
 Kopple den Xbox-Controller über die Android-Bluetooth-Einstellungen oder
 schließe ihn per USB an. Unter **Erste Reise** führt Nili dich durch den
@@ -30,14 +32,33 @@ die Oberfläche vergrößern sowie Musik und Spielklänge separat schalten.
 | B | Zurück, während des Spiels pausieren |
 | X | Aufträge ansehen |
 | Y | Tag eröffnen, während des Tages zwischen 1× und 2× wechseln |
-| RB | Hafenbuch mit Nachfrage, Vorräten und Hafenbitte öffnen |
+| RB | Hafenbuch mit Nachfrage, Vorräten und Gästestimmen öffnen |
+| Rechten Stick drücken (R3) | Ab Amorgos Nilis Touren öffnen |
 | Rechter Stick, LT und RT | Kamera schwenken und zoomen |
 | LB | Kamera zurücksetzen |
 | Start | Pausenmenü öffnen |
 
 Touch und Maus wählen Bauplätze und Schaltflächen. Mit der Tastatur bedienen
 Pfeiltasten oder WASD die Auswahl, Enter bestätigt, Escape geht zurück.
-X, Y, P, Q und E entsprechen X, Y, Start, LB und RB.
+X, Y, P, Q und E entsprechen X, Y, Start, LB und RB. N öffnet Nilis Touren.
+
+## Neu in 2.0
+
+- **Nilis Hafenrunden.** Schick Nili zum Wasserholen, zur Eilfracht, als
+  Gästelotse, auf Schattentour oder nach Unwetter zum Treibgutbergen. Wähle
+  das Ziel auf der Insel. Nili läuft hin, lädt auf und liefert ab.
+- **Neue Aufträge.** Plane Nachschub und Fährbesuche gezielt ein. Je nach Hafen
+  zählen bestimmte Touren, verschiedene erledigte Aufgaben, ein guter Fährtag
+  oder die Zufriedenheit bei ausreichenden Rückmeldungen.
+- **Verschiedene Küsten.** 6 bis 18 Bauplätze auf Buchten, Landzungen,
+  Terrassenhäfen und Lagunen. Die Gassen- und Promenadenseiten sind je nach
+  Hafen verschieden lang.
+- **Sichtbare Ausbauten.** Von Außenöfen und Dachgärten bis zu Badegalerien und
+  neuen Aquäduktbögen. Ein kurzes Gerüst mit Staub und Hammerschlägen zeigt
+  Neubauten und Ausbauten direkt auf dem Grundstück.
+- **Lebendige Gassen.** Griechische und römische Gäste tragen unterschiedliche
+  Kleidung, gehen mit animierten Schritten und folgen dem Weg zum Laden.
+  Im Hafenbuch sagen einzelne Gäste, was sie gefunden oder vermisst haben.
 
 ## Die Reise
 
@@ -48,8 +69,8 @@ X, Y, P, Q und E entsprechen X, Y, Start, LB und RB.
   verbinden Aquädukte, Thermen, Foren und Villen die Gassen von Ostia bis
   Rom. Eigene Bauten, Kleidung, Musik und Schiffe prägen die zweite Reise.
 - Die 15 Gebäudetypen lassen sich bis Stufe 4 ausbauen. Für Läden stehen
-  drei Preise zur Wahl. Die Ausbauvorschau zeigt, wie sich Wasser,
-  Vorräte und Bewohnerzahlen unter dem Tagesplan verändern.
+  drei Preise zur Wahl. Die Ausbauvorschau benennt die sichtbare Erweiterung
+  und zeigt, wie sich Wasser, Vorräte und Bewohnerzahlen verändern.
 - Im Hafenbuch stehen Nachfrage, Vorräte, Zufriedenheit und die Vorhersage
   für drei Tage. Nordwind, Regen und Sturm beeinflussen die See, den
   Fährverkehr und die Wasserreserven. Mit Hafenbeschlüssen kannst du

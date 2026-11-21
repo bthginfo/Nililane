@@ -32,6 +32,10 @@ impl Batch {
         }
     }
 
+    pub fn vertices(&self) -> usize {
+        self.positions.len()
+    }
+
     pub fn mesh(self) -> Mesh {
         Mesh::new(
             PrimitiveTopology::TriangleList,

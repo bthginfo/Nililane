@@ -1,4 +1,5 @@
 use super::{Chapter, Goal::*, Region};
+use crate::errands::Job;
 use crate::model::{
     Favor::{Cargo, Jugs, Shade as ShadeFavor},
     Kind::*,
@@ -13,7 +14,7 @@ const GREEK_TRADE: Chapter = Chapter {
     difficulty: "Anspruchsvoll",
     greeting: "",
     hint: "",
-    columns: 6,
+    layout: super::Layout::legacy(6),
     coins: 68,
     spring: 1,
     ferry: 14,
@@ -65,7 +66,11 @@ pub(super) const GREEK_LATE: [Chapter; 12] = [
         par: 15,
         ferry: 17,
         starts: &[(1, House), (2, Well), (7, Bakery), (8, Taverna)],
-        goals: [Pair(Storehouse, Bakery, 1), Serve(Bread, 66), Earn(640)],
+        goals: [
+            Pair(Storehouse, Bakery, 1),
+            Serve(Bread, 66),
+            Route(Job::Freight, 5),
+        ],
         ..GREEK_TRADE
     },
     Chapter {
@@ -96,18 +101,14 @@ pub(super) const GREEK_LATE: [Chapter; 12] = [
         hint: "Das Heiligtum verwendet zwei Schalen aus dem nächsten Vorrat. Plane auch Keramik für den eigenen Verkaufsstand ein.",
         par: 18,
         starts: &[(1, House), (2, Well), (3, Grove), (4, Potter), (7, Bakery)],
-        goals: [
-            Pair(Shrine, Potter, 1),
-            Serve(Offering, 80),
-            Serve(Pottery, 43),
-        ],
+        goals: [Pair(Shrine, Potter, 1), Serve(Offering, 80), FerryDay(15)],
         ..GREEK_TEMPLE
     },
     Chapter {
         name: "Rast im Pinienwind",
         district: "Skopelos",
         greeting: "Der Nordwind hält manche Boote im Schutz der Felsen. Die Wächter öffnen währenddessen die Stoa. Wer den Weg findet, soll dort Wasser, Schatten und eine Mahlzeit bekommen.",
-        hint: "Die Wasserfahrt bringt vier Krüge, belegt aber zwei Plätze auf der Fähre. Fährtage haben den gegenläufigen Effekt.",
+        hint: "Bei Wind, Regen oder Sturm kann Nili Treibgut bergen. Hain und Stoa öffnen seine Schattentour.",
         par: 18,
         spring: 0,
         weather: &[Wind, Cloud, Storm, Heat, Rain, Feast],
@@ -115,7 +116,7 @@ pub(super) const GREEK_LATE: [Chapter; 12] = [
         guests: &[
             Shade, Meze, Bed, Shade, Oil, Offering, Bread, Shade, Pottery,
         ],
-        goals: [Serve(Shade, 111), Serve(Meze, 54), Help(11)],
+        goals: [Serve(Shade, 111), Route(Job::Quay, 5), Route(Job::Shade, 7)],
         ..GREEK_TEMPLE
     },
     Chapter {
@@ -150,7 +151,7 @@ pub(super) const GREEK_LATE: [Chapter; 12] = [
         par: 27,
         spring: 0,
         guests: &[Bed, Meze, Bed, Bread, Meze, Bed, Offering, Pottery, Shade],
-        goals: [Serve(Bed, 145), Serve(Meze, 77), Water(19)],
+        goals: [Serve(Bed, 145), Route(Job::Welcome, 7), Water(19)],
         ..GREEK_TEMPLE
     },
     Chapter {
@@ -161,7 +162,7 @@ pub(super) const GREEK_LATE: [Chapter; 12] = [
         par: 22,
         ferry: 20,
         walk: 5,
-        goals: [Variety(7), Earn(1_340), Serve(Offering, 91)],
+        goals: [Variety(7), GoodDay(83), Serve(Offering, 91)],
         ..GREEK_TEMPLE
     },
     Chapter {
@@ -202,7 +203,7 @@ pub(super) const GREEK_LATE: [Chapter; 12] = [
         coins: 110,
         ferry: 23,
         favor_goal: 15,
-        goals: [Variety(7), Serve(Offering, 162), Earn(2_050)],
+        goals: [Variety(7), Serve(Offering, 162), FerryDay(23)],
         ..GREEK_TEMPLE
     },
 ];
@@ -227,7 +228,7 @@ const ROME_PORT: Chapter = Chapter {
     difficulty: "Mittel",
     greeting: "",
     hint: "",
-    columns: 6,
+    layout: super::Layout::legacy(6),
     coins: 74,
     spring: 1,
     ferry: 13,
@@ -291,7 +292,11 @@ pub(super) const ROMAN: [Chapter; 24] = [
         greeting: "Nach der Überfahrt zieht Nili das Notizbuch am Tiber aus dem Gepäck. Flavia hat rote Dachziegel und einen neuen Ofen bereitgestellt. Am Kai riecht es nach Korn und Zypressen.",
         hint: "Die Preise funktionieren wie in Griechenland. Achte zuerst auf die vielen Brotwünsche der Fährgäste.",
         par: 12,
-        goals: [Serve(Bread, 68), Pair(Storehouse, Bakery, 1), Renown(125)],
+        goals: [
+            Serve(Bread, 68),
+            Pair(Storehouse, Bakery, 1),
+            RouteVariety(3),
+        ],
         guests: &[Bread, Bed, Meze, Bread, Pottery, Shade, Bread, Bed],
         ..ROME_PORT
     },
@@ -313,7 +318,7 @@ pub(super) const ROMAN: [Chapter; 24] = [
         hint: "Baue das Gasthaus nahe am rechten Anleger. Mit mehr Wasser und einer höheren Stufe wächst sein Vorrat.",
         par: 13,
         guests: &[Bed, Bed, Bread, Bed, Meze, Pottery, Shade, Bed],
-        goals: [Serve(Bed, 84), Upgrade(Inn, 3), Earn(750)],
+        goals: [Serve(Bed, 84), Upgrade(Inn, 3), Route(Job::Welcome, 6)],
         ..ROME_PORT
     },
     Chapter {
@@ -347,10 +352,10 @@ pub(super) const ROMAN: [Chapter; 24] = [
         name: "Ein Dach aus Wasser",
         district: "Veii",
         greeting: "Regen tropft von den Mauerbögen. Die Krüge sind voll und die Fähre kommt mit weniger Gästen. Nili soll den Wechsel aus Regen und Hitze für die Gasse einplanen.",
-        hint: "Bei Regen wachsen die Wasserreserven, aber der Anleger wird ruhiger. Wähle den Hafenplan passend zum Tageswetter.",
+        hint: "Räume mit Nili den Kai bei Regen oder Sturm. Dann kommen Fährgäste auch bis zu den entfernteren Thermen.",
         par: 17,
         weather: &[Rain, Heat, Storm, Feast, Cloud],
-        goals: [Serve(Pottery, 66), Serve(Bath, 86), Water(39)],
+        goals: [Route(Job::Quay, 5), Serve(Bath, 86), Water(39)],
         guests: &[Pottery, Bath, Bed, Pottery, Bath, Bread, Meze, Bath],
         ..ROME_WATER
     },
@@ -372,7 +377,7 @@ pub(super) const ROMAN: [Chapter; 24] = [
         hint: "Prüfe an einem Festtag alle Wünsche. Zusätzliche Plätze helfen nur, wenn die Gäste sie erreichen und bezahlen können.",
         par: 18,
         ferry: 18,
-        goals: [FeastGuests(17), Serve(Bath, 100), MarketDay(92)],
+        goals: [FeastGuests(17), Serve(Bath, 100), GoodDay(82)],
         ..ROME_WATER
     },
     Chapter {
@@ -427,7 +432,7 @@ pub(super) const ROMAN: [Chapter; 24] = [
         par: 20,
         starts: ROME_PORT.starts,
         locals: &[Trade, Bath, Pottery, Meze, Trade, Bread, Bed, Trade],
-        goals: [Upgrade(Villa, 3), Serve(Trade, 132), Renown(410)],
+        goals: [Upgrade(Villa, 3), Serve(Trade, 132), FerryDay(19)],
         ..ROME_FINAL
     },
     Chapter {
@@ -447,7 +452,7 @@ pub(super) const ROMAN: [Chapter; 24] = [
         hint: "Der Wasservorrat muss für Gasthäuser und Thermen reichen. Eine Wasserfahrt hilft auf sehr heißen Tagen.",
         par: 21,
         guests: &[Bed, Bath, Bed, Trade, Meze, Bed, Pottery, Bread, Bed],
-        goals: [Serve(Bed, 171), Serve(Bath, 107), Help(13)],
+        goals: [Serve(Bed, 171), Serve(Bath, 107), Route(Job::Water, 9)],
         ..ROME_FINAL
     },
     Chapter {
@@ -468,7 +473,7 @@ pub(super) const ROMAN: [Chapter; 24] = [
         hint: "Nutze den Fährtag, sobald alle sechs Wünsche erreichbar sind. Plane für den Regen weniger Fährgäste ein.",
         par: 22,
         ferry: 24,
-        goals: [Variety(6), Earn(1_950), Serve(Pottery, 109)],
+        goals: [Variety(6), GoodDay(88), Serve(Pottery, 109)],
         ..ROME_FINAL
     },
     Chapter {
@@ -549,7 +554,7 @@ pub(super) const ROMAN: [Chapter; 24] = [
         ferry: 27,
         coins: 132,
         favor_goal: 18,
-        goals: [FeastGuests(25), Serve(Trade, 232), Earn(2_850)],
+        goals: [FeastGuests(25), Serve(Trade, 232), FerryDay(25)],
         ..ROME_FINAL
     },
 ];

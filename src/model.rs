@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-use crate::campaign::{Chapter, Goal};
+use crate::{
+    campaign::{Chapter, Goal},
+    errands::{Blocked, JOB_TYPES, Job, Route, Stop},
+};
 
-pub const COLS: usize = 6;
-pub const LOTS: usize = COLS * 2;
+pub use crate::layout::{LOTS, distance};
 pub const DAY_SECONDS: f32 = 55.0;
 pub const MAX_LEVEL: u8 = 4;
 pub const SERVICES: usize = 9;
@@ -396,6 +398,8 @@ pub struct Visit {
     pub shop: Option<u8>,
     #[serde(default)]
     pub miss: Option<Miss>,
+    #[serde(default)]
+    pub guided_to: Option<u8>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -417,9 +421,21 @@ pub struct Tally {
     pub record_income: u32,
     #[serde(default)]
     pub peak_water: u32,
+    #[serde(default)]
+    pub routes: [u32; JOB_TYPES],
+    #[serde(default)]
+    pub ferry_served: u32,
+    #[serde(default)]
+    pub best_ferry_day: u32,
+    #[serde(default)]
+    pub best_mood: u32,
 }
 
 impl Tally {
+    pub fn routes_today(&self) -> u32 {
+        self.routes.iter().sum()
+    }
+
     pub fn served_total(&self) -> u32 {
         self.served.iter().sum()
     }
@@ -449,6 +465,12 @@ impl Tally {
         self.widest_day = self.widest_day.max(other.widest_day);
         self.record_income = self.record_income.max(other.record_income);
         self.peak_water = self.peak_water.max(other.peak_water);
+        for (total, count) in self.routes.iter_mut().zip(other.routes) {
+            *total += count;
+        }
+        self.ferry_served += other.ferry_served;
+        self.best_ferry_day = self.best_ferry_day.max(other.best_ferry_day);
+        self.best_mood = self.best_mood.max(other.best_mood);
     }
 }
 
@@ -468,11 +490,16 @@ pub struct Day {
     pub seconds: f32,
     #[serde(default)]
     pub water: u16,
+    #[serde(deserialize_with = "extend_plot_array")]
     pub stock: [u16; LOTS],
     pub visits: Vec<Visit>,
     pub tally: Tally,
     pub favor: Favor,
     pub favor_at: Option<u8>,
+    #[serde(default)]
+    pub nili_at: Stop,
+    #[serde(default)]
+    pub route: Option<Route>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -530,6 +557,7 @@ pub struct Town {
     pub chapter: usize,
     pub day: u32,
     pub coins: u32,
+    #[serde(deserialize_with = "extend_plot_array")]
     pub lots: [Option<Building>; LOTS],
     pub totals: Tally,
     pub phase: Phase,
@@ -548,12 +576,22 @@ pub struct Production {
     pub used_olives: u16,
 }
 
-pub fn distance(a: usize, b: usize) -> usize {
-    (a % COLS).abs_diff(b % COLS) + (a / COLS).abs_diff(b / COLS)
+pub fn is_open(chapter: &Chapter, lot: usize) -> bool {
+    chapter.layout.contains(lot)
 }
 
-pub fn is_open(chapter: &Chapter, lot: usize) -> bool {
-    lot < LOTS && lot % COLS < chapter.columns
+fn extend_plot_array<'de, D, T>(deserializer: D) -> Result<[T; LOTS], D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de> + Default + Copy,
+{
+    let values = Vec::<T>::deserialize(deserializer)?;
+    if values.len() != crate::layout::ORIGINAL_COLUMNS * 2 && values.len() != LOTS {
+        return Err(serde::de::Error::custom("unexpected number of plots"));
+    }
+    let mut plots = [T::default(); LOTS];
+    plots[..values.len()].copy_from_slice(&values);
+    Ok(plots)
 }
 
 impl Town {
@@ -871,6 +909,7 @@ impl Town {
                     resolved: false,
                     shop: None,
                     miss: None,
+                    guided_to: None,
                 });
             }
         }
@@ -890,6 +929,7 @@ impl Town {
                 resolved: false,
                 shop: None,
                 miss: None,
+                guided_to: None,
             });
         }
         let total = count.saturating_sub(1).max(1) as f32;
@@ -920,12 +960,19 @@ impl Town {
             tally: Tally::default(),
             favor: self.next_favor(chapter),
             favor_at: None,
+            nili_at: Stop::Quay,
+            route: None,
         }));
         true
     }
 
-    pub fn target(&self, stock: &[u16; LOTS], visit: &Visit, chapter: &Chapter) -> Option<usize> {
-        target(&self.lots, stock, visit, chapter).ok()
+    pub fn dispatch(&mut self, chapter: &Chapter, job: Job, lot: usize) -> Result<Route, Blocked> {
+        let route = job.plan(self, chapter, lot)?;
+        let Phase::Open(day) = &mut self.phase else {
+            return Err(Blocked::Morning);
+        };
+        day.route = Some(route);
+        Ok(route)
     }
 
     pub fn aid(&mut self, lot: usize) -> bool {
@@ -935,7 +982,11 @@ impl Town {
         let Phase::Open(day) = &mut self.phase else {
             return false;
         };
-        if day.seconds < 8.0 || day.favor_at.is_some() || !day.favor.allows(b.kind) {
+        if day.seconds < 8.0
+            || day.route.is_some()
+            || day.favor_at.is_some()
+            || !day.favor.allows(b.kind)
+        {
             return false;
         }
         match day.favor {
@@ -960,6 +1011,7 @@ impl Town {
         day.tally.reputation += 2;
         day.tally.favors += 1;
         day.favor_at = Some(lot as u8);
+        day.nili_at = Stop::Parcel(lot as u8);
         true
     }
 
@@ -967,30 +1019,13 @@ impl Town {
         let Phase::Open(day) = &mut self.phase else {
             return false;
         };
-        day.seconds = (day.seconds + elapsed).min(chapter.day_seconds());
-        for visit in &mut day.visits {
-            if visit.resolved || visit.at > day.seconds {
-                continue;
-            }
-            visit.resolved = true;
-            let service = visit.wants as usize;
-            match target(&self.lots, &day.stock, visit, chapter) {
-                Ok(shop) => {
-                    let b = self.lots[shop].expect("target must contain a building");
-                    day.stock[shop] -= 1;
-                    day.tally.served[service] += 1;
-                    day.tally.income += b.price.coins(visit.wants);
-                    day.tally.reputation +=
-                        1 + u32::from(b.price == Price::Fair && visit.budget == Price::Fine);
-                    visit.shop = Some(shop as u8);
-                }
-                Err(reason) => {
-                    day.tally.missed[service] += 1;
-                    day.tally.gaps[reason as usize] += 1;
-                    visit.miss = Some(reason);
-                }
-            }
+        let until = (day.seconds + elapsed).min(chapter.day_seconds());
+        if let Some(route) = day.route.filter(|route| route.finish <= until) {
+            resolve_visits(&self.lots, day, chapter, route.finish);
+            finish_route(&self.lots, day, route);
         }
+        resolve_visits(&self.lots, day, chapter, until);
+        day.seconds = until;
         if day.seconds < chapter.day_seconds() {
             return false;
         }
@@ -998,6 +1033,10 @@ impl Town {
         tally.widest_day = tally.served.iter().filter(|&&served| served > 0).count() as u32;
         tally.record_income = tally.income;
         tally.peak_water = u32::from(day.water);
+        tally.best_ferry_day = tally.ferry_served;
+        if tally.responses() >= 12 {
+            tally.best_mood = tally.satisfaction().unwrap_or(0);
+        }
         if self.weather(chapter) == Weather::Feast {
             tally.feast_peak = tally.served_total();
         }
@@ -1044,6 +1083,10 @@ impl Town {
             Goal::Variety(_) => self.totals.widest_day,
             Goal::MarketDay(_) => self.totals.record_income,
             Goal::Water(_) => self.totals.peak_water,
+            Goal::Route(job, _) => self.totals.routes[job as usize],
+            Goal::RouteVariety(_) => self.totals.routes.iter().filter(|&&n| n > 0).count() as u32,
+            Goal::FerryDay(_) => self.totals.best_ferry_day,
+            Goal::GoodDay(_) => self.totals.best_mood,
             Goal::Upgrade(kind, _) => self
                 .lots
                 .iter()
@@ -1065,19 +1108,106 @@ impl Town {
     }
 }
 
+fn resolve_visits(lots: &[Option<Building>; LOTS], day: &mut Day, chapter: &Chapter, until: f32) {
+    let mut due: Vec<_> = day
+        .visits
+        .iter()
+        .enumerate()
+        .filter(|(_, visit)| !visit.resolved && visit.at <= until)
+        .map(|(i, visit)| (i, visit.at))
+        .collect();
+    if due.len() > 1 {
+        due.sort_by(|a, b| a.1.total_cmp(&b.1));
+    }
+    for (index, _) in due {
+        let visit = &day.visits[index];
+        let service = visit.wants as usize;
+        let result = target(lots, day, visit, chapter);
+        let visit = &mut day.visits[index];
+        visit.resolved = true;
+        match result {
+            Ok(shop) => {
+                let b = lots[shop].expect("a sale requires a building");
+                day.stock[shop] -= 1;
+                day.tally.served[service] += 1;
+                day.tally.income += b.price.coins(visit.wants);
+                day.tally.reputation +=
+                    1 + u32::from(b.price == Price::Fair && visit.budget == Price::Fine);
+                day.tally.ferry_served += u32::from(visit.origin == Origin::Ferry);
+                visit.shop = Some(shop as u8);
+            }
+            Err(reason) => {
+                day.tally.missed[service] += 1;
+                day.tally.gaps[reason as usize] += 1;
+                visit.miss = Some(reason);
+            }
+        }
+    }
+}
+
+fn finish_route(lots: &[Option<Building>; LOTS], day: &mut Day, route: Route) {
+    day.route = None;
+    day.nili_at = route.delivery;
+    day.tally.routes[route.job as usize] += 1;
+    let lot = match route.delivery {
+        Stop::Parcel(i) => usize::from(i),
+        _ => {
+            day.tally.income += 5;
+            day.tally.reputation += 2;
+            return;
+        }
+    };
+    match route.job {
+        Job::Freight => {
+            day.stock[lot] += if matches!(route.pickup, Stop::Parcel(_)) {
+                6
+            } else {
+                4
+            };
+        }
+        Job::Water => {
+            day.stock[lot] += 4;
+            day.water += 2;
+        }
+        Job::Welcome => {
+            if let Some(wants) = lots[lot].and_then(|b| b.kind.service()) {
+                for delay in [0.6, 1.8] {
+                    day.visits.push(Visit {
+                        origin: Origin::Ferry,
+                        wants,
+                        budget: Price::Regular,
+                        at: route.finish + delay,
+                        resolved: false,
+                        shop: None,
+                        miss: None,
+                        guided_to: Some(lot as u8),
+                    });
+                }
+            }
+        }
+        Job::Shade => day.stock[lot] += 5,
+        Job::Quay => {}
+    }
+    day.tally.income += 3;
+    day.tally.reputation += 1 + u32::from(route.job != Job::Freight);
+}
+
 fn target(
     lots: &[Option<Building>; LOTS],
-    stock: &[u16; LOTS],
+    day: &Day,
     visit: &Visit,
     chapter: &Chapter,
 ) -> Result<usize, Miss> {
     let origin = match visit.origin {
         Origin::Home(lot) => usize::from(lot),
-        Origin::Ferry => COLS + chapter.columns - 1,
+        Origin::Ferry => chapter.layout.dock(),
     };
     let mut best = None;
     let mut cause = Miss::NoShop;
     for (lot, building) in lots.iter().enumerate() {
+        if visit.guided_to.is_some_and(|i| usize::from(i) != lot) {
+            continue;
+        }
         let Some(building) = building.filter(|b| b.kind.service() == Some(visit.wants)) else {
             continue;
         };
@@ -1086,16 +1216,17 @@ fn target(
             Origin::Home(_) => 4,
             Origin::Ferry => {
                 chapter.walk
+                    + 2 * usize::from(day.tally.routes[Job::Quay as usize] > 0)
                     + usize::from(lots.iter().enumerate().any(|(i, b)| {
                         b.is_some_and(|b| b.kind == Kind::Forum) && distance(i, lot) <= 2
                     }))
             }
         };
-        let failure = if steps > range {
+        let failure = if visit.guided_to.is_none() && steps > range {
             Some(Miss::Walk)
         } else if building.price as u8 > visit.budget as u8 {
             Some(Miss::Price)
-        } else if stock[lot] == 0 {
+        } else if day.stock[lot] == 0 {
             Some(Miss::Empty)
         } else {
             None
@@ -1185,18 +1316,7 @@ mod tests {
                         town.upgrade(lot);
                     }
                 }
-                for lot in 0..LOTS {
-                    town.set_price(lot, Price::Fair);
-                }
-                assert!(town.open(chapter));
-                town.tick(chapter, 9.0);
-                for lot in (0..LOTS).rev() {
-                    if town.aid(lot) {
-                        assert!(!town.aid(lot));
-                        break;
-                    }
-                }
-                town.tick(chapter, chapter.day_seconds());
+                town = play_market(town, chapter, HarborPlan::Regular, Price::Fair);
                 let Phase::Report(report) = &town.phase else {
                     unreachable!()
                 };
@@ -1271,23 +1391,89 @@ mod tests {
             resolved: false,
             shop: None,
             miss: None,
+            guided_to: None,
         };
-        assert_eq!(
-            town.target(&town.production(chapter).stock, &visit, chapter),
-            None
-        );
+        let review = |town: &Town| {
+            let mut market = town.clone();
+            assert!(market.open(chapter));
+            let Phase::Open(day) = &market.phase else {
+                unreachable!()
+            };
+            target(&market.lots, day, &visit, chapter)
+        };
+        assert_eq!(review(&town), Err(Miss::Walk));
         assert!(town.remove(0));
         assert!(town.build(chapter, 9, Potter));
-        assert_eq!(
-            town.target(&town.production(chapter).stock, &visit, chapter),
-            None
-        );
+        assert_eq!(review(&town), Err(Miss::Price));
         assert!(town.set_price(9, Price::Fair));
-        assert_eq!(
-            town.target(&town.production(chapter).stock, &visit, chapter),
-            Some(9)
-        );
-        assert_eq!(town.target(&[0; LOTS], &visit, chapter), None);
+        assert_eq!(review(&town), Ok(9));
+        assert!(town.open(chapter));
+        let Phase::Open(day) = &mut town.phase else {
+            unreachable!()
+        };
+        day.stock[9] = 0;
+        assert_eq!(target(&town.lots, day, &visit, chapter), Err(Miss::Empty));
+    }
+
+    #[test]
+    fn a_resumed_nili_route_delivers_once_to_the_chosen_plot() {
+        let chapter = &CHAPTERS[1];
+        let mut town = Town::new(1, chapter);
+        assert!(town.build(chapter, 8, Well));
+        assert!(town.open(chapter));
+        let route = town
+            .dispatch(chapter, Job::Water, 7)
+            .unwrap_or_else(|_| panic!("reachable water route"));
+        assert!(matches!(
+            town.dispatch(chapter, Job::Freight, 7),
+            Err(Blocked::Busy)
+        ));
+        assert!(!town.tick(chapter, route.pickup_at + 0.2));
+        let packed = serde_json::to_vec(&town).unwrap();
+        let mut resumed: Town = serde_json::from_slice(&packed).unwrap();
+        let elapsed = route.finish - route.pickup_at;
+        for market in [&mut town, &mut resumed] {
+            assert!(!market.tick(chapter, elapsed));
+            let Phase::Open(day) = &market.phase else {
+                unreachable!()
+            };
+            assert!(day.route.is_none());
+            assert_eq!(day.tally.routes[Job::Water as usize], 1);
+            assert_eq!(day.nili_at, Stop::Parcel(7));
+            assert!(matches!(
+                market.dispatch(chapter, Job::Water, 7),
+                Err(Blocked::Done)
+            ));
+            assert!(market.tick(chapter, chapter.day_seconds()));
+            assert_eq!(market.goal(Goal::Route(Job::Water, 2)), (1, 2));
+        }
+        assert_eq!(town.coins, resumed.coins);
+        assert_eq!(town.totals.served, resumed.totals.served);
+    }
+
+    #[test]
+    fn a_guided_party_uses_the_selected_shop_and_normal_prices() {
+        let chapter = &CHAPTERS[2];
+        let mut town = Town::new(2, chapter);
+        assert!(town.build(chapter, 0, Potter));
+        assert!(town.set_price(0, Price::Fine));
+        assert!(town.open(chapter));
+        let route = town
+            .dispatch(chapter, Job::Welcome, 0)
+            .unwrap_or_else(|_| panic!("reachable escort"));
+        town.tick(chapter, route.finish + 2.0);
+        let Phase::Open(day) = &town.phase else {
+            unreachable!()
+        };
+        let party: Vec<_> = day
+            .visits
+            .iter()
+            .filter(|visit| visit.guided_to == Some(0))
+            .collect();
+        assert_eq!(party.len(), 2);
+        assert!(party.iter().all(|visit| {
+            visit.resolved && visit.origin == Origin::Ferry && visit.miss == Some(Miss::Price)
+        }));
     }
 
     fn reference_layout(i: usize, chapter: &Chapter) -> Vec<(usize, Kind)> {
@@ -1365,6 +1551,54 @@ mod tests {
             .max();
         if let Some((_, lot)) = best {
             assert!(town.aid(lot));
+        }
+        let distinct_required = chapter
+            .goals
+            .iter()
+            .any(|g| matches!(g, Goal::RouteVariety(_)));
+        let mut jobs = Job::ALL;
+        jobs.sort_by_key(|&job| {
+            let mandatory = chapter.goals.iter().any(|&g| {
+                matches!(g, Goal::Route(candidate, count) if candidate == job && town.totals.routes[job as usize] < count)
+            });
+            let distinct = distinct_required && town.totals.routes[job as usize] == 0;
+            (!mandatory, !distinct, job != Job::Quay)
+        });
+        for job in jobs {
+            let Phase::Open(day) = &town.phase else { break };
+            let targets = job.targets(&town, chapter);
+            let selected = targets
+                .iter()
+                .filter_map(|&lot| {
+                    let planned = job.plan(&town, chapter, lot).ok()?;
+                    let service = town.lots[lot].and_then(|b| b.kind.service());
+                    let stock = day.stock[lot];
+                    let demand = service.map_or(0, |service| {
+                        day.visits
+                            .iter()
+                            .filter(|v| !v.resolved && v.wants == service)
+                            .count() as u16
+                    });
+                    let relevant = service.is_some_and(|s| {
+                        chapter
+                            .goals
+                            .iter()
+                            .any(|&g| matches!(g, Goal::Serve(kind, _) if kind == s))
+                    });
+                    let benefit = if job == Job::Welcome {
+                        i32::from(stock.min(2)) * 20 + i32::from(relevant) * 12 - i32::from(demand)
+                    } else {
+                        i32::from(demand.saturating_sub(stock)) * 7 + i32::from(relevant)
+                    };
+                    Some((benefit, -(planned.finish as i32), lot))
+                })
+                .max();
+            if let Some((_, _, lot)) = selected {
+                let current = day.seconds;
+                if let Ok(route) = town.dispatch(chapter, job, lot) {
+                    town.tick(chapter, route.finish - current + 0.02);
+                }
+            }
         }
         town.tick(chapter, chapter.day_seconds());
         town

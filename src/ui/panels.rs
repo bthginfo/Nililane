@@ -1,7 +1,8 @@
 use super::*;
 use crate::{
     campaign::{Chapter, REGION_SIZE, Region},
-    model::{HarborPlan, MAX_LEVEL, Miss, Price, Report, SERVICES, Town},
+    errands::Job,
+    model::{HarborPlan, MAX_LEVEL, Miss, Origin, Price, Report, SERVICES, Town},
 };
 
 pub fn street_panel(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town) {
@@ -12,6 +13,7 @@ pub fn street_panel(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: 
         Panel::Details => details(p, hud, game, town, chapter),
         Panel::Goals => goals(p, hud, town, chapter),
         Panel::Forecast => forecast(p, hud, game, town, chapter),
+        Panel::Nili => nili(p, hud, town, chapter),
         Panel::Pause => pause(p, hud),
         Panel::Demolish => demolish(p, hud, game, town),
         Panel::Report => {
@@ -53,10 +55,11 @@ fn modal(
 
 fn brief(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter) {
     let heading = format!(
-        "{}  ·  HAFEN {}  ·  {}",
+        "{}  ·  HAFEN {}  ·  {}  ·  {} BAUPLÄTZE",
         Region::of(town.chapter).name().to_uppercase(),
         town.chapter - Region::of(town.chapter).start() + 1,
-        chapter.district.to_uppercase()
+        chapter.district.to_uppercase(),
+        chapter.layout.count()
     );
     modal(p, hud, 850.0, &heading, chapter.name, "ferry", |page| {
         page.spawn(Node {
@@ -92,6 +95,95 @@ fn brief(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter
             false,
         );
     });
+}
+
+fn nili(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter) {
+    let used = if let Phase::Open(day) = &town.phase {
+        day.tally.routes_today()
+    } else {
+        0
+    };
+    let heading = format!("{} VON {} TOUREN ERLEDIGT", used, Job::limit(town.chapter));
+    modal(
+        p,
+        hud,
+        905.0,
+        &heading,
+        "Nilis Hafenrunden",
+        "nili",
+        |page| {
+            let available: Vec<_> = Job::ALL
+                .into_iter()
+                .filter(|job| job.unlocked(town.chapter))
+                .collect();
+            for jobs in available.chunks(2) {
+                page.spawn(Node {
+                    align_items: AlignItems::Stretch,
+                    ..row(8.0)
+                })
+                .with_children(|choices| {
+                    for &job in jobs {
+                        let preview = super::job_preview(town, chapter, job);
+                        button_shell(
+                            choices,
+                            Action::ChooseJob(job),
+                            Style::Quiet,
+                            preview.is_err(),
+                            Node {
+                                flex_grow: 1.0,
+                                flex_basis: Val::Px(0.0),
+                                min_height: Val::Px(96.0),
+                                padding: UiRect::all(Val::Px(10.0)),
+                                ..column(5.0)
+                            },
+                        )
+                        .with_children(|card| {
+                            card.spawn(row(7.0)).with_children(|top| {
+                                icon(top, hud, job.icon(), 31.0);
+                                label(top, hud, job.name(), 21.0, Face::Bold, SAND);
+                            });
+                            label(card, hud, job.purpose(), 16.0, Face::Body, SAND);
+                            if let Err(reason) = preview {
+                                label(card, hud, reason.label(job), 15.0, Face::Body, MUTED);
+                            } else {
+                                label(
+                                    card,
+                                    hud,
+                                    "Ziel auf der Insel wählen",
+                                    15.0,
+                                    Face::Bold,
+                                    GOLD,
+                                );
+                            }
+                        });
+                    }
+                    if jobs.len() == 1 {
+                        choices.spawn(Node {
+                            flex_grow: 1.0,
+                            flex_basis: Val::Px(0.0),
+                            ..default()
+                        });
+                    }
+                });
+            }
+            hint(
+                page,
+                hud,
+                "Jede Tour geht einmal am Tag. Wähle den Auftrag und danach den Zielbauplatz. Während der Auswahl wartet der Hafen.",
+                "guide",
+            );
+            button(
+                page,
+                hud,
+                Action::Back,
+                "Zurück zum Hafen",
+                "",
+                "B",
+                Style::Quiet,
+                false,
+            );
+        },
+    );
 }
 
 fn build(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, chapter: &Chapter) {
@@ -284,7 +376,16 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
             }
             if town.planning() {
                 if let Some(estimate) = upgrade_estimate(town, chapter, lot) {
-                    label(page, hud, estimate, 17.0, Face::Body, MUTED);
+                    let appearance = expansion(b.kind, b.level + 1, Region::of(town.chapter));
+                    label(
+                        page,
+                        hud,
+                        format!("Nächster Ausbau · {appearance}"),
+                        17.0,
+                        Face::Bold,
+                        GOLD,
+                    );
+                    label(page, hud, estimate, 16.0, Face::Body, MUTED);
                 }
                 line(page, LINE);
                 page.spawn(Node {
@@ -341,6 +442,31 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
     );
 }
 
+fn expansion(kind: Kind, tier: u8, region: Region) -> &'static str {
+    let names = match kind {
+        Kind::House if region == Region::Greece => ["Balkon", "Dachpergola", "Schattenterrasse"],
+        Kind::House => ["Loggia", "Seitenflügel", "Arkaden"],
+        Kind::Well if region == Region::Greece => {
+            ["Ziehbrunnen mit Dach", "Tränke", "Hochbehälter"]
+        }
+        Kind::Well => ["Brunnenarkade", "Doppelter Auslauf", "Wasserturm"],
+        Kind::Bakery => ["Außenofen", "Brotregal", "Ofenturm"],
+        Kind::Grove => ["Dritter Olivenbaum", "Überdachte Rastbank", "Weinlaube"],
+        Kind::Potter => ["Brennofen", "Auslage", "Dachwerkstatt"],
+        Kind::Stoa => ["Sitzbänke", "Säulenvorbau", "Verziertes Dach"],
+        Kind::Taverna => ["Terrasse", "Überdachte Tische", "Obergeschoss"],
+        Kind::Inn => ["Breiter Balkon", "Balkondach", "Dachkammer"],
+        Kind::Storehouse => ["Ladeplatz", "Lastenkran", "Speicherboden"],
+        Kind::Press => ["Pressdach", "Krugablage", "Ölbehälter"],
+        Kind::Shrine => ["Altarstufen", "Stirngiebel", "Feuerschalen"],
+        Kind::Aqueduct => ["Zweite Arkadenreihe", "Wasserbecken", "Kopftürme"],
+        Kind::Baths => ["Zwei Seitenbecken", "Badegalerie", "Kuppelflügel"],
+        Kind::Forum => ["Marktlaube", "Obere Arkaden", "Stadtgiebel"],
+        Kind::Villa => ["Mosaikhof", "Säulenloggia", "Turmzimmer"],
+    };
+    names[usize::from(tier - 2)]
+}
+
 fn upgrade_estimate(town: &Town, chapter: &Chapter, lot: usize) -> Option<String> {
     let building = town.lots[lot]?;
     if building.level >= MAX_LEVEL {
@@ -389,6 +515,20 @@ fn goals(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter
                 super::screens::goal(page, hud, town, task);
             }
             hint(page, hud, chapter.hint, "nili");
+            if chapter
+                .goals
+                .iter()
+                .any(|g| matches!(g, crate::campaign::Goal::GoodDay(_)))
+            {
+                label(
+                    page,
+                    hud,
+                    "Die Zufriedenheit zählt am Abend, sobald mindestens 12 Gäste zurückgemeldet haben.",
+                    16.0,
+                    Face::Body,
+                    MUTED,
+                );
+            }
             label(
                 page,
                 hud,
@@ -632,6 +772,83 @@ fn mood(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town) {
             "check",
         );
     }
+
+    if let Phase::Open(day) = &town.phase {
+        let mut recent: Vec<_> = day
+            .visits
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.resolved)
+            .collect();
+        recent.sort_by(|a, b| b.1.at.total_cmp(&a.1.at));
+        if !recent.is_empty() {
+            label(page, hud, "Stimmen aus der Gasse", 18.0, Face::Bold, GOLD);
+            page.spawn(Node {
+                align_items: AlignItems::Stretch,
+                ..row(8.0)
+            })
+            .with_children(|voices| {
+                for (i, visit) in recent.into_iter().take(2) {
+                    let names = match Region::of(town.chapter) {
+                        Region::Greece => [
+                            "Kleio", "Doros", "Eleni", "Mara", "Ion", "Thaleia", "Nikos", "Ione",
+                        ],
+                        Region::Rome => [
+                            "Flavia", "Gaius", "Livia", "Felix", "Tertia", "Lucius", "Junia",
+                            "Marius",
+                        ],
+                    };
+                    let guest = match visit.origin {
+                        Origin::Home(_) => "Aus der Gasse",
+                        Origin::Ferry if visit.guided_to.is_some() => "Mit Nili unterwegs",
+                        Origin::Ferry => "Von der Fähre",
+                    };
+                    let quote = match visit.miss {
+                        Some(Miss::NoShop) => "Das habe ich hier vermisst.",
+                        Some(Miss::Walk) => "Der Laden war mir zu weit weg.",
+                        Some(Miss::Price) => "Das war für meinen Beutel zu teuer.",
+                        Some(Miss::Empty) => "Als ich ankam, war schon alles weg.",
+                        None if visit.shop.is_some() => "Ich habe gefunden, was ich wollte.",
+                        None => "Ich schaue mich noch um.",
+                    };
+                    card(
+                        voices,
+                        Node {
+                            flex_grow: 1.0,
+                            flex_basis: Val::Px(0.0),
+                            padding: UiRect::all(Val::Px(9.0)),
+                            ..row(8.0)
+                        },
+                        CARD,
+                    )
+                    .with_children(|voice| {
+                        icon(voice, hud, service_icon(visit.wants), 34.0);
+                        voice.spawn(column(2.0)).with_children(|words| {
+                            label(
+                                words,
+                                hud,
+                                format!(
+                                    "{} · {guest}",
+                                    names[(i + town.day as usize) % names.len()]
+                                ),
+                                15.0,
+                                Face::Bold,
+                                GOLD,
+                            );
+                            label(
+                                words,
+                                hud,
+                                format!("{}  ·  „{quote}“", visit.wants.name()),
+                                16.0,
+                                Face::Body,
+                                SAND,
+                            );
+                        });
+                    });
+                }
+            });
+        }
+    }
 }
 
 fn day_plan(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter) {
@@ -751,7 +968,15 @@ fn evening(
                     &format!("+{}", report.tally.reputation),
                     "Ansehen heute",
                 );
-                if report.tally.favors > 0 {
+                if report.tally.routes_today() > 0 {
+                    super::screens::stat(
+                        figures,
+                        hud,
+                        "nili",
+                        &report.tally.routes_today().to_string(),
+                        "Touren",
+                    );
+                } else if report.tally.favors > 0 {
                     super::screens::stat(figures, hud, "nili", "1", "Hafenbitte");
                 }
             });
@@ -1075,14 +1300,7 @@ fn hint(p: &mut ChildSpawnerCommands, hud: &Hud, content: &str, image: &str) {
 }
 
 pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
-    const PAGES: [&str; 6] = [
-        "Bedienung",
-        "Tageslauf",
-        "Waren",
-        "Hafenbitten",
-        "Reisen",
-        "Rom",
-    ];
+    const PAGES: [&str; 6] = ["Bedienung", "Tageslauf", "Waren", "Nili", "Reisen", "Rom"];
     modal(p, hud, 985.0, "", "Nilis Spielhilfe", "guide", |page| {
         page.spawn(row(7.0)).with_children(|tabs| {
             for (i, name) in PAGES.iter().enumerate() {
@@ -1112,7 +1330,7 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                 (
                     "sun",
                     "Direkt zur Aktion",
-                    "Y öffnet die Gasse und wechselt danach das Tempo. X zeigt Aufträge, RB das Hafenbuch. Mit Start öffnest du das Menü.",
+                    "Y öffnet die Gasse und wechselt danach das Tempo. X zeigt Aufträge, RB das Hafenbuch. Drück den rechten Stick für Nilis Touren. Start öffnet das Menü.",
                 ),
                 (
                     "chart",
@@ -1162,13 +1380,13 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                 ),
                 (
                     "well",
-                    "Eine Bitte pro Tag",
-                    "Für Krüge zu einem Brunnen gehen, für Schatten zu Hain oder Stoa, für einen Eilkorb zu einem Laden. Die Wirkung steht bei der Bitte im Hafenbuch.",
+                    "Nilis Touren",
+                    "Ab Amorgos öffnet der rechte Stick Nilis Touren. Wähle einen Auftrag und markiere das Ziel. Plane vorab, welcher Laden später Nachschub braucht.",
                 ),
                 (
                     "star",
-                    "Gute Nachbarschaft",
-                    "Hafenbitten füllen Vorräte auf und zählen für Aufträge und die Zusatzsterne. Die nächste Bitte steht schon morgens fest.",
+                    "Am richtigen Ort",
+                    "Für Wasser braucht Nili eine Quelle. Für Schatten sammelt er Zweige im Hain. Nach Unwetter macht er den Kai frei. Jede Tour geht einmal pro Tag.",
                 ),
             ],
             4 => [

@@ -1,6 +1,8 @@
 mod campaign;
 mod controls;
+mod errands;
 mod game;
+mod layout;
 mod model;
 mod save;
 mod ui;
@@ -70,6 +72,8 @@ pub fn run() {
                 game::audio,
                 world::sync,
                 world::animate,
+                world::animate_people,
+                world::animate_construction,
                 world::animate_weather,
             )
                 .chain(),
@@ -140,6 +144,7 @@ fn embed_assets(app: &App) {
         "audio/chapter_chime.wav",
         "audio/quest_accepted.wav",
         "audio/build_place.wav",
+        "audio/tier_assembly.wav",
         "audio/market_sale.wav",
         "audio/ferry_bell.wav",
         "audio/nili_aid.wav",

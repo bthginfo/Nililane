@@ -7,7 +7,9 @@ use bevy::{
 use crate::{
     campaign::{CHAPTERS, REGION_SIZE, Region},
     controls::{self, Controls, Direction},
-    model::{self, COLS, HarborPlan, Kind, Phase, Price, Town, Weather},
+    errands::{Job, Route},
+    layout::{lot_col, lot_id, lot_row},
+    model::{self, HarborPlan, Kind, LOTS, Phase, Price, Town, Weather},
     save::Campaign,
     ui::{self, Hud},
     world::StreetCamera,
@@ -30,6 +32,7 @@ pub enum Panel {
     Details,
     Goals,
     Forecast,
+    Nili,
     Pause,
     Options,
     Guide,
@@ -71,6 +74,9 @@ pub enum Action {
     ConfirmDemolish,
     Open,
     Aid,
+    Nili,
+    ChooseJob(Job),
+    Dispatch,
     Speed,
     NextDay,
 }
@@ -83,9 +89,18 @@ enum Cue {
     Earned,
     Day,
     Build,
+    Hammer,
     Ferry,
     Aid,
     Sale,
+}
+
+pub const BUILD_TIME: f32 = 1.58;
+
+#[derive(Clone, Copy)]
+pub struct Construction {
+    pub since: f32,
+    pub from: u8,
 }
 
 #[derive(Resource)]
@@ -97,6 +112,7 @@ pub struct Game {
     pub guide: usize,
     pub build_page: usize,
     pub ledger_page: usize,
+    pub job: Option<Job>,
     pub focus: Option<Action>,
     pub dirty: bool,
     pub world_version: u32,
@@ -106,6 +122,7 @@ pub struct Game {
     pub zoom: f32,
     pub pan: Vec2,
     pub clock: f32,
+    pub work: [Option<Construction>; LOTS],
     pub preview: Town,
     preview_rome: Town,
     checkpoint: f32,
@@ -116,7 +133,7 @@ impl Default for Game {
     fn default() -> Self {
         use Kind::*;
         let mut preview = Town::new(7, &CHAPTERS[7]);
-        preview.lots = [
+        preview.lots[..12].copy_from_slice(&[
             Some(model::Building::new(House)),
             Some(model::Building::new(Well)),
             Some(model::Building::new(Potter)),
@@ -129,9 +146,12 @@ impl Default for Game {
             Some(model::Building::new(Taverna)),
             None,
             Some(model::Building::new(House)),
-        ];
+        ]);
+        preview.lots[1].as_mut().unwrap().level = 2;
+        preview.lots[3].as_mut().unwrap().level = 3;
+        preview.lots[5].as_mut().unwrap().level = 2;
         let mut preview_rome = Town::new(CHAPTERS.len() - 1, &CHAPTERS[CHAPTERS.len() - 1]);
-        preview_rome.lots = [
+        preview_rome.lots[..12].copy_from_slice(&[
             Some(model::Building::new(House)),
             Some(model::Building::new(Well)),
             Some(model::Building::new(Grove)),
@@ -144,7 +164,13 @@ impl Default for Game {
             Some(model::Building::new(Potter)),
             Some(model::Building::new(Baths)),
             Some(model::Building::new(Inn)),
-        ];
+        ]);
+        for (lot, level) in [(3, 3), (4, 3), (5, 3), (10, 4)] {
+            preview_rome.lots[lot].as_mut().unwrap().level = level;
+        }
+        preview_rome.lots[12] = Some(model::Building::new(Grove));
+        preview_rome.lots[14] = Some(model::Building::new(Storehouse));
+        preview_rome.lots[16] = Some(model::Building::new(Villa));
         Self {
             view: View::Title,
             panel: Panel::None,
@@ -153,6 +179,7 @@ impl Default for Game {
             guide: 0,
             build_page: 0,
             ledger_page: 0,
+            job: None,
             focus: None,
             dirty: true,
             world_version: 0,
@@ -162,6 +189,7 @@ impl Default for Game {
             zoom: 0.0,
             pan: Vec2::ZERO,
             clock: 0.0,
+            work: [None; LOTS],
             preview,
             preview_rome,
             checkpoint: 0.0,
@@ -189,6 +217,8 @@ impl Game {
     fn transition(&mut self, view: View, panel: Panel) {
         if view != self.view {
             self.world_version += 1;
+            self.job = None;
+            self.work.fill(None);
         }
         self.view = view;
         self.show(panel);
@@ -198,6 +228,16 @@ impl Game {
         self.panel = panel;
         self.focus = None;
         self.dirty = true;
+    }
+
+    fn build_effect(&mut self, from: u8) {
+        let from = self.work[self.selected].map_or(from, |work| work.from);
+        self.work[self.selected] = Some(Construction {
+            since: self.clock,
+            from,
+        });
+        self.world_version += 1;
+        self.show(Panel::None);
     }
 
     fn message(&mut self, message: impl Into<String>, cue: Cue) {
@@ -236,11 +276,23 @@ pub fn frame(
     let dt = time.delta_secs();
     let real_dt = real.delta_secs();
     game.clock += dt;
+    let now = game.clock;
+    let mut finished = false;
+    for lot in &mut game.work {
+        if lot.is_some_and(|work| now - work.since >= BUILD_TIME) {
+            *lot = None;
+            finished = true;
+        }
+    }
+    if finished {
+        game.world_version += 1;
+    }
     game.note_left = (game.note_left - real_dt).max(0.0);
 
     let live = game.view == View::Street && game.panel == Panel::None;
-    if live && window.focused {
+    if live && game.job.is_none() && window.focused {
         let before = save.town.as_ref().and_then(day_feedback);
+        let dispatched = save.town.as_ref().and_then(active_route);
         let completed_day = save.town.as_mut().is_some_and(|town| {
             town.tick(
                 &CHAPTERS[town.chapter],
@@ -270,6 +322,13 @@ pub fn frame(
             } else if sales_after > sales_before {
                 game.cue = Some(Cue::Sale);
             }
+        }
+        if let Some(route) = dispatched
+            && save.town.as_ref().and_then(active_route).is_none()
+        {
+            game.message(route.job.delivered(), Cue::Aid);
+            game.dirty = true;
+            game.save(&save);
         }
         if after.is_some() {
             game.checkpoint += real_dt;
@@ -310,6 +369,13 @@ pub fn frame(
         return;
     }
 
+    if (live || game.panel == Panel::Nili)
+        && controls.got(controls::R3)
+        && save.town.as_ref().is_some_and(|town| town.chapter > 0)
+    {
+        apply(Action::Nili, &mut game, &mut save);
+        return;
+    }
     if live {
         let Some(town) = &save.town else { return };
         let chapter = &CHAPTERS[town.chapter];
@@ -317,7 +383,7 @@ pub fn frame(
             apply(Action::Goals, &mut game, &mut save);
             return;
         }
-        if controls.got(controls::Y) {
+        if controls.got(controls::Y) && game.job.is_none() {
             let action = if town.planning() {
                 Action::Open
             } else {
@@ -327,7 +393,9 @@ pub fn frame(
             return;
         }
         if controls.got(controls::A) {
-            let action = if can_aid(town, game.selected) {
+            let action = if game.job.is_some() {
+                Action::Dispatch
+            } else if can_aid(town, game.selected) {
                 Action::Aid
             } else {
                 Action::Plot
@@ -344,15 +412,18 @@ pub fn frame(
             game.pan = Vec2::ZERO;
         }
         if let Some(dir) = controls.direction {
-            let row = game.selected / COLS;
-            let col = game.selected % COLS;
-            let target = match dir {
-                Direction::Left => row * COLS + col.saturating_sub(1),
-                Direction::Right => row * COLS + (col + 1).min(chapter.columns - 1),
-                Direction::Up => game.selected % COLS,
-                Direction::Down => COLS + game.selected % COLS,
+            let row = lot_row(game.selected);
+            let col = lot_col(game.selected);
+            let (next_row, next_col) = match dir {
+                Direction::Left => (row, col.saturating_sub(1)),
+                Direction::Right => (row, col + 1),
+                Direction::Up => (0, col),
+                Direction::Down => (1, col),
             };
-            select(&mut game, target);
+            select(
+                &mut game,
+                lot_id(next_row, next_col.min(chapter.layout.row(next_row) - 1)),
+            );
         }
         let mut wheel = wheel;
         let scroll: f32 = wheel
@@ -387,10 +458,12 @@ pub fn frame(
                 }
             });
             if let (Some(pointer), Ok((camera, transform))) = (pointer, camera.single())
-                && let Some(lot) = crate::world::pick(camera, transform, pointer, chapter.columns)
+                && let Some(lot) = crate::world::pick(camera, transform, pointer, chapter.layout)
             {
                 if lot == game.selected {
-                    let action = if can_aid(town, lot) {
+                    let action = if game.job.is_some() {
+                        Action::Dispatch
+                    } else if can_aid(town, lot) {
                         Action::Aid
                     } else {
                         Action::Plot
@@ -416,6 +489,14 @@ pub fn frame(
     }
 }
 
+fn active_route(town: &Town) -> Option<Route> {
+    if let Phase::Open(day) = &town.phase {
+        day.route
+    } else {
+        None
+    }
+}
+
 fn day_feedback(town: &Town) -> Option<(f32, u32)> {
     match &town.phase {
         Phase::Open(day) => Some((day.seconds, day.tally.served_total())),
@@ -435,6 +516,7 @@ pub fn can_aid(town: &Town, lot: usize) -> bool {
         return false;
     };
     day.seconds >= 8.0
+        && day.route.is_none()
         && day.favor_at.is_none()
         && town.lots[lot].is_some_and(|b| day.favor.allows(b.kind))
 }
@@ -446,6 +528,8 @@ fn start(chapter: usize, game: &mut Game, save: &mut Campaign) {
     save.town = Some(Town::new(chapter, &CHAPTERS[chapter]));
     game.selected = if chapter == 0 { 2 } else { 1 };
     game.chart = chapter;
+    game.job = None;
+    game.work.fill(None);
     game.zoom = 0.0;
     game.pan = Vec2::ZERO;
     game.speed = 1;
@@ -463,6 +547,7 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
             let Some(town) = &save.town else { return };
             game.chart = town.chapter;
             game.selected = 1;
+            game.job = None;
             game.transition(
                 View::Street,
                 if matches!(town.phase, Phase::Report(_)) {
@@ -537,6 +622,10 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
         }
         Action::Back => {
             game.cue = Some(Cue::Back);
+            if game.panel == Panel::None && game.job.take().is_some() {
+                game.show(Panel::Nili);
+                return;
+            }
             match game.panel {
                 Panel::Options | Panel::Guide => {
                     let invoking = if game.panel == Panel::Options {
@@ -602,6 +691,48 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                 });
             }
         }
+        Action::Nili => {
+            game.job = None;
+            game.show(if game.panel == Panel::Nili {
+                Panel::None
+            } else {
+                Panel::Nili
+            });
+        }
+        Action::ChooseJob(job) => {
+            let Some(town) = &save.town else { return };
+            let chapter = &CHAPTERS[town.chapter];
+            let target = std::iter::once(game.selected)
+                .chain(chapter.layout.lots())
+                .find(|&lot| job.plan(town, chapter, lot).is_ok());
+            if let Some(lot) = target {
+                game.job = Some(job);
+                select(game, lot);
+                game.show(Panel::None);
+            }
+        }
+        Action::Dispatch => {
+            let (Some(town), Some(job)) = (&mut save.town, game.job) else {
+                return;
+            };
+            let chapter = &CHAPTERS[town.chapter];
+            match town.dispatch(chapter, job, game.selected) {
+                Ok(route) => {
+                    game.job = None;
+                    game.show(Panel::None);
+                    game.message(
+                        format!(
+                            "Nili ist unterwegs · {} → {}",
+                            route.pickup.label(town),
+                            route.delivery.label(town)
+                        ),
+                        Cue::Confirm,
+                    );
+                    game.save(save);
+                }
+                Err(reason) => game.message(reason.label(job), Cue::Blocked),
+            }
+        }
         Action::Goals => game.show(Panel::Goals),
         Action::Forecast => {
             game.ledger_page = 0;
@@ -640,18 +771,20 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
             if ok {
                 match edit {
                     Action::Build(kind) => {
-                        game.world_version += 1;
-                        game.show(Panel::None);
-                        game.message(format!("{} ist bereit.", kind.name()), Cue::Build);
+                        game.build_effect(0);
+                        game.message(format!("Neubau · {}", kind.name()), Cue::Build);
                     }
                     Action::Upgrade => {
-                        game.world_version += 1;
+                        let building =
+                            town.lots[game.selected].expect("an upgrade requires a building");
+                        game.build_effect(building.level - 1);
                         game.message(
-                            "Ausbau fertig. Mehr Vorrat beim nächsten Öffnen.",
-                            Cue::Confirm,
+                            format!("{} · Stufe {}", building.kind.name(), building.level),
+                            Cue::Hammer,
                         );
                     }
                     Action::ConfirmDemolish => {
+                        game.work[game.selected] = None;
                         game.world_version += 1;
                         game.show(Panel::None);
                         game.message("Der Bauplatz ist wieder frei.", Cue::Back);
@@ -784,6 +917,7 @@ pub fn audio(
             Cue::Earned => "embedded://audio/chapter_chime.wav",
             Cue::Day => "embedded://audio/quest_accepted.wav",
             Cue::Build => "embedded://audio/build_place.wav",
+            Cue::Hammer => "embedded://audio/tier_assembly.wav",
             Cue::Ferry => "embedded://audio/ferry_bell.wav",
             Cue::Aid => "embedded://audio/nili_aid.wav",
             Cue::Sale => "embedded://audio/market_sale.wav",
