@@ -1,0 +1,36 @@
+[package]
+name = "nililane"
+version = "1.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = ["desktop-gamepad"]
+desktop-gamepad = ["bevy/bevy_gilrs"]
+
+[dependencies]
+bevy = { version = "=0.16.1", default-features = false, features = [
+    "std", "async_executor", "multi_threaded", "bevy_log", "android-native-activity",
+    "bevy_asset", "bevy_audio", "bevy_color", "bevy_core_pipeline", "bevy_gltf",
+    "bevy_pbr", "bevy_render", "bevy_scene", "bevy_sprite", "bevy_text", "bevy_ui",
+    "bevy_window", "bevy_winit", "png", "vorbis", "wav", "x11",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(target_os = "android")'.dependencies]
+ndk-sys = "0.6"
+
+[profile.dev]
+debug = 0
+
+[profile.dev.package."*"]
+opt-level = 1
+
+[profile.release]
+opt-level = 2
+strip = "debuginfo"
+codegen-units = 16
