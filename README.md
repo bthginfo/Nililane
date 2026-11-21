@@ -5,7 +5,7 @@ reist du zuerst durch das antike Griechenland und danach durch das antike
 Rom. Du planst die Gasse am Morgen, versorgst Nachbarn und Fährgäste und hilfst
 tagsüber dort, wo sich die Lieferungen stauen.
 
-**[Nililane 1.0.0 für Android herunterladen](https://github.com/bthginfo/Nililane/releases/download/v1.0.0/Nililane-1.0.0.apk)** · [Veröffentlichung und Prüfsumme](https://github.com/bthginfo/Nililane/releases/tag/v1.0.0)
+**[Nililane 1.0.0 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/41b99f3b4f3aba070bc5998357d921c89215eba4/Nililane-1.0.0.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/41b99f3b4f3aba070bc5998357d921c89215eba4/Nililane-1.0.0.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v1.0.0)
 
 ![Nili vor der Backstube und dem Brunnen in Naxos](docs/bilder/naxos.jpg)
 
