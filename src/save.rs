@@ -24,6 +24,8 @@ pub struct Record {
 pub struct Campaign {
     version: u32,
     pub records: Vec<Record>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    adventures: Vec<usize>,
     pub town: Option<Town>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     moored: Vec<Town>,
@@ -41,6 +43,7 @@ impl Default for Campaign {
         Self {
             version: VERSION,
             records: vec![Record::default(); CHAPTERS.len()],
+            adventures: Vec::new(),
             town: None,
             moored: Vec::new(),
             tutorial: None,
@@ -129,6 +132,11 @@ impl Campaign {
         }
         progress.version = VERSION;
         progress.records.resize(CHAPTERS.len(), Record::default());
+        progress
+            .adventures
+            .retain(|&index| index < crate::adventure::LEVELS);
+        progress.adventures.sort_unstable();
+        progress.adventures.dedup();
         Some(progress)
     }
 
@@ -235,13 +243,21 @@ impl Campaign {
             .unwrap_or(0)
     }
 
+    pub fn reward_adventure(&mut self, island: usize) -> bool {
+        if self.adventures.contains(&island) {
+            return false;
+        }
+        self.adventures.push(island);
+        true
+    }
+
     pub fn available_stars(&self) -> u16 {
         let earned = self
             .records
             .iter()
             .map(|record| u16::from(record.stars.min(3)))
             .sum::<u16>();
-        earned.saturating_sub(self.wardrobe.spent())
+        (earned + 2 * self.adventures.len() as u16).saturating_sub(self.wardrobe.spent())
     }
 
     pub fn equip(&mut self, item: Cosmetic) -> bool {
@@ -249,11 +265,15 @@ impl Campaign {
     }
 
     pub fn cosmetic_available(&self, item: Cosmetic) -> bool {
-        item.requires_chapter().is_none_or(|chapter| {
-            self.records
-                .get(chapter)
-                .is_some_and(|record| record.stars > 0)
-        })
+        self.wardrobe.owns(item)
+            || item
+                .requires_adventure()
+                .is_some_and(|index| self.adventures.contains(&index))
+            || item.requires_chapter().is_none_or(|chapter| {
+                self.records
+                    .get(chapter)
+                    .is_some_and(|record| record.stars > 0)
+            })
     }
 }
 
@@ -406,7 +426,7 @@ fn valid_visit(visit: &crate::model::Visit, chapter: &crate::campaign::Chapter) 
         }
 }
 
-fn path() -> PathBuf {
+pub(crate) fn path() -> PathBuf {
     #[cfg(target_os = "android")]
     {
         if let Some(dir) = bevy::window::ANDROID_APP

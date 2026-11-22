@@ -1,5 +1,45 @@
 # Spielreview und Abnahme
 
+## Abenteuerkampagne 3.0.0
+
+- **Einstieg.** Auf Kleions Ufer wurden Rohstoffe gesammelt, ein Wohnhof
+  und ein Sägewerk gebaut und Bürger für die Produktion und zum Sammeln
+  eingeteilt. Die Backstube schloss die erste Insel ab. Anschließend
+  wurde das Tal der Oliven freigeschaltet und gestartet. Die Einführung öffnet die passende Baukategorie und gibt
+  dem empfohlenen Bauplan den Controller-Fokus. Die Ortsaktion folgt
+  dem markierten Tutorialziel, sobald Nili in Reichweite ist. Der
+  Touch-Stick sitzt unten links, getrennt von den Vorräten.
+  Die Einführung wurde auf der Karte erneut gestartet. Danach war der
+  vorhandene Siedlungsspielstand bytegenau identisch. Die Gebietsschalter
+  der Garderobe passen im Tabletformat in den Rahmen. Der Kauf und das
+  Speichern der Maulbeertoga wurden im Spiel geprüft.
+- **Spielentwicklung.** Der Kampagnentest löst alle 60 Inselziele mit
+  Vorräten, Baukosten, Ausbau, Produktionsketten und Bauplanaufträgen.
+  Er sucht mit den Spielkollisionen Wege zu den Rohstoffen und
+  Auftragsorten und speichert jede abgeschlossene Insel für einen
+  erneuten Ladevorgang. Überlappende Rohstoffplätze wurden korrigiert.
+  Die 90 Werkstattmodelle aller fünf Gebiete passen in ihre Bauplätze
+  und unterscheiden sich in jeder Stufe. Auch die 120 Häfen bleiben
+  Teil der automatisierten Prüfung.
+- **Spielkritik.** Spätere Inseln kombinieren Bergpfade, Warenlieferungen,
+  Gebäudeausbau und andere Vorratsziele. Im Spiel wurde die Lieferung
+  in Theras Aschefeldern abgegeben. Der Bestand sank um zwölf Mahlzeiten
+  und der Bauplan wurde freigeschaltet. Die Tag- und Nachtansicht wurde
+  in bebauten Siedlungen geprüft. Getrennte Vegetationsflächen lassen
+  sich beim Rendern außerhalb der Kamera ausblenden.
+- **Veröffentlichung.** Die signierten ARM64- und x86_64-APKs haben
+  Paketversion 14 und verwenden das Zertifikat der bisherigen Version.
+  Auf dem Android-Emulator im Tabletformat 800 × 600 wurden die
+  Installation über 2.7.0, der Einstieg über Touch, das Gehen mit dem
+  Touch-Stick, Sammeln mit der Xbox-A-Taste und die Inselkarte mit X
+  geprüft. Das bisherige Hafen-Save blieb bytegenau erhalten.
+  Der ARM64-Build wurde als Paket geprüft. Der Praxistest auf einem
+  physischen Tablet steht aus.
+
+Alle 41 Rust-Tests und Clippy mit `-D warnings` liefen erfolgreich.
+Die 65 Abenteuer-Musikdateien wurden als verschiedene Stereoaufnahmen
+im gepackten Vorbis-Format geprüft.
+
 ## Hafenreisen 2.7.0
 
 Die Kampagnenprüfung baut und versorgt alle 120 Häfen durch ihre regulären

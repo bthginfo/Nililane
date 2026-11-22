@@ -1,4 +1,9 @@
 mod actors;
+mod adventure;
+pub(crate) use adventure::{
+    Scene as AdventureScene, animate as adventure_animate, position as adventure_position,
+    sync as adventure_scene,
+};
 mod architecture;
 mod buildings;
 mod clothes;
@@ -628,6 +633,7 @@ pub use sky::{animate as animate_weather, setup as setup_weather};
 pub fn animate(
     game: Res<Game>,
     save: Res<Campaign>,
+    adventure: Res<crate::adventure::Adventure>,
     window: Single<&Window, With<PrimaryWindow>>,
     time: Res<Time>,
     mut ambient: ResMut<AmbientLight>,
@@ -643,6 +649,9 @@ pub fn animate(
         Query<(&JobPack, &mut Transform, &mut Visibility)>,
     )>,
 ) {
+    if game.view == View::Adventure && adventure.terrain.is_some() {
+        return;
+    }
     let town = game.visible_town(&save);
     let chapter = &CHAPTERS[town.chapter];
     let cols = chapter.layout.width();
@@ -698,6 +707,7 @@ pub fn animate(
             ortho.scaling_mode = ScalingMode::FixedVertical {
                 viewport_height: height,
             };
+            ortho.far = 160.0;
         }
         let offset = if lives.is_some() {
             if manual.is_some() { 0.0 } else { 0.095 }
@@ -736,6 +746,11 @@ pub fn animate(
             right * framing + v(0.0, 0.38, center + pan.y)
         };
         let eye = target + look * 36.0;
+        let blend = if camera.translation.distance(eye) > 120.0 {
+            1.0
+        } else {
+            blend
+        };
         camera.translation = camera.translation.lerp(eye, blend);
         let rotation = Transform::from_translation(eye)
             .looking_at(target, Vec3::Y)

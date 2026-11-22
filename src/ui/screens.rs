@@ -111,6 +111,16 @@ und viele kleine Geschichten.",
             Style::Quiet,
             false,
         );
+        button(
+            stack,
+            hud,
+            Action::Adventure(crate::adventure::Command::Enter),
+            "Abenteuerkampagne",
+            "adventure",
+            "",
+            Style::Quiet,
+            false,
+        );
         stack
             .spawn(Node {
                 width: Val::Percent(100.0),

@@ -5,6 +5,7 @@ use bevy::{
 };
 
 use crate::{
+    adventure::{Adventure, Command},
     campaign::{
         CHAPTERS, CORE_HARBORS, JAPAN_START, NORDIC_START, OASIS_START, REGION_SIZE, Region,
         main_route_end, next_harbor,
@@ -31,6 +32,7 @@ pub enum View {
     Title,
     Chart,
     Street,
+    Adventure,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -53,6 +55,7 @@ pub enum Panel {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
+    Adventure(Command),
     Begin,
     Resume,
     Chart,
@@ -129,6 +132,7 @@ enum Cue {
     Sale,
     TempleBell,
     CastOff,
+    Harvest(crate::adventure::Good),
 }
 
 pub const BUILD_TIME: f32 = 1.58;
@@ -361,6 +365,7 @@ impl Game {
     pub fn visible_town<'a>(&'a self, save: &'a Campaign) -> &'a Town {
         let region = match self.view {
             View::Street => return save.active_town().unwrap_or(&self.preview),
+            View::Adventure => return &self.preview,
             View::Chart => Region::of(self.chart),
             View::Title => save
                 .active_town()
@@ -375,7 +380,7 @@ impl Game {
         }
     }
 
-    fn transition(&mut self, view: View, panel: Panel) {
+    pub(crate) fn transition(&mut self, view: View, panel: Panel) {
         if view != self.view {
             self.world_version += 1;
             self.delivered = None;
@@ -391,7 +396,7 @@ impl Game {
         self.show(panel);
     }
 
-    fn show(&mut self, panel: Panel) {
+    pub(crate) fn show(&mut self, panel: Panel) {
         if !matches!(panel, Panel::Build | Panel::Details | Panel::Demolish) {
             self.return_to_guests = false;
         }
@@ -451,7 +456,26 @@ impl Game {
         self.cue = Some(cue);
     }
 
-    fn save(&mut self, save: &Campaign) {
+    pub(crate) fn adventure_notice(&mut self, message: impl Into<String>, success: bool) {
+        self.message(message, if success { Cue::Aid } else { Cue::Blocked });
+    }
+
+    pub(crate) fn harvest(&mut self, good: crate::adventure::Good, region: Region) {
+        self.message(
+            format!("+{} {}", good.harvest(), good.name(region)),
+            Cue::Harvest(good),
+        );
+    }
+
+    pub(crate) fn adventure_built(&mut self, name: &'static str) {
+        self.message(name, Cue::Build);
+    }
+
+    pub(crate) fn adventure_complete(&mut self) {
+        self.message("Insel abgeschlossen", Cue::Earned);
+    }
+
+    pub(crate) fn save(&mut self, save: &Campaign) {
         if let Err(error) = save.save() {
             warn!("Nililane: {error}");
             self.message(
@@ -478,6 +502,7 @@ pub fn frame(
     changed: Query<(&Interaction, &ui::ButtonAction), Changed<Interaction>>,
     buttons: ui::FocusButtons,
     walk_pad: ui::WalkPad,
+    mut adventure: ResMut<Adventure>,
 ) {
     let dt = time.delta_secs();
     let real_dt = real.delta_secs();
@@ -499,6 +524,24 @@ pub fn frame(
     let pressed = changed.iter().find_map(|(state, action)| {
         (*state == Interaction::Pressed && !action.disabled).then_some(action.action)
     });
+    if game.view == View::Adventure {
+        crate::adventure::step(
+            &mut adventure,
+            &mut game,
+            &mut save,
+            &controls,
+            &buttons,
+            pressed,
+            &hud,
+            *window,
+            camera.single().ok(),
+            &mouse,
+            &touches,
+            &walk_pad,
+            real_dt,
+        );
+        return;
+    }
     game.walking = false;
     let running = game.view == View::Street
         && matches!(
@@ -1127,10 +1170,12 @@ fn follow_step(step: Step, game: &mut Game, save: &mut Campaign) {
     }
 }
 
-fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
+pub(crate) fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
     game.cue = Some(Cue::Confirm);
 
     match action {
+        Action::Adventure(Command::Enter) => game.transition(View::Adventure, Panel::None),
+        Action::Adventure(_) => {}
         Action::Begin => start(0, false, game, save),
         Action::Resume => {
             let Some(town) = save.active_town_mut() else {
@@ -1265,7 +1310,7 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                         game.save(save);
                     }
                     View::Chart => game.transition(View::Title, Panel::None),
-                    View::Title => {}
+                    View::Title | View::Adventure => {}
                 },
                 _ => game.show(Panel::None),
             }
@@ -1693,6 +1738,8 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
 enum Track {
     Menu(Region),
     Harbor { chapter: usize, evening: bool },
+    Expedition(usize),
+    ExpeditionNight(Region),
 }
 
 impl Track {
@@ -1715,15 +1762,27 @@ impl Track {
                 evening: true,
             }
             .asset(),
+            Self::Expedition(island) => {
+                format!("{}audio/abenteuer/{island:02}.ogg", Self::asset_source())
+            }
+            Self::ExpeditionNight(region) => format!(
+                "{}audio/abenteuer/nacht-{}.ogg",
+                Self::asset_source(),
+                region as usize
+            ),
             Self::Harbor { chapter, evening } => {
                 let suffix = if evening { "-abend" } else { "" };
-                let source = if cfg!(target_os = "android") {
-                    ""
-                } else {
-                    "embedded://"
-                };
+                let source = Self::asset_source();
                 format!("{source}audio/harbors/{chapter:02}{suffix}.ogg")
             }
+        }
+    }
+
+    fn asset_source() -> &'static str {
+        if cfg!(target_os = "android") {
+            ""
+        } else {
+            "embedded://"
         }
     }
 }
@@ -1752,6 +1811,7 @@ pub fn audio(
     mut commands: Commands,
     mut game: ResMut<Game>,
     save: Res<Campaign>,
+    adventure: Res<Adventure>,
     assets: Res<AssetServer>,
     mut music: MusicVoices,
     time: Res<Time<Real>>,
@@ -1762,7 +1822,15 @@ pub fn audio(
     let town = game.visible_town(&save);
     let region = Region::of(town.chapter);
     let in_harbor = game.view == View::Street;
-    let track = if in_harbor {
+    let track = if game.view == View::Adventure {
+        let region = crate::adventure::Level::at(adventure.selected).region;
+        match adventure.terrain.as_ref().zip(adventure.active()) {
+            Some((terrain, island)) if (0.18..=0.82).contains(&island.phase) => {
+                Track::Expedition(terrain.level.index)
+            }
+            _ => Track::ExpeditionNight(region),
+        }
+    } else if in_harbor {
         Track::Harbor {
             chapter: town.chapter,
             evening: CHAPTERS[town.chapter].shift.night()
@@ -1847,7 +1915,18 @@ pub fn audio(
         }
         Ok(Some(mut sink)) => {
             if save.sounds && window.focused {
-                sink.set_volume(Volume::Linear(0.35 + swell * 0.28));
+                let coast_volume = if game.view == View::Adventure {
+                    adventure.terrain.as_ref().zip(adventure.active()).map_or(
+                        0.08,
+                        |(terrain, island)| {
+                            (0.32 - terrain.shore(Vec2::from_array(island.position)) * 0.012)
+                                .clamp(0.055, 0.33)
+                        },
+                    )
+                } else {
+                    0.35 + swell * 0.28
+                };
+                sink.set_volume(Volume::Linear(coast_volume));
                 sink.play();
             } else {
                 sink.pause();
@@ -1893,6 +1972,11 @@ pub fn audio(
             Cue::Sale => "embedded://audio/market_sale.wav",
             Cue::TempleBell => "embedded://audio/temple_bell.wav",
             Cue::CastOff => "embedded://audio/cast_off.wav",
+            Cue::Harvest(crate::adventure::Good::Wood) => "embedded://audio/abenteuer/wood.wav",
+            Cue::Harvest(crate::adventure::Good::Stone | crate::adventure::Good::Ore) => {
+                "embedded://audio/abenteuer/stone.wav"
+            }
+            Cue::Harvest(_) => "embedded://audio/abenteuer/forage.wav",
         };
         commands.spawn((
             AudioPlayer::new(assets.load(file)),

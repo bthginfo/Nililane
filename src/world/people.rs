@@ -125,6 +125,48 @@ pub fn stage(
     commands.insert_resource(Cast { clothes });
 }
 
+#[derive(Component)]
+pub(crate) struct WorkerJoint;
+
+pub(super) fn worker_rig(parent: &mut EntityCommands, cast: &Cast, index: usize, region: Region) {
+    let look = &cast.clothes[region as usize][8 + index % 8];
+    let mut joints = Vec::with_capacity(BONES);
+    parent.with_children(|root| {
+        joints.extend(look.rest.iter().map(|&at| {
+            root.spawn((WorkerJoint, Transform::from_translation(at)))
+                .id()
+        }));
+    });
+    parent.insert((
+        Mesh3d(look.mesh.clone()),
+        SkinnedMesh {
+            inverse_bindposes: look.bind.clone(),
+            joints,
+        },
+        NotShadowCaster,
+    ));
+}
+
+pub(super) fn worker_pose(
+    cast: &Cast,
+    index: usize,
+    region: Region,
+    stride: f32,
+    moving: f32,
+    seconds: f32,
+    busy: bool,
+) -> [Transform; BONES] {
+    let look = &cast.clothes[region as usize][8 + index % 8];
+    let mut joints = pose(look, stride, moving, seconds.sin(), None);
+    if busy {
+        let swing = (seconds * 4.6).sin() * 0.42;
+        joints[5].rotation *= Quat::from_rotation_x(-0.88 + swing);
+        joints[1].rotation *= Quat::from_rotation_x(-0.56 - swing * 0.35);
+        joints[0].rotation *= Quat::from_rotation_x(0.14 + swing * 0.09);
+    }
+    joints
+}
+
 fn outfit(index: usize, region: Region) -> (Mesh, [Vec3; BONES]) {
     let style = index % 8;
     let age = Age::ALL[index / 8];

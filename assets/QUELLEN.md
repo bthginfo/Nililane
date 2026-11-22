@@ -58,3 +58,16 @@ Fiktive Häfen und Karawanenorte mit Lehmhöfen, Gewölben, Palmen und
 Wasserstollen. `src/world/oasis.rs` gestaltet Gelände und Gebäude,
 `art/make_oasis_art.py` zeichnet Kartenbilder, Symbole und Nilis
 Kleidungsbilder. `art/harbor_scores.py` enthält die neuen Partituren.
+
+## Abenteuerkampagne
+
+Waldwinkel liefert die zusätzlich eingebundenen Erzmodelle
+`resource_copper.glb` und `resource_crystal.glb`. Die Abenteuerlandschaft,
+Rathäuser, Werkstätten und neuen Outfitmodelle entstehen aus den
+geometrischen Bausteinen von Nililane. [Waldwinkel, Quellstand](https://github.com/bthginfo/Waldwinkel/tree/148987b069b250a249f3216f47aedfbc3636985e)
+
+`art/make_adventure_art.py` zeichnet die Gebietsbilder, Materialsymbole und
+25 Vorschauen für die Garderobe. Die fünf Abenteuerpartituren und ihre
+Inselarrangements stehen in `art/make_adventure_music.py`. Die Aufnahme
+nutzt denselben SoundFont wie die Hafenmusik. Die Sammelklänge entstehen
+in `art/make_adventure_sfx.py`.

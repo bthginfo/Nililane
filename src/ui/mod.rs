@@ -1,3 +1,4 @@
+mod adventure;
 mod bubbles;
 mod guests;
 mod lessons;
@@ -7,6 +8,7 @@ mod screens;
 mod steering;
 mod wardrobe;
 
+pub(crate) use adventure::project as project_adventure;
 pub use steering::{WalkPad, WalkPointer, animate_walk_pad, walk_input};
 
 use std::collections::HashMap;
@@ -40,6 +42,7 @@ pub struct Hud {
     root: Option<Entity>,
     fonts: [Handle<Font>; 3],
     pictures: HashMap<String, Handle<Image>>,
+    adventure_map: Option<(usize, Handle<Image>)>,
 }
 
 #[derive(Component, Clone, Copy)]
@@ -93,11 +96,12 @@ pub fn setup(mut hud: ResMut<Hud>, assets: Res<AssetServer>) {
         assets.load("embedded://fonts/DMSans-Bold.ttf"),
         assets.load("embedded://fonts/DMSerifText-Regular.ttf"),
     ];
-    let icons = "house well bakery grove potter stoa taverna inn bread olive meze bed coin star sun water wind ferry fire chart book guide hammer lock check nili title_fade storehouse press shrine aqueduct baths forum villa mood cloud rain storm guest_book guest_down guest_empty guest_happy guest_mixed guest_steps guest_wait pad_dpad pad_view sunset pause budget age_child age_adult age_senior cat dog leaves scraps herb_garden machiya temple temple_bell rice_paddy rice_kitchen rice_bowl tea_garden tea_house tea_cup paper_workshop lampion longhouse fishery smokehouse woodlot boatyard sea_trade weaver feast_hall smoked_fish woven_cloth hearth_bowl moon apiary dyer ferry_office mill scribe garden_court market_garden ceramic_studio silk_shop sheepfold cooperage signal_tower oasis_home cistern date_garden spice_bazaar caravanserai qanat glassworks perfumer moon_garden carpet_hall caravan";
+    let icons = "house well bakery grove potter stoa taverna inn bread olive meze bed coin star sun water wind ferry fire chart book guide hammer lock check nili title_fade storehouse press shrine aqueduct baths forum villa mood cloud rain storm guest_book guest_down guest_empty guest_happy guest_mixed guest_steps guest_wait pad_dpad pad_view sunset pause budget age_child age_adult age_senior cat dog leaves scraps herb_garden machiya temple temple_bell rice_paddy rice_kitchen rice_bowl tea_garden tea_house tea_cup paper_workshop lampion longhouse fishery smokehouse woodlot boatyard sea_trade weaver feast_hall smoked_fish woven_cloth hearth_bowl moon apiary dyer ferry_office mill scribe garden_court market_garden ceramic_studio silk_shop sheepfold cooperage signal_tower oasis_home cistern date_garden spice_bazaar caravanserai qanat glassworks perfumer moon_garden carpet_hall caravan adventure adventure_wood adventure_stone adventure_clay adventure_ore adventure_food adventure_boards adventure_bricks adventure_tools adventure_blueprint adventure_labor adventure_hill adventure_craft adventure_cloth adventure_meals adventure_sawmill adventure_brickyard adventure_forge";
     for key in icons
         .split_whitespace()
         .map(str::to_owned)
         .chain((0..CHAPTERS.len()).map(|n| format!("island_{n}")))
+        .chain((0..crate::campaign::Region::ALL.len()).map(|n| format!("adventure_cover_{n}")))
         .chain(crate::cosmetics::Cosmetic::ALL.map(|item| item.icon().to_owned()))
     {
         hud.pictures
@@ -110,15 +114,35 @@ pub fn draw(
     mut hud: ResMut<Hud>,
     mut game: ResMut<Game>,
     save: Res<Campaign>,
+    expedition: Res<crate::adventure::Adventure>,
+    mut images: ResMut<Assets<Image>>,
 ) {
     if !game.dirty {
         return;
     }
     game.dirty = false;
+    if game.view == View::Adventure
+        && expedition.screen == crate::adventure::Screen::Map
+        && let Some(terrain) = expedition.terrain.as_ref()
+        && hud
+            .adventure_map
+            .as_ref()
+            .is_none_or(|(index, _)| *index != terrain.level.index)
+    {
+        hud.adventure_map = Some((
+            terrain.level.index,
+            images.add(adventure::map_image(terrain)),
+        ));
+    }
+
     if let Some(entity) = hud.root.take() {
         commands.entity(entity).despawn();
     }
-    hud.first = first(&game, &save);
+    hud.first = if game.view == View::Adventure && game.panel == Panel::None {
+        crate::adventure::first(&expedition)
+    } else {
+        first(&game, &save)
+    };
     let root = commands
         .spawn((
             Root,
@@ -135,6 +159,7 @@ pub fn draw(
                 (_, Panel::Options) => panels::options(base, &hud, &save),
                 (_, Panel::Wardrobe) => wardrobe::draw(base, &hud, &save, &game),
                 (View::Title, _) => screens::title(base, &hud, &save),
+                (View::Adventure, _) => adventure::draw(base, &hud, &expedition),
                 (View::Chart, _) => screens::chart(base, &hud, &game, &save),
                 (View::Street, panel) => {
                     let Some(town) = save.active_town() else {
@@ -226,6 +251,7 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
                 Action::Begin
             }
         }
+        (View::Adventure, _) => return None,
         (View::Chart, _) => Action::Choose(game.chart),
         (View::Street, Panel::None) => return None,
         (View::Street, Panel::Pause) => Action::Back,

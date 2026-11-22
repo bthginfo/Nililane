@@ -36,7 +36,7 @@ pub fn street_panel(
     }
 }
 
-fn modal(
+pub(super) fn modal(
     p: &mut ChildSpawnerCommands,
     hud: &Hud,
     width: f32,

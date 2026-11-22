@@ -43,6 +43,10 @@ pub fn dress(save: Res<Campaign>, mut clothes: Query<(&Costume, &mut Visibility)
 
 fn model(item: Cosmetic) -> Mesh {
     let mut fabric = Batch::default();
+    if let Some((base, trim)) = collection_colors(item) {
+        expedition(&mut fabric, item, base, trim);
+        return fabric.mesh();
+    }
     match item {
         Cosmetic::Sea => garment(&mut fabric, [53, 127, 155], [193, 224, 210], false),
         Cosmetic::Saffron => garment(&mut fabric, [213, 146, 66], [241, 201, 117], false),
@@ -321,6 +325,38 @@ fn model(item: Cosmetic) -> Mesh {
         _ => accessory(&mut fabric, item),
     }
     fabric.mesh()
+}
+
+fn collection_colors(item: Cosmetic) -> Option<(Tint, Tint)> {
+    use Cosmetic::*;
+    Some(match item {
+        AegeanChiton => ([64, 138, 153], [230, 194, 136]),
+        OlivePeplos => ([142, 155, 89], [230, 202, 137]),
+        MyrtleCrown => ([96, 148, 119], [240, 216, 163]),
+        FoldedPetasos => ([93, 127, 165], [224, 184, 124]),
+        ShellPin => ([237, 205, 185], [130, 180, 183]),
+        MulberryToga => ([155, 85, 117], [245, 212, 170]),
+        MosaicTunic => ([212, 163, 91], [66, 132, 123]),
+        RedPileus => ([169, 88, 81], [242, 194, 140]),
+        GoldLaurel => ([203, 156, 80], [249, 223, 142]),
+        SignetCord => ([206, 150, 87], [174, 103, 92]),
+        SakuraKosode => ([180, 105, 135], [248, 201, 173]),
+        MinoCape => ([171, 132, 86], [239, 211, 151]),
+        RiverKasa => ([128, 148, 117], [190, 216, 174]),
+        CranePin => ([241, 219, 176], [182, 123, 98]),
+        RicePouch => ([86, 120, 144], [223, 166, 118]),
+        SeaCloak => ([81, 117, 134], [214, 190, 154]),
+        TabletDress => ([125, 82, 95], [227, 180, 134]),
+        FurCap => ([155, 112, 84], [229, 194, 161]),
+        KnitBand => ([121, 108, 157], [224, 184, 137]),
+        KnotPendant => ([209, 174, 113], [91, 138, 136]),
+        OasisCaftan => ([54, 138, 129], [241, 192, 114]),
+        MoonSilk => ([120, 99, 143], [233, 204, 152]),
+        StarTurban => ([68, 91, 148], [243, 204, 119]),
+        CaravanVeil => ([202, 130, 93], [249, 223, 172]),
+        RoseFlask => ([180, 117, 145], [232, 189, 121]),
+        _ => return None,
+    })
 }
 
 fn accessory(b: &mut Batch, item: Cosmetic) {
@@ -767,4 +803,403 @@ fn hat(m: &mut Batch, color: Tint, band: Tint, straw: bool) {
         0.4,
         GOLD,
     );
+}
+
+fn expedition(b: &mut Batch, item: Cosmetic, base: Tint, trim: Tint) {
+    use Cosmetic::*;
+    let front = v(0.0, 0.72, 0.397);
+    let cap = v(0.0, 1.58, -0.06);
+    match item {
+        AegeanChiton | OlivePeplos | MulberryToga | MosaicTunic | OasisCaftan | MoonSilk => {
+            garment(
+                b,
+                base,
+                trim,
+                matches!(item, OlivePeplos | MulberryToga | MoonSilk),
+            );
+            for side in [-1.0, 1.0] {
+                b.block(
+                    v(side * 0.34, 0.868, -0.018),
+                    v(0.22, 0.136, 0.39),
+                    Quat::from_rotation_z(side * 0.31),
+                    shift(base, 12),
+                );
+            }
+            match item {
+                AegeanChiton | MosaicTunic => {
+                    for i in 0..8 {
+                        let a = i as f32 / 8.0 * std::f32::consts::PI;
+                        let p = v(a.cos() * 0.406, 0.524, a.sin() * 0.384);
+                        b.gem(p, 0.029, 0.026, 0.018, a, trim);
+                    }
+                    fabric_pin(b, front + v(0.125, -0.13, -0.005), trim, base);
+                }
+                OlivePeplos => {
+                    b.face(
+                        &[
+                            v(-0.25, 0.81, 0.344),
+                            v(0.24, 0.72, 0.333),
+                            v(0.29, 0.55, 0.310),
+                            v(-0.18, 0.60, 0.368),
+                        ],
+                        shift(base, 19),
+                    );
+                    for i in 0..5 {
+                        let x = i as f32 * 0.091 - 0.19;
+                        b.gem(
+                            v(x, 0.622 - x * 0.13, 0.377),
+                            0.032,
+                            0.044,
+                            0.012,
+                            0.2,
+                            trim,
+                        );
+                    }
+                }
+                MulberryToga => {
+                    b.beam(v(-0.32, 0.934, 0.275), v(0.39, 0.77, 0.332), 0.076, trim);
+                    b.beam(v(0.39, 0.77, 0.332), v(0.39, 0.51, 0.277), 0.072, trim);
+                    fabric_pin(b, front + v(-0.25, 0.17, -0.06), trim, shift(base, -19));
+                }
+                OasisCaftan => {
+                    for side in [-1.0, 1.0] {
+                        b.beam(
+                            front + v(side * 0.07, 0.14, -0.067),
+                            front + v(side * 0.11, -0.25, -0.022),
+                            0.032,
+                            trim,
+                        );
+                        for row in 0..3 {
+                            b.gem(
+                                front + v(side * 0.144, row as f32 * 0.08 - 0.16, -0.02),
+                                0.029,
+                                0.042,
+                                0.018,
+                                0.4,
+                                trim,
+                            );
+                        }
+                    }
+                }
+                MoonSilk => {
+                    for (x, y) in [(-0.19, 0.65), (0.19, 0.56), (0.29, 0.76)] {
+                        b.gem(
+                            v(x, y, 0.384 - x.abs() * 0.16),
+                            0.040,
+                            0.033,
+                            0.017,
+                            0.3,
+                            trim,
+                        );
+                        b.gem(
+                            v(x + 0.016, y + 0.013, 0.393 - x.abs() * 0.16),
+                            0.035,
+                            0.024,
+                            0.014,
+                            0.5,
+                            base,
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+        SakuraKosode => {
+            kosode(b, base, trim, true);
+            for (x, y, z) in [
+                (-0.34, 0.81, 0.28),
+                (0.19, 0.639, 0.36),
+                (0.34, 0.61, 0.256),
+            ] {
+                for petal in 0..5 {
+                    let a = petal as f32 * TAU / 5.0;
+                    b.gem(
+                        v(x + a.cos() * 0.039, y + a.sin() * 0.039, z),
+                        0.029,
+                        0.032,
+                        0.019,
+                        a,
+                        trim,
+                    );
+                }
+            }
+        }
+        MinoCape => {
+            kosode(b, shift(base, -21), trim, false);
+            for row in 0..3 {
+                for i in 0..13 {
+                    let a = (i as f32 / 12.0 + 0.5) * std::f32::consts::PI;
+                    let y = 0.96 - row as f32 * 0.108;
+                    let r = 0.34 + row as f32 * 0.046;
+                    let top = v(r * a.sin(), y, r * a.cos() - 0.11);
+                    let bottom = top + v(a.sin() * 0.09, -0.156, a.cos() * 0.104);
+                    b.beam(top, bottom, 0.04, shift(base, (i % 5) as i16 * 9 - 14));
+                    b.beam(top.midpoint(bottom), bottom, 0.025, trim);
+                }
+            }
+        }
+        SeaCloak | TabletDress => {
+            wool_coat(b, base, trim, item == SeaCloak);
+            for i in 0..6 {
+                let x = i as f32 * 0.087 - 0.216;
+                let z = 0.413 - x.abs() * 0.27;
+                if item == SeaCloak {
+                    b.gem(
+                        v(x, 0.915, z - 0.079),
+                        0.071,
+                        0.067,
+                        0.055,
+                        0.36 * i as f32,
+                        trim,
+                    );
+                } else {
+                    b.block(
+                        v(x, 0.626, z),
+                        v(0.05, 0.05, 0.02),
+                        Quat::from_rotation_z(0.75),
+                        trim,
+                    );
+                    b.beam(v(x, 0.75, z), v(x, 0.67, z), 0.01, shift(trim, 16));
+                }
+            }
+        }
+        MyrtleCrown | GoldLaurel | KnitBand => {
+            for i in 0..18 {
+                let a = i as f32 * TAU / 18.0;
+                let p = v(a.cos() * 0.339, 1.55 + a.sin() * 0.044, a.sin() * 0.304);
+                b.block(
+                    p,
+                    v(0.112, 0.047, 0.036),
+                    Quat::from_rotation_y(-a - 1.13) * Quat::from_rotation_z(0.29),
+                    shift(base, (i % 3) as i16 * 11),
+                );
+                if item != KnitBand {
+                    let form = if item == MyrtleCrown { 0.024 } else { 0.039 };
+                    b.gem(
+                        p + v(a.cos() * 0.016, 0.043, a.sin() * 0.022),
+                        form,
+                        0.040,
+                        0.023,
+                        a,
+                        trim,
+                    );
+                }
+                if item == MyrtleCrown && i % 3 == 0 {
+                    b.gem(p + Vec3::Y * 0.071, 0.045, 0.038, 0.043, a, trim);
+                }
+            }
+            if item == KnitBand {
+                fabric_pin(b, v(0.048, 1.57, 0.327), trim, base);
+            }
+        }
+        FoldedPetasos | RiverKasa => {
+            let wide = item == RiverKasa;
+            b.frustum(cap, 0.474, 0.485, 0.039, 12, shift(base, -12));
+            b.frustum(
+                cap + Vec3::Y * 0.04,
+                0.485,
+                if wide { 0.115 } else { 0.279 },
+                0.142,
+                12,
+                base,
+            );
+            b.frustum(
+                cap + Vec3::Y * 0.18,
+                if wide { 0.115 } else { 0.279 },
+                0.089,
+                0.031,
+                12,
+                trim,
+            );
+            for i in 0..12 {
+                let d = Vec2::from_angle(i as f32 * TAU / 12.0);
+                b.beam(
+                    cap + v(d.x * 0.456, 0.057, d.y * 0.456),
+                    cap + v(d.x * 0.18, 0.16, d.y * 0.18),
+                    0.012,
+                    shift(trim, -15),
+                );
+            }
+            if !wide {
+                b.block(
+                    cap + v(0.36, 0.096, 0.05),
+                    v(0.15, 0.14, 0.38),
+                    Quat::from_rotation_z(-0.51),
+                    trim,
+                );
+            }
+        }
+        RedPileus => {
+            b.frustum(cap, 0.364, 0.351, 0.061, 14, trim);
+            b.frustum(cap + Vec3::Y * 0.054, 0.351, 0.18, 0.199, 14, base);
+            b.gem(
+                cap + v(0.037, 0.22, -0.026),
+                0.153,
+                0.117,
+                0.152,
+                0.31,
+                shift(base, 10),
+            );
+        }
+        CranePin => {
+            let tip = cap + v(0.35, 0.13, 0.09);
+            b.beam(
+                tip - v(0.01, 0.304, 0.01),
+                tip + v(-0.09, 0.06, 0.0),
+                0.025,
+                trim,
+            );
+            b.gem(tip, 0.102, 0.041, 0.08, 0.36, base);
+            b.beam(tip, tip + v(-0.079, 0.081, -0.01), 0.026, base);
+            b.beam(
+                tip + v(-0.079, 0.081, -0.01),
+                tip + v(-0.109, 0.072, 0.032),
+                0.015,
+                trim,
+            );
+            for side in [-1.0, 1.0] {
+                b.face(
+                    &[
+                        tip,
+                        tip + v(0.129, 0.047, side * 0.094),
+                        tip + v(0.084, -0.071, side * 0.12),
+                    ],
+                    shift(base, 11),
+                );
+                b.beam(
+                    tip + v(0.072, -0.05, side * 0.09),
+                    tip + v(0.121, 0.039, side * 0.079),
+                    0.012,
+                    trim,
+                );
+            }
+        }
+        FurCap => {
+            b.frustum(cap, 0.401, 0.399, 0.087, 13, trim);
+            b.gem(cap + Vec3::Y * 0.131, 0.359, 0.163, 0.339, 0.60, base);
+            for side in [-1.0, 1.0] {
+                b.gem(
+                    cap + v(side * 0.36, -0.065, 0.034),
+                    0.077,
+                    0.152,
+                    0.104,
+                    0.2,
+                    trim,
+                );
+                b.beam(
+                    cap + v(side * 0.363, -0.141, 0.072),
+                    cap + v(side * 0.353, -0.245, 0.089),
+                    0.026,
+                    base,
+                );
+            }
+        }
+        StarTurban | CaravanVeil => {
+            b.gem(cap + Vec3::Y * 0.095, 0.405, 0.192, 0.366, 0.25, base);
+            for i in 0..16 {
+                let angle = i as f32 * TAU / 16.0;
+                let p = cap
+                    + v(
+                        angle.cos() * 0.361,
+                        0.004 + angle.sin() * 0.04,
+                        angle.sin() * 0.343,
+                    );
+                b.block(
+                    p,
+                    v(0.136, 0.048, 0.053),
+                    Quat::from_rotation_y(-angle) * Quat::from_rotation_z(0.52),
+                    shift(base, (i % 4) as i16 * 10),
+                );
+            }
+            if item == StarTurban {
+                fabric_pin(b, cap + v(0.016, 0.126, 0.371), trim, [109, 165, 171]);
+                b.beam(
+                    cap + v(0.014, 0.15, 0.343),
+                    cap + v(0.12, 0.33, 0.246),
+                    0.049,
+                    trim,
+                );
+            } else {
+                for side in [-1.0, 1.0] {
+                    let edge = cap + v(side * 0.35, -0.035, 0.14);
+                    b.face(
+                        &[
+                            edge,
+                            cap + v(side * 0.28, 0.058, -0.21),
+                            cap + v(side * 0.39, -0.377, -0.175),
+                            cap + v(side * 0.34, -0.249, 0.225),
+                        ],
+                        trim,
+                    );
+                    b.beam(edge, cap + v(side * 0.34, -0.249, 0.225), 0.029, base);
+                }
+            }
+        }
+        ShellPin | SignetCord | RicePouch | KnotPendant | RoseFlask => {
+            collection_accessory(b, item, base, trim);
+        }
+        _ => {}
+    }
+}
+
+fn collection_accessory(b: &mut Batch, item: Cosmetic, base: Tint, trim: Tint) {
+    use Cosmetic::*;
+    let center = v(0.042, 0.737, 0.415);
+    if matches!(item, RicePouch | RoseFlask) {
+        let at = v(0.392, 0.60, 0.235);
+        b.beam(
+            v(-0.292, 0.934, 0.267),
+            at + v(-0.032, 0.10, 0.074),
+            0.027,
+            trim,
+        );
+        b.beam(v(-0.287, 0.94, -0.236), v(0.36, 0.608, -0.302), 0.027, base);
+        if item == RicePouch {
+            b.gem(at, 0.136, 0.133, 0.124, 0.29, base);
+            b.beam(
+                at + v(-0.087, 0.087, 0.071),
+                at + v(0.084, 0.069, 0.078),
+                0.039,
+                trim,
+            );
+            for y in [0.55, 0.58, 0.61] {
+                b.beam(v(0.372, y, 0.344), v(0.413, y - 0.009, 0.345), 0.007, trim);
+            }
+        } else {
+            b.gem(at, 0.098, 0.145, 0.089, 0.31, base);
+            b.frustum(at + Vec3::Y * 0.095, 0.042, 0.042, 0.047, 10, trim);
+            b.gem(at + v(0.0, 0.0, 0.089), 0.038, 0.052, 0.017, 0.32, trim);
+        }
+    } else if item == ShellPin {
+        let at = v(-0.259, 0.847, 0.32);
+        b.gem(at, 0.089, 0.074, 0.038, 0.31, trim);
+        for i in 0..5 {
+            let a = i as f32 / 4.0 * std::f32::consts::PI;
+            b.beam(
+                at + v(0.0, -0.016, 0.039),
+                at + v(a.cos() * 0.081, a.sin() * 0.064, 0.031),
+                0.019,
+                base,
+            );
+        }
+    } else {
+        b.beam(v(-0.21, 0.937, 0.29), center, 0.018, trim);
+        b.beam(v(0.25, 0.937, 0.288), center, 0.018, trim);
+        if item == SignetCord {
+            fabric_pin(b, center, base, trim);
+            b.block(
+                center + Vec3::Z * 0.027,
+                v(0.035, 0.035, 0.025),
+                Quat::from_rotation_z(0.65),
+                shift(base, 18),
+            );
+        } else {
+            for i in 0..3 {
+                let a = i as f32 * TAU / 3.0;
+                let at = center + v(a.cos() * 0.035, a.sin() * 0.041 - 0.01, 0.011);
+                b.gem(at, 0.044, 0.046, 0.022, a, base);
+                b.gem(at + Vec3::Z * 0.019, 0.019, 0.028, 0.012, a, trim);
+            }
+        }
+    }
 }

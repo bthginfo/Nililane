@@ -1,13 +1,17 @@
-# Nililane 2.7.0
+# Nililane 3.0.0
 
 Nililane ist ein 3D-Straßenmanagementspiel in Rust und Bevy. Mit Nili
 reist du durch Griechenland, Rom, Japan, die nordischen Häfen und die
 Oasenreiche. In der Planung baust du die Gasse und legst Angebote fest.
 Während der Schicht steuerst du Nili und versorgst Nachbarn und Reisende.
+In der Abenteuerkampagne erkundest du größere Inseln und baust dort eigene
+Siedlungen.
 
-**[Android-APK für ARM64-Tablets](https://media.githubusercontent.com/media/bthginfo/Nililane/3c9270b01b1d4d1328ab1b630d1f1004c90c767e/Nililane-2.7.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/3c9270b01b1d4d1328ab1b630d1f1004c90c767e/Nililane-2.7.0-x86_64.apk) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.7.0)
+**[Android-APK für ARM64-Tablets](https://media.githubusercontent.com/media/bthginfo/Nililane/20830f458d0e0f4b5ef68180a67d3578a62346fa/Nililane-3.0.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/20830f458d0e0f4b5ef68180a67d3578a62346fa/Nililane-3.0.0-x86_64.apk) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v3.0.0)
 
-[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/3c9270b01b1d4d1328ab1b630d1f1004c90c767e/Nililane-2.7.0.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/3c9270b01b1d4d1328ab1b630d1f1004c90c767e/Nililane-2.7.0-x86_64.apk.sha256)
+[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/20830f458d0e0f4b5ef68180a67d3578a62346fa/Nililane-3.0.0.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/20830f458d0e0f4b5ef68180a67d3578a62346fa/Nililane-3.0.0-x86_64.apk.sha256)
+
+![Siedlung auf der griechischen Torinsel mit Werkstätten und Bürgern](docs/bilder/abenteuer-siedlung.jpg)
 
 ![Nachtschicht in Raml Yasmin mit beleuchteten Gassen, Mondgarten und Karawanserei](docs/bilder/oasen-nacht.jpg)
 
@@ -50,6 +54,43 @@ Für Bauplätze, Preise und Angebote nutzt du morgens die Planung.
 Mit der Tastatur bewegst du Nili mit WASD oder den Pfeiltasten. Enter
 entspricht A, Escape entspricht B. X, Y, P, Q und E entsprechen X, Y,
 Start, LB und RB. N öffnet Nilis Touren. F öffnet das Gästebuch.
+
+## Abenteuerkampagne
+
+Im Hauptmenü erreichst du die **Abenteuerkampagne**. Auf jeder Insel wartet
+ein Rathaus. Sammle vor Ort Holz, Stein und Nahrung, baue einen Wohnhof und
+weise deinen ersten Bürger dem Sägewerk zu. Das Auftragsbuch zeigt, welche
+Gebäude, Ausbauten und Vorräte du für die nächste Insel brauchst.
+Tippe auf eine Markierung auf der Karte, um den Weg zu sehen.
+
+![Inselkarte mit Geländeformen, Rohstoffplätzen und Lagerbestand](docs/bilder/abenteuer-karte.jpg)
+
+- 60 Inseln in fünf Gebieten mit 10 bis 32 Bauplätzen. Nach den zwölf
+  Inseln eines Gebiets öffnet sich das nächste.
+- Brunnen, Werkstätten, Läden und Gemeinschaftsbauten bilden
+  Produktionsketten. Lehm, Holz und Wasser ergeben in der Ziegelei Ziegel.
+  Die Schmiede braucht Erz, Holz und Nahrung. Fehlende Zutaten stehen
+  direkt am Betrieb.
+- Auf späteren Inseln schalten Fundstücke und Warenlieferungen Baupläne
+  für neue Gebäude oder höhere Ausbaustufen frei.
+- Tageslicht, Laternen und Musik wechseln während des Spiels. Du kannst
+  jederzeit weiter sammeln und bauen.
+- Die Einführung lässt sich auf der Abenteuerkarte erneut starten.
+  Die Siedlungen und die Hafenreisen haben eigene Spielstände. Sterne und
+  die Garderobe gehören in beiden Modi zu Nili.
+- 25 neue Teile ergänzen die Garderobe auf insgesamt 68 Stücke.
+  Das Schloss zeigt die passende Insel. Nach dem Abschluss kannst du das
+  Teil mit Sternen kaufen.
+
+| Im Abenteuer | Xbox-Controller und Touch |
+| --- | --- |
+| Bewegen | Linker Stick, Steuerkreuz oder den Touch-Stick ziehen |
+| Vor Ort sammeln, bauen oder mit einem Gebäude interagieren | A, auf das Objekt oder die goldene Aktion tippen |
+| Rohstoffdetails und Bürgerzuweisung | Rechten Stick drücken oder auf „Details“ tippen |
+| Inselkarte und Lager | X oder „Karte“ |
+| Bürgeraufträge | Y oder „Bürger“ |
+| Aufträge | RB oder „Aufträge“ |
+| Pause | Start, B oder „Pause“ |
 
 ## Neu in 2.7.0
 

@@ -60,9 +60,9 @@ with ZipFile(root / "linked.apk", "a") as apk:
     for abi in sys.argv[2:]:
         apk.write(root / "native" / abi / "libnililane.so", f"lib/{abi}/libnililane.so",
                   compress_type=ZIP_DEFLATED, compresslevel=6)
-    music = Path("assets/audio/harbors")
-    for track in sorted(music.glob("*.ogg")):
-        apk.write(track, f"assets/audio/harbors/{track.name}", compress_type=ZIP_STORED)
+    for album in ("harbors", "abenteuer"):
+        for track in sorted(Path("assets/audio", album).glob("*.ogg")):
+            apk.write(track, f"assets/audio/{album}/{track.name}", compress_type=ZIP_STORED)
 PYRSA
 
 if [[ -n "${NILILANE_KEYSTORE:-}" ]]; then

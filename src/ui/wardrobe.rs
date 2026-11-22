@@ -31,29 +31,45 @@ pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign, gam
                     panels::metric(head, hud, "star", format!("{stars} Sterne"));
                 });
             line(closet, LINE);
-            closet.spawn(row(6.0)).with_children(|tabs| {
-                for (region, title, image) in [
-                    (None, "Antike", "forum"),
-                    (Some(Region::Japan), "Japan", "temple"),
-                    (Some(Region::Nordic), "Nordisch", "boatyard"),
-                    (Some(Region::Oasis), "Oasen", "oasis_home"),
-                ] {
-                    button(
-                        tabs,
-                        hud,
-                        Action::WardrobeRegion(region),
-                        title,
-                        image,
-                        "",
-                        if game.wardrobe_region == region {
-                            Style::Selected
-                        } else {
-                            Style::Quiet
-                        },
-                        false,
-                    );
-                }
-            });
+            closet
+                .spawn(Node {
+                    flex_wrap: FlexWrap::Wrap,
+                    row_gap: Val::Px(6.0),
+                    ..row(5.0)
+                })
+                .with_children(|tabs| {
+                    for (region, title, art) in [
+                        (None, "Klassiker", ""),
+                        (Some(Region::Greece), "Griechenland", "ferry"),
+                        (Some(Region::Rome), "Rom", "forum"),
+                        (Some(Region::Japan), "Japan", "temple"),
+                        (Some(Region::Nordic), "Norden", "boatyard"),
+                        (Some(Region::Oasis), "Oasen", "oasis_home"),
+                    ] {
+                        button_shell(
+                            tabs,
+                            Action::WardrobeRegion(region),
+                            if game.wardrobe_region == region {
+                                Style::Selected
+                            } else {
+                                Style::Quiet
+                            },
+                            false,
+                            Node {
+                                min_height: Val::Px(46.0),
+                                padding: UiRect::horizontal(Val::Px(8.0)),
+                                justify_content: JustifyContent::Center,
+                                ..row(5.0)
+                            },
+                        )
+                        .with_children(|tab| {
+                            if !art.is_empty() {
+                                icon(tab, hud, art, 21.0);
+                            }
+                            label(tab, hud, title, 16.0, Face::Bold, SAND);
+                        });
+                    }
+                });
             closet.spawn(row(6.0)).with_children(|tabs| {
                 for category in Category::ALL {
                     button(
@@ -119,7 +135,30 @@ pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign, gam
                                 };
                                 panels::metric(tile, hud, art, cost);
                                 if let Some(island) = item.requires_chapter().filter(|_| locked) {
-                                    panels::metric(tile, hud, "lock", CHAPTERS[island].district);
+                                    tile.spawn(super::row(3.0)).with_children(|r| {
+                                        icon(r, hud, "lock", 15.0);
+                                        label(
+                                            r,
+                                            hud,
+                                            CHAPTERS[island].district,
+                                            14.0,
+                                            Face::Bold,
+                                            MUTED,
+                                        );
+                                    });
+                                    if let Some(index) = item.requires_adventure() {
+                                        label(
+                                            tile,
+                                            hud,
+                                            format!(
+                                                "oder {}",
+                                                crate::adventure::Level::at(index).name
+                                            ),
+                                            13.0,
+                                            Face::Body,
+                                            MUTED,
+                                        );
+                                    }
                                 }
                             });
                         }

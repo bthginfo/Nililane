@@ -1,3 +1,4 @@
+mod adventure;
 mod campaign;
 mod caravan;
 mod coach;
@@ -56,9 +57,18 @@ pub fn run() {
     app.add_plugins(plugins);
 
     embed_assets(&app);
+    let mut campaign = Campaign::load();
+    let adventure = adventure::Adventure::default();
+    if adventure.restore_rewards(&mut campaign)
+        && let Err(error) = campaign.save()
+    {
+        warn!("Nililane kann die Abenteuersterne noch nicht speichern: {error}");
+    }
     app.insert_resource(ClearColor(Color::srgb_u8(119, 176, 178)))
-        .insert_resource(Campaign::load())
+        .insert_resource(campaign)
         .init_resource::<Game>()
+        .insert_resource(adventure)
+        .init_resource::<world::AdventureScene>()
         .init_resource::<Controls>()
         .init_resource::<Hud>()
         .init_resource::<world::Reactions>()
@@ -79,25 +89,37 @@ pub fn run() {
         .add_systems(
             Update,
             (
-                controls::poll,
-                frame,
-                ui::draw,
-                ui::refresh,
-                ui::animate_walk_pad,
-                ui::refresh_guest_summary,
-                game::audio,
-                world::sync,
-                world::animate,
-                world::dress_nili,
-                world::animate_people,
-                world::animate_work,
-                world::animate_bells,
-                ui::update_reactions,
-                ui::update_prompts,
-                ui::update_lessons,
-                world::animate_construction,
-                world::animate_weather,
-                world::animate_pets,
+                (
+                    controls::poll,
+                    frame,
+                    ui::draw,
+                    ui::refresh,
+                    ui::animate_walk_pad,
+                    ui::refresh_guest_summary,
+                    game::audio,
+                )
+                    .chain(),
+                (
+                    world::sync,
+                    world::animate,
+                    world::dress_nili,
+                    world::animate_people,
+                    world::animate_work,
+                    world::animate_bells,
+                    ui::update_reactions,
+                    ui::update_prompts,
+                    ui::update_lessons,
+                    world::animate_construction,
+                )
+                    .chain(),
+                (
+                    world::adventure_scene,
+                    world::adventure_animate,
+                    ui::project_adventure,
+                    world::animate_weather,
+                    world::animate_pets,
+                )
+                    .chain(),
             )
                 .chain(),
         );
@@ -178,6 +200,22 @@ fn embed_assets(app: &App) {
         "104", "105", "106", "107", "108", "109", "110", "111", "112", "113", "114", "115", "116",
         "117", "118", "119",
     );
+    #[cfg(not(target_os = "android"))]
+    macro_rules! expedition_scores {
+        ($($id:literal),* $(,)?) => {
+            $(registry.insert_asset(Path::new(concat!("audio/abenteuer/", $id, ".ogg")).into(),
+                Path::new(concat!("audio/abenteuer/", $id, ".ogg")),
+                include_bytes!(concat!("../assets/audio/abenteuer/", $id, ".ogg")).as_slice());)*
+        };
+    }
+    #[cfg(not(target_os = "android"))]
+    expedition_scores!(
+        "00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14",
+        "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
+        "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44",
+        "45", "46", "47", "48", "49", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59",
+        "nacht-0", "nacht-1", "nacht-2", "nacht-3", "nacht-4",
+    );
     add!(
         "fonts/DMSans-Bold.ttf",
         "fonts/DMSans-Medium.ttf",
@@ -186,7 +224,12 @@ fn embed_assets(app: &App) {
         "models/villages/aegean.glb",
         "models/works/aegean.glb",
         "models/waldwinkel/wood_tree.glb",
+        "models/waldwinkel/resource_copper.glb",
+        "models/waldwinkel/resource_crystal.glb",
         "models/waldwinkel/resource_rock.glb",
+        "audio/abenteuer/wood.wav",
+        "audio/abenteuer/stone.wav",
+        "audio/abenteuer/forage.wav",
         "audio/aegean.ogg",
         "audio/roman_quay.ogg",
         "audio/street_sweep.wav",
@@ -207,6 +250,54 @@ fn embed_assets(app: &App) {
         "audio/cast_off.wav",
         "audio/nili_aid.wav",
         "audio/shore_loop.wav",
+        "ui/wear_aegean_chiton.png",
+        "ui/wear_olive_peplos.png",
+        "ui/wear_myrtle_crown.png",
+        "ui/wear_folded_petasos.png",
+        "ui/wear_shell_pin.png",
+        "ui/wear_mulberry_toga.png",
+        "ui/wear_aventin_tunic.png",
+        "ui/wear_red_pileus.png",
+        "ui/wear_gold_laurel.png",
+        "ui/wear_signet_cord.png",
+        "ui/wear_sakura_kosode.png",
+        "ui/wear_mino_cape.png",
+        "ui/wear_river_kasa.png",
+        "ui/wear_crane_pin.png",
+        "ui/wear_rice_pouch.png",
+        "ui/wear_sea_cloak.png",
+        "ui/wear_tablet_dress.png",
+        "ui/wear_fur_cap.png",
+        "ui/wear_knit_band.png",
+        "ui/wear_knot_pendant.png",
+        "ui/wear_oasis_caftan.png",
+        "ui/wear_moon_silk.png",
+        "ui/wear_star_turban.png",
+        "ui/wear_caravan_veil.png",
+        "ui/wear_rose_flask.png",
+        "ui/adventure.png",
+        "ui/adventure_blueprint.png",
+        "ui/adventure_boards.png",
+        "ui/adventure_bricks.png",
+        "ui/adventure_brickyard.png",
+        "ui/adventure_clay.png",
+        "ui/adventure_cloth.png",
+        "ui/adventure_cover_0.png",
+        "ui/adventure_cover_1.png",
+        "ui/adventure_cover_2.png",
+        "ui/adventure_cover_3.png",
+        "ui/adventure_cover_4.png",
+        "ui/adventure_craft.png",
+        "ui/adventure_food.png",
+        "ui/adventure_forge.png",
+        "ui/adventure_hill.png",
+        "ui/adventure_labor.png",
+        "ui/adventure_meals.png",
+        "ui/adventure_ore.png",
+        "ui/adventure_sawmill.png",
+        "ui/adventure_stone.png",
+        "ui/adventure_tools.png",
+        "ui/adventure_wood.png",
         "ui/machiya.png",
         "ui/temple.png",
         "ui/temple_bell.png",
