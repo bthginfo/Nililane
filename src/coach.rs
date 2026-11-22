@@ -4,6 +4,8 @@ use crate::{
     model::{Favor, Kind, Phase, Price, Town, distance},
 };
 
+pub const ISLANDS: usize = 3;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
     Build(usize, Kind),
@@ -86,7 +88,7 @@ pub fn recommended_price(town: &Town, lot: usize) -> Option<Price> {
 
 pub fn next(town: &Town, chapter: &Chapter, selected: usize, saw_prices: bool) -> Option<Step> {
     match &town.phase {
-        Phase::Plan if town.chapter < 3 && town.day <= 2 => {
+        Phase::Plan if town.chapter < ISLANDS && town.day <= 2 => {
             let bakery = find(town, Kind::Bakery);
             let potter = find(town, Kind::Potter);
             let build = match town.chapter {
@@ -197,7 +199,7 @@ fn suggested_tour(town: &Town, chapter: &Chapter) -> Option<Step> {
 
 pub fn lesson(town: &Town, step: Option<Step>, delivered: Option<Route>) -> Option<Lesson> {
     use Moment::*;
-    if town.chapter >= 3 || town.day > 2 {
+    if town.chapter >= ISLANDS || town.day > 2 {
         return None;
     }
     let offer = |moment: Moment, prompt| (!moment.seen(town)).then_some(Lesson { moment, prompt });

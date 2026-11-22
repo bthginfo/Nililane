@@ -136,18 +136,20 @@ pub fn draw(
                 (View::Chart, Panel::Replace) => panels::replace(base, &hud, &game),
                 (View::Chart, _) => screens::chart(base, &hud, &game, &save),
                 (View::Street, panel) => {
-                    let Some(town) = &save.town else { return };
+                    let Some(town) = save.active_town() else {
+                        return;
+                    };
                     if panel == Panel::None {
                         if matches!(town.phase, Phase::Open(_)) {
                             bubbles::spawn(base, &hud);
                         }
                         prompts::spawn(base, &hud);
-                        screens::street(base, &hud, &game, town);
+                        screens::street(base, &hud, &game, town, save.in_tutorial());
                         if let Some(lesson) = game.lesson {
                             lessons::spawn(base, &hud, lesson, town);
                         }
                     } else {
-                        panels::street_panel(base, &hud, &game, town);
+                        panels::street_panel(base, &hud, &game, town, save.in_tutorial());
                         if matches!(town.phase, Phase::Open(_)) {
                             prompts::pause_chip(base, &hud);
                         }
@@ -211,7 +213,7 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
         (_, Panel::Options) => Action::LargeUi,
         (_, Panel::Guide) => Action::GuideTab(game.guide),
         (View::Title, _) => {
-            if save.town.is_some() {
+            if save.active_town().is_some() {
                 Action::Resume
             } else {
                 Action::Begin
@@ -222,7 +224,7 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
         (View::Street, Panel::None) => return None,
         (View::Street, Panel::Pause) => Action::Back,
         (View::Street, Panel::Nili) => {
-            let town = save.town.as_ref()?;
+            let town = save.active_town()?;
             let chapter = &CHAPTERS[town.chapter];
             let guide = crate::coach::next(town, chapter, game.selected, game.saw_prices);
             if let Some(job) = guide.and_then(crate::coach::Step::tour) {
@@ -234,7 +236,7 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
                 .map_or(Action::Back, Action::ChooseJob)
         }
         (View::Street, Panel::Build) => {
-            let town = save.town.as_ref()?;
+            let town = save.active_town()?;
             let chapter = &CHAPTERS[town.chapter];
             let available = build_set(chapter, game.build_page);
             let starter = match crate::coach::next(town, chapter, game.selected, game.saw_prices) {
@@ -247,7 +249,7 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
             starter.map_or(Action::Back, Action::Build)
         }
         (View::Street, Panel::Details) => {
-            let town = save.town.as_ref()?;
+            let town = save.active_town()?;
             match town.lots[game.selected] {
                 Some(b) if town.planning() && b.kind.service().is_some() => {
                     let price =
@@ -263,7 +265,7 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
             }
         }
         (View::Street, Panel::Report) => {
-            if matches!(save.town.as_ref()?.phase, Phase::Report(ref r) if r.stars > 0) {
+            if matches!(save.active_town()?.phase, Phase::Report(ref r) if r.stars > 0) {
                 Action::NextChapter
             } else {
                 Action::NextDay
@@ -388,7 +390,7 @@ pub fn refresh(
             }
         };
     }
-    let town = save.town.as_ref();
+    let town = save.active_town();
     let length = town.map_or(crate::model::DAY_SECONDS, |town| {
         CHAPTERS[town.chapter].day_seconds()
     });

@@ -6,20 +6,26 @@ use crate::{
     model::{Building, HarborPlan, MAX_LEVEL, Price, Report, SERVICES, Town},
 };
 
-pub fn street_panel(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town) {
+pub fn street_panel(
+    p: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    game: &Game,
+    town: &Town,
+    tutorial: bool,
+) {
     let chapter = &CHAPTERS[town.chapter];
     match game.panel {
-        Panel::Brief => brief(p, hud, town, chapter),
+        Panel::Brief => brief(p, hud, town, chapter, tutorial),
         Panel::Build => build(p, hud, game, town, chapter),
         Panel::Details => details(p, hud, game, town, chapter),
         Panel::Goals => goals(p, hud, town, chapter),
         Panel::Forecast => forecast(p, hud, game, town, chapter),
         Panel::Nili => nili(p, hud, town, chapter),
-        Panel::Pause => pause(p, hud),
+        Panel::Pause => pause(p, hud, tutorial),
         Panel::Demolish => demolish(p, hud, game, town),
         Panel::Report => {
             if let Phase::Report(report) = &town.phase {
-                evening(p, hud, town, chapter, report);
+                evening(p, hud, town, chapter, report, tutorial);
             }
         }
         _ => {}
@@ -54,21 +60,25 @@ fn modal(
     });
 }
 
-fn brief(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter) {
+fn brief(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter, tutorial: bool) {
     let region = Region::of(town.chapter);
-    let heading = format!(
-        "{}  ·  HAFEN {} / {}",
-        region.name().to_uppercase(),
-        town.chapter - region.start() + 1,
-        REGION_SIZE
-    );
+    let heading = if tutorial {
+        format!("TUTORIAL  {} / {}", town.chapter + 1, coach::ISLANDS)
+    } else {
+        format!(
+            "{}  ·  HAFEN {} / {}",
+            region.name().to_uppercase(),
+            town.chapter - region.start() + 1,
+            REGION_SIZE
+        )
+    };
     modal(
         p,
         hud,
         850.0,
         &heading,
         chapter.name,
-        region.icon(),
+        if tutorial { "guide" } else { region.icon() },
         |page| {
             let introduction = match town.chapter {
                 0 => Some([
@@ -1134,10 +1144,12 @@ fn evening(
     town: &Town,
     chapter: &Chapter,
     report: &Report,
+    tutorial: bool,
 ) {
     let clear = report.stars > 0;
     let ending = clear && town.chapter + 1 == CHAPTERS.len();
     let rome_unlocked = clear && town.chapter + 1 == REGION_SIZE;
+    let tutorial_complete = clear && tutorial && town.chapter + 1 == coach::ISLANDS;
     let title = if ending {
         "Ein Platz für ganz Rom"
     } else if rome_unlocked {
@@ -1264,7 +1276,11 @@ fn evening(
                     actions,
                     hud,
                     Action::Chart,
-                    "Kampagnenkarte",
+                    if tutorial {
+                        "Übung beenden"
+                    } else {
+                        "Kampagnenkarte"
+                    },
                     "chart",
                     "B",
                     Style::Quiet,
@@ -1281,21 +1297,27 @@ fn evening(
                     false,
                 );
                 if clear {
-                    button(
-                        actions,
-                        hud,
-                        Action::NextDay,
-                        "Im Hafen bleiben",
-                        "",
-                        "",
-                        Style::Quiet,
-                        false,
-                    );
+                    if !tutorial {
+                        button(
+                            actions,
+                            hud,
+                            Action::NextDay,
+                            "Im Hafen bleiben",
+                            "",
+                            "",
+                            Style::Quiet,
+                            false,
+                        );
+                    }
                     button(
                         actions,
                         hud,
                         Action::NextChapter,
-                        if ending {
+                        if tutorial_complete {
+                            "Tutorial abschließen"
+                        } else if tutorial {
+                            "Nächste Übung"
+                        } else if ending {
                             "Zur Kampagnenkarte"
                         } else if rome_unlocked {
                             "Nach Rom segeln"
@@ -1324,8 +1346,9 @@ fn evening(
     );
 }
 
-fn pause(p: &mut ChildSpawnerCommands, hud: &Hud) {
-    modal(p, hud, 535.0, "", "Ruhe am Hafen", "nili", |page| {
+fn pause(p: &mut ChildSpawnerCommands, hud: &Hud, tutorial: bool) {
+    let heading = if tutorial { "TUTORIAL" } else { "" };
+    modal(p, hud, 535.0, heading, "Ruhe am Hafen", "nili", |page| {
         button(
             page,
             hud,
@@ -1360,7 +1383,11 @@ fn pause(p: &mut ChildSpawnerCommands, hud: &Hud) {
             page,
             hud,
             Action::Chart,
-            "Kampagnenkarte",
+            if tutorial {
+                "Übung beenden"
+            } else {
+                "Kampagnenkarte"
+            },
             "chart",
             "",
             Style::Quiet,

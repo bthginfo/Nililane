@@ -47,13 +47,17 @@ pub(super) fn ferry(quay: f32, day: f32, seconds: f32, swell: f32) -> FerryPose 
             .with_rotation(Quat::from_rotation_arc(Vec3::Z, span.normalize()))
             .with_scale(v(1.0, 1.0, span.length()))
     });
-    let wake = Transform::from_xyz(hull.translation.x, -0.422, hull.translation.z)
-        .with_rotation(angle)
-        .with_scale(v(
-            0.86 + wave.sin() * 0.10 + swell * 0.32,
-            1.0,
-            0.79 + swell * 0.44,
-        ));
+    let wake = Transform::from_xyz(
+        hull.translation.x,
+        super::landscape::WAKE_LEVEL,
+        hull.translation.z,
+    )
+    .with_rotation(angle)
+    .with_scale(v(
+        0.86 + wave.sin() * 0.10 + swell * 0.32,
+        1.0,
+        0.79 + swell * 0.44,
+    ));
     FerryPose {
         hull,
         wake,
@@ -398,7 +402,10 @@ mod tests {
                     }
                 }
                 let pose = ferry(5.0, 0.0, 1.0, swell);
-                assert!(pose.hull.transform_point(v(0.0, -0.19, 0.0)).y < -0.429);
+                assert!(
+                    pose.hull.transform_point(v(0.0, -0.19, 0.0)).y
+                        < super::super::landscape::WATER_LEVEL
+                );
             }
         }
     }

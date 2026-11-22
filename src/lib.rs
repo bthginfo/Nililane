@@ -35,7 +35,7 @@ pub fn run() {
             primary_window: Some(Window {
                 title: "Nililane".into(),
                 resolution: WindowResolution::new(1280.0, 800.0),
-                present_mode: PresentMode::AutoVsync,
+                present_mode: PresentMode::Fifo,
                 ..default()
             }),
             ..default()

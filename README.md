@@ -1,4 +1,4 @@
-# Nililane 2.3.1
+# Nililane 2.3.2
 
 Nililane ist ein 3D-Straßenmanagementspiel in Rust und Bevy. Mit dem Nilpferd Nili
 reist du zuerst durch das antike Griechenland und danach durch das antike
@@ -6,7 +6,7 @@ Rom. Du planst die Gasse am Morgen, versorgst Nachbarn und Fährgäste und hilfs
 tagsüber dort, wo sich die Lieferungen stauen. Auf der Kampagnenkarte erkennst
 du die Größe des nächsten Hafens schon vor der Überfahrt.
 
-**[Nililane 2.3.1 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/19f10d06c7324de1db0f733fdc7040f09fb466f4/Nililane-2.3.1.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/19f10d06c7324de1db0f733fdc7040f09fb466f4/Nililane-2.3.1.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.3.1)
+**[Nililane 2.3.2 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/70aad5cedabadc4c9582b260a0439135d4997e81/Nililane-2.3.2.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/70aad5cedabadc4c9582b260a0439135d4997e81/Nililane-2.3.2.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.3.2)
 
 ![Nili mit Bewohnern und dem ausgebauten Wohnhof in Naxos](docs/bilder/naxos.jpg)
 
@@ -33,7 +33,7 @@ sowie Musik und Spielklänge separat schalten.
 | A | Bestätigen, Grundstück öffnen oder Nili helfen lassen |
 | B | Zurück, während des Spiels pausieren |
 | X | Aufträge ansehen |
-| Y | Tag starten, während des Tages zwischen 1× und 2× wechseln |
+| Y | Tag starten, das Tempo wechseln oder auf der Kampagnenkarte das Tutorial neu starten |
 | RB | Hafenplan mit Wetter, Nachfrage und Vorräten öffnen |
 | View (Taste mit zwei Rechtecken) | Gästebuch direkt öffnen |
 | Rechten Stick drücken (R3) | Ab Amorgos Nilis Touren öffnen |
@@ -45,6 +45,16 @@ Touch und Maus wählen Bauplätze und Schaltflächen. Mit der Tastatur bedienen
 Pfeiltasten oder WASD die Auswahl, Enter bestätigt, Escape geht zurück.
 X, Y, P, Q und E entsprechen X, Y, Start, LB und RB. N öffnet Nilis Touren.
 F öffnet das Gästebuch.
+
+## Neu in 2.3.2
+
+- Die Kamera im Startmenü steht ruhig. Android glättet die Kanten der
+  3D-Szene, die Bildausgabe ist mit dem Display synchronisiert, und Schaum
+  und Kielwasser zeichnen sich auf getrennten Ebenen ab.
+- Mit **Tutorial neu starten** oder **Y** auf der Kampagnenkarte wiederholst
+  du die Übungen auf Naxos, Amorgos und Delos. Die Übungsreise speichert
+  separat. Über **Übung beenden** gelangst du zurück zur Kampagnenkarte.
+  Dein bisheriger Hafen und deine Sterne bleiben erhalten.
 
 ## Neu in 2.3.1
 

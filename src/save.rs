@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     campaign::CHAPTERS,
+    coach::ISLANDS,
     model::{MAX_LEVEL, Origin, Phase, Town, is_open},
 };
 
@@ -21,6 +22,8 @@ pub struct Campaign {
     version: u32,
     pub records: Vec<Record>,
     pub town: Option<Town>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tutorial: Option<Town>,
     pub music: bool,
     pub sounds: bool,
     pub large_ui: bool,
@@ -32,6 +35,7 @@ impl Default for Campaign {
             version: VERSION,
             records: vec![Record::default(); CHAPTERS.len()],
             town: None,
+            tutorial: None,
             music: true,
             sounds: true,
             large_ui: false,
@@ -53,6 +57,13 @@ impl Campaign {
             || !progress.town.as_ref().is_none_or(valid_town)
         {
             return None;
+        }
+        if progress
+            .tutorial
+            .as_ref()
+            .is_some_and(|town| town.chapter >= ISLANDS || !valid_town(town))
+        {
+            progress.tutorial = None;
         }
         if progress.version == 1
             && let Some(town) = &mut progress.town
@@ -98,7 +109,35 @@ impl Campaign {
         chapter < CHAPTERS.len() && (chapter == 0 || self.records[chapter - 1].stars > 0)
     }
 
+    pub fn active_town(&self) -> Option<&Town> {
+        self.tutorial.as_ref().or(self.town.as_ref())
+    }
+
+    pub fn active_town_mut(&mut self) -> Option<&mut Town> {
+        self.tutorial.as_mut().or(self.town.as_mut())
+    }
+
+    pub fn in_tutorial(&self) -> bool {
+        self.tutorial.is_some()
+    }
+
+    pub fn enter_town(&mut self, town: Town, tutorial: bool) {
+        if tutorial {
+            self.tutorial = Some(town);
+        } else {
+            self.tutorial = None;
+            self.town = Some(town);
+        }
+    }
+
+    pub fn leave_tutorial(&mut self) -> bool {
+        self.tutorial.take().is_some()
+    }
+
     pub fn record(&mut self, chapter: usize, day: u32, stars: u8) {
+        if self.in_tutorial() {
+            return;
+        }
         let record = &mut self.records[chapter];
         if stars > record.stars || (stars == record.stars && day < record.best_day) {
             *record = Record {
@@ -184,6 +223,42 @@ fn desktop_dir() -> PathBuf {
 mod tests {
     use super::*;
     use crate::model::{Kind, Price};
+
+    #[test]
+    fn repeating_the_tutorial_preserves_the_campaign_across_reloads() {
+        let mut progress = Campaign::default();
+        progress.record(0, 4, 2);
+        let mut town = Town::new(1, &CHAPTERS[1]);
+        assert!(town.build(&CHAPTERS[1], 8, Kind::Well));
+        assert!(town.open(&CHAPTERS[1]));
+        town.tick(&CHAPTERS[1], 2.0);
+        progress.enter_town(town, false);
+        let campaign = serde_json::to_value(&progress).unwrap();
+
+        for (chapter, rule) in CHAPTERS.iter().enumerate().take(ISLANDS) {
+            progress.enter_town(Town::new(chapter, rule), true);
+            let town = progress.active_town_mut().unwrap();
+            assert_eq!(town.chapter, chapter);
+            assert_eq!(town.lessons, 0);
+            town.lessons |= crate::coach::Moment::Build.bit();
+            progress.record(chapter, 2, 3);
+
+            let data = serde_json::to_vec(&progress).unwrap();
+            progress = Campaign::decode(data.as_slice()).unwrap();
+            let town = progress.active_town().unwrap();
+            assert_eq!(town.chapter, chapter);
+            assert_eq!(town.lessons, crate::coach::Moment::Build.bit());
+        }
+        assert!(!progress.unlocked(2));
+        assert!(progress.leave_tutorial());
+        assert_eq!(serde_json::to_value(&progress).unwrap(), campaign);
+
+        progress.enter_town(Town::new(0, &CHAPTERS[0]), true);
+        let town = progress.active_town().unwrap();
+        assert_eq!(town.chapter, 0);
+        assert_eq!(town.day, 1);
+        assert_eq!(town.lessons, 0);
+    }
 
     #[test]
     fn a_paused_lesson_and_an_unfinished_favor_survive_a_reload() {

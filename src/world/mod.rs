@@ -110,25 +110,29 @@ pub fn setup(
     assets: Res<AssetServer>,
     mut bind_poses: ResMut<Assets<SkinnedMeshInverseBindposes>>,
 ) {
-    commands.spawn((
-        StreetCamera,
-        Camera3d::default(),
-        Tonemapping::AcesFitted,
-        Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::FixedVertical {
-                viewport_height: 20.0,
+    commands
+        .spawn((
+            StreetCamera,
+            Camera3d::default(),
+            Tonemapping::AcesFitted,
+            Projection::Orthographic(OrthographicProjection {
+                scaling_mode: ScalingMode::FixedVertical {
+                    viewport_height: 20.0,
+                },
+                near: 0.1,
+                far: 160.0,
+                ..OrthographicProjection::default_3d()
+            }),
+            if cfg!(target_os = "android") {
+                Msaa::Off
+            } else {
+                Msaa::Sample4
             },
-            near: 0.1,
-            far: 160.0,
-            ..OrthographicProjection::default_3d()
-        }),
-        if cfg!(target_os = "android") {
-            Msaa::Off
-        } else {
-            Msaa::Sample4
-        },
-        Transform::from_xyz(4.0, 19.0, 28.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
+            Transform::from_xyz(4.0, 19.0, 28.0).looking_at(Vec3::ZERO, Vec3::Y),
+        ))
+        .insert_if(bevy::core_pipeline::fxaa::Fxaa::default(), || {
+            cfg!(target_os = "android")
+        });
     commands.insert_resource(DirectionalLightShadowMap {
         size: if cfg!(target_os = "android") {
             1024
@@ -148,7 +152,8 @@ pub fn setup(
         },
         CascadeShadowConfigBuilder {
             num_cascades: 1,
-            maximum_distance: 65.0,
+            minimum_distance: 18.0,
+            maximum_distance: 58.0,
             ..default()
         }
         .build(),
@@ -378,7 +383,7 @@ pub fn sync(
                     Wave(i),
                     Mesh3d(meshes.add(landscape::foam(cols, i))),
                     MeshMaterial3d(art.sea.clone()),
-                    Transform::from_xyz(0.0, -0.43, 0.0),
+                    Transform::default(),
                     bevy::pbr::NotShadowCaster,
                 ));
             }
@@ -598,22 +603,19 @@ pub fn animate(
             };
         }
         let offset = if playing { 0.12 } else { -0.095 };
-        let yaw = if playing {
-            0.13
-        } else {
-            0.19 + (t * 0.067).sin() * 0.09
-        };
+        let yaw = if playing { 0.13 } else { 0.19 };
         let look = v(yaw, 0.86, 1.15).normalize();
         let right = v(look.z, 0.0, -look.x).normalize();
         let width = height * aspect;
-        let mut framing = width * offset + game.pan.x;
+        let pan = if playing { game.pan } else { Vec2::ZERO };
+        let mut framing = width * offset + pan.x;
         if game.view == View::Title {
             framing = framing.max(ships::berth(quay).dot(right) - width * 0.32);
         } else if playing && game.zoom > 0.04 && game.pan.x.abs() < 0.12 {
             let plot = lot_position(game.selected, cols).dot(right);
             framing = framing.clamp(plot - width * 0.17, plot + width * 0.32);
         }
-        let target = right * framing + v(0.0, 0.38, 0.28 + game.pan.y);
+        let target = right * framing + v(0.0, 0.38, 0.28 + pan.y);
         let eye = target + look * 36.0;
         camera.translation = camera.translation.lerp(eye, blend);
         let rotation = Transform::from_translation(eye)
@@ -779,7 +781,7 @@ pub fn animate(
             let a = t * (0.52 + swell * 0.54) + wave.0 as f32 * 2.4;
             transform.translation = v(
                 a.sin() * (0.21 + swell * 0.28),
-                -0.429,
+                landscape::WATER_LEVEL + 0.012 + wave.0 as f32 * 0.006,
                 a.cos() * (0.16 + swell * 0.21),
             );
         }
@@ -808,7 +810,7 @@ pub fn animate(
             };
             let beat = t * (1.1 + swell) + n as f32 * 2.9;
             if wake.is_some() {
-                transform.translation = v(x, -0.422, z);
+                transform.translation = v(x, landscape::WAKE_LEVEL, z);
                 transform.rotation = Quat::from_rotation_y(angle);
                 transform.scale = v(
                     0.86 + beat.sin() * 0.10 + swell * 0.32,

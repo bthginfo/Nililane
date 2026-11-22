@@ -211,7 +211,7 @@ pub fn update(
             shortcut.disabled = true;
         }
     }
-    let Some(town) = save.town.as_ref() else {
+    let Some(town) = save.active_town() else {
         return;
     };
     for (badge, mut icon) in &mut icons {

@@ -1,4 +1,4 @@
-# Spielreview und Abnahme · Nililane 2.3.1
+# Spielreview und Abnahme · Nililane 2.3.2
 
 ## Einstieg als neuer Spieler
 
@@ -13,6 +13,11 @@ Die Punktspur und das Schild über Nili folgen der Arbeit. Krüge, Kisten,
 Fahne, Zweige und Treibgut gehören zu unterschiedlichen Bewegungen.
 Die Lieferung wird bei ihrer Ankunft einmal abgerechnet. Gesehene
 Hinweise und laufende Touren werden gespeichert.
+
+Das Tutorial lässt sich auf der Kampagnenkarte in beiden Regionen neu
+starten. Die Übungsreise beginnt auf Naxos und speichert ihren Fortschritt
+separat. Nach Delos oder über **Übung beenden** führt der Weg zurück in
+die Kampagnenkarte.
 
 ## Veröffentlichung
 
@@ -90,10 +95,21 @@ Der Hafentipp nennt die beiden Häuser und ihren Wasserbedarf.
 
 ## Prüfungen
 
-- Formatierung, Clippy mit Warnungen als Fehler und 16 Rust-Tests
+- Formatierung, Clippy mit Warnungen als Fehler und 17 Rust-Tests
   einschließlich der drei Einstiegsinseln und des erneuten Ladens während
   einer Bitte vom Kai. Die Prüfung der Fährmodelle misst den Abstand von
   Rumpf und Rudern zum Steg bei vier Wellenstärken.
+- Der Vergleich der Android-Aufnahmen im 4:3-Format zeigt ruhige Dachkanten
+  und Schatten im Startmenü von 2.3.2. Menschen und Schiffe bewegen sich
+  weiter. Die Aufnahmen stammen aus dem Vulkan-Emulator.
+- Die Installation über 2.3.1 hat den Spielstand bytegenau erhalten.
+  Auf der Kampagnenkarte startete eine simulierte Y-Taste Naxos an Tag 1.
+  Der bestehende Naxos-Spielstand an Tag 3 blieb separat gespeichert.
+- In der Desktop-Fassung ließ sich die Übung von der römischen
+  Kampagnenkarte aus starten. Die aus der Simulation erzeugten
+  Abschlussberichte führten von Naxos über Amorgos nach Delos und
+  anschließend zurück zur Karte. Der reguläre Hafen und die
+  Sternrekorde blieben bei jedem Übergang erhalten.
 - Der Liegeplatz wurde bei Sonne auf Naxos und bei Sturm in Capua im
   4:3-Format geprüft. In Capua entfernte sich die Fähre mit gesetztem Segel,
   sobald der Landgang weg war. Im Titelbild ist der Steg mit der ganzen

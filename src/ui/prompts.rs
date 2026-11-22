@@ -366,7 +366,7 @@ pub fn update(
     let size = Vec2::new(window.width(), window.height()) / scale.0;
     let safe = insets().map(|n| f32::from(n) / (scale.0 * window.scale_factor()));
     let mut active: [Option<Projected>; MARKERS] = [None; MARKERS];
-    if let (Some(town), Ok((camera, transform))) = (&save.town, camera.single())
+    if let (Some(town), Ok((camera, transform))) = (save.active_town(), camera.single())
         && game.view == View::Street
         && game.panel == Panel::None
     {

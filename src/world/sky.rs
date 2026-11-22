@@ -215,7 +215,7 @@ pub fn animate(
                 let beat = t * (1.17 + w) + i as f32 * std::f32::consts::PI;
                 transform.translation = v(
                     beat.cos() * 0.11,
-                    -0.43 + beat.sin() * 0.016,
+                    super::landscape::WAKE_LEVEL + 0.014 + beat.sin() * 0.008 + i as f32 * 0.004,
                     beat.cos() * 0.32,
                 );
                 transform.scale = v(1.0, 0.68 + w * 1.43, 1.0);

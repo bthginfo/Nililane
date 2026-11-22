@@ -296,7 +296,7 @@ pub fn update(
     buttons: FocusButtons,
     mut pieces: Query<(&Piece, &mut Node, &ComputedNode, Option<&mut Outline>)>,
 ) {
-    let (Some(lesson), Some(town)) = (game.lesson, &save.town) else {
+    let (Some(lesson), Some(town)) = (game.lesson, save.active_town()) else {
         return;
     };
     let Ok((camera, transform)) = camera.single() else {

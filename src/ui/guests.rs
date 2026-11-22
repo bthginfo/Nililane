@@ -243,7 +243,7 @@ pub fn refresh(
     if texts.is_empty() {
         return;
     }
-    let Some(town) = save.town.as_ref() else {
+    let Some(town) = save.active_town() else {
         return;
     };
     let responses = town

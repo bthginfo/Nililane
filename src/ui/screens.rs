@@ -69,13 +69,17 @@ und viele kleine Geschichten.",
             height: Val::Px(10.0),
             ..default()
         });
-        if let Some(town) = &save.town {
+        if let Some(town) = save.active_town() {
             button(
                 stack,
                 hud,
                 Action::Resume,
-                "Reise fortsetzen",
-                "ferry",
+                if save.in_tutorial() {
+                    "Tutorial fortsetzen"
+                } else {
+                    "Reise fortsetzen"
+                },
+                if save.in_tutorial() { "guide" } else { "ferry" },
                 "A",
                 Style::Primary,
                 false,
@@ -104,7 +108,11 @@ und viele kleine Geschichten.",
             stack,
             hud,
             Action::Chart,
-            "Kampagnenkarte",
+            if save.in_tutorial() {
+                "Übung beenden"
+            } else {
+                "Kampagnenkarte"
+            },
             "chart",
             "",
             Style::Quiet,
@@ -375,6 +383,16 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
                     Style::Quiet,
                     false,
                 );
+                button(
+                    actions,
+                    hud,
+                    Action::Tutorial,
+                    "Tutorial neu starten",
+                    "guide",
+                    "Y",
+                    Style::Quiet,
+                    false,
+                );
                 let continuing = save.town.as_ref().is_some_and(|t| {
                     t.chapter == game.chart
                         && !matches!(t.phase, Phase::Report(ref r) if r.stars > 0)
@@ -394,7 +412,7 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
     });
 }
 
-pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town) {
+pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, tutorial: bool) {
     let ch = &CHAPTERS[town.chapter];
     let weather = town.weather(ch);
     p.spawn(Node {
@@ -414,7 +432,7 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town)
             Color::srgba(0.052, 0.173, 0.182, 0.96),
         )
         .with_children(|summary| {
-            icon(summary, hud, "ferry", 38.0);
+            icon(summary, hud, if tutorial { "guide" } else { "ferry" }, 38.0);
             summary.spawn(column(0.0)).with_children(|details| {
                 label(details, hud, ch.district, 30.0, Face::Serif, SAND);
                 label(
@@ -433,6 +451,16 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town)
                     Face::Bold,
                     MUTED,
                 );
+                if tutorial {
+                    label(
+                        details,
+                        hud,
+                        format!("Tutorial {}/{}", town.chapter + 1, coach::ISLANDS),
+                        15.0,
+                        Face::Bold,
+                        GOLD,
+                    );
+                }
             });
             summary
                 .spawn(Node {

@@ -16,6 +16,8 @@ use super::{
 const LANDING_CENTER: f32 = 6.95;
 const LANDING_DEPTH: f32 = 0.65;
 pub(super) const LANDING_EDGE: f32 = LANDING_CENTER + LANDING_DEPTH * 0.5;
+pub(super) const WATER_LEVEL: f32 = -0.442;
+pub(super) const WAKE_LEVEL: f32 = WATER_LEVEL + 0.025;
 
 pub fn quay(layout: Layout) -> f32 {
     lot_position(layout.dock(), layout.width()).x + 1.78
@@ -101,8 +103,8 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
                 [227, 202, 163],
             ];
             b.slab(
-                v(x + grain.span(-0.014, 0.014), 0.021, pz),
-                v(0.508, grain.span(0.037, 0.054), 0.304),
+                v(x + grain.span(-0.008, 0.008), 0.021, pz),
+                v(0.501, grain.span(0.037, 0.054), 0.304),
                 if roman {
                     super::roman::paving(i, row)
                 } else {
@@ -440,7 +442,7 @@ pub fn water(columns: usize, region: Region) -> Mesh {
             } else {
                 [mix(100.0, 36.0), mix(177.0, 112.0), mix(166.0, 142.0)]
             };
-            let point = |x, z| v(x, -0.442, z);
+            let point = |x, z| v(x, WATER_LEVEL, z);
             let a = point(x, z);
             let c = point(x + 2.8, z + 2.8);
             b.face(
