@@ -1,9 +1,10 @@
 use super::*;
 use crate::{
-    campaign::{Chapter, REGION_SIZE, Region, harbor_stage},
+    campaign::{Chapter, JAPAN_START, NORDIC_START, REGION_SIZE, Region, harbor_stage},
     coach::{self, Step},
     errands::Job,
     model::{Assortment, Building, HarborPlan, MAX_LEVEL, Price, Report, SERVICES, Town},
+    trade::SailingRoute,
 };
 
 pub fn street_panel(
@@ -207,6 +208,63 @@ fn new_in_harbor(page: &mut ChildSpawnerCommands, hud: &Hud, island: usize, chap
         )],
         _ => Vec::new(),
     };
+    if chapter.region == Region::Japan {
+        let feature = match stage {
+            0 => Some((
+                "rice_paddy",
+                "Vom Feld in die Küche",
+                "Brunnen am Feld und Felder neben der Reisküche bringen mehr Reis auf den Tisch.",
+            )),
+            1 => Some((
+                "temple_bell",
+                "Pilger rufen",
+                "Geh tagsüber zum Tempel und läute die Glocke. Zwei Pilger kommen zum Gebet.",
+            )),
+            2 => Some((
+                "tea_garden",
+                "Tee aus der Nähe",
+                "Ein Teegarten versorgt benachbarte Teehäuser mit mehr Tee.",
+            )),
+            4 => Some((
+                "lampion",
+                "Licht für Pilger",
+                "Neben einer Lampionwerkstatt ruft die Glocke drei Gäste.",
+            )),
+            _ => None,
+        };
+        fresh.extend(feature);
+    }
+    if chapter.region == Region::Nordic {
+        let feature = match stage {
+            0 => Some((
+                "fishery",
+                "Vom Netz in die Räucherei",
+                "Setz die Räucherei neben die Fischerhütte. So gibt es mehr Portionen.",
+            )),
+            1 => Some((
+                "woodlot",
+                "Holz zum Räuchern",
+                "Ein Holzplatz versorgt die Räucherei. Direkt nebeneinander reicht es für mehr Fisch.",
+            )),
+            2 => Some((
+                "sea_trade",
+                "Das erste Handelsschiff",
+                "Geh mit Nili zum Bootshaus und lade Räucherfisch für die Fahrt.",
+            )),
+            4 => Some((
+                "feast_hall",
+                "Ein Platz am Herd",
+                "Eine Räucherei neben der Festhalle bringt Fisch für fünf zusätzliche Plätze.",
+            )),
+            5 => Some((
+                "sea_trade",
+                "Fahrt übers offene Meer",
+                "Fernhandel braucht ein Bootshaus auf Stufe 2 und sechs Portionen Räucherfisch.",
+            )),
+            _ => None,
+        };
+        fresh.extend(feature);
+    }
     if stage > 0 {
         for job in Job::ALL
             .into_iter()
@@ -219,7 +277,10 @@ fn new_in_harbor(page: &mut ChildSpawnerCommands, hud: &Hud, island: usize, chap
             .iter()
             .filter(|kind| !CHAPTERS[island - 1].allowed().contains(kind))
         {
-            if stage <= 2 && island < REGION_SIZE {
+            if (stage <= 2 && island < REGION_SIZE)
+                || (chapter.region == Region::Japan && stage <= 4)
+                || (chapter.region == Region::Nordic && stage <= 2)
+            {
                 continue;
             }
             let description =
@@ -435,6 +496,16 @@ fn build(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, chap
                                             after.olives.saturating_sub(before.olives)
                                         ),
                                     ),
+                                    Kind::RicePaddy => (
+                                        "rice_paddy",
+                                        format!(
+                                            "+{} Körbe Reis",
+                                            after.rice.saturating_sub(before.rice)
+                                        ),
+                                    ),
+                                    Kind::TeaGarden => {
+                                        ("tea_garden", "+2 Schalen je Teehaus in der Nähe".into())
+                                    }
                                     Kind::HerbGarden => (
                                         "herb_garden",
                                         format!(
@@ -442,6 +513,23 @@ fn build(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, chap
                                             town.kitchens_in_reach(game.selected, 1)
                                         ),
                                     ),
+                                    Kind::Fishery => (
+                                        "fishery",
+                                        format!(
+                                            "+{} Fische",
+                                            after.fish.saturating_sub(before.fish)
+                                        ),
+                                    ),
+                                    Kind::Woodlot => (
+                                        "woodlot",
+                                        format!(
+                                            "+{} Scheite",
+                                            after.wood.saturating_sub(before.wood)
+                                        ),
+                                    ),
+                                    Kind::Boatyard => {
+                                        ("sea_trade", "Schickt Handelsschiffe los".into())
+                                    }
                                     Kind::Storehouse => {
                                         let shops = before
                                             .stock
@@ -548,12 +636,16 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                         service_icon(service),
                         stock_text(service, stock),
                     );
-                    metric(
-                        stats,
-                        hud,
-                        "coin",
-                        format!("{} {currency} pro Verkauf", b.price.coins(service)),
-                    );
+                    if service.priced() {
+                        metric(
+                            stats,
+                            hud,
+                            "coin",
+                            format!("{} {currency} pro Verkauf", b.price.coins(service)),
+                        );
+                    } else {
+                        metric(stats, hud, "temple", "Gebet · kostenlos");
+                    }
                 });
                 if let Some(need) = town.supply_need(chapter, lot, &before) {
                     let expected = if need.guests == 1 {
@@ -570,10 +662,19 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                                     needs,
                                     hud,
                                     "guest_empty",
-                                    format!("{missing} Portionen fehlen"),
+                                    format!("Es fehlen {missing} {}", stock_unit(service, missing)),
                                 );
                             } else {
-                                metric(needs, hud, "check", "Vorrat reicht");
+                                metric(
+                                    needs,
+                                    hud,
+                                    "check",
+                                    if has_places(service) {
+                                        "Genug Plätze"
+                                    } else {
+                                        "Vorrat reicht"
+                                    },
+                                );
                             }
                             if need.short_water {
                                 metric(needs, hud, "water", "Wasser fehlt");
@@ -585,13 +686,23 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                                 supply.spawn(row(13.0)).with_children(|stats| {
                                     metric(stats, hud, "guest_book", expected);
                                     let missing = need.shortage();
-                                    let (art, text) = if missing > 0 {
+                                    let (art, text) = if missing > 0 && service == Service::Prayer {
+                                        ("guest_empty", format!("Noch {missing} Plätze nötig"))
+                                    } else if missing > 0 {
                                         (
                                             "guest_empty",
                                             format!("Nachschub nötig · {missing} fehlen"),
                                         )
                                     } else {
-                                        ("check", "Vorrat reicht".to_owned())
+                                        (
+                                            "check",
+                                            if has_places(service) {
+                                                "Genug Plätze"
+                                            } else {
+                                                "Vorrat reicht"
+                                            }
+                                            .to_owned(),
+                                        )
                                     };
                                     metric(stats, hud, art, text);
                                 });
@@ -649,7 +760,29 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                         false,
                     );
                 }
-                if town.planning() {
+                if service == Service::Prayer {
+                    if town.bell_ready(chapter, lot) {
+                        button(
+                            page,
+                            hud,
+                            Action::RingBell(lot),
+                            "Glocke läuten",
+                            "temple_bell",
+                            "A",
+                            Style::Primary,
+                            false,
+                        );
+                    }
+                    let guests = town.bell_guests(lot);
+                    let status = if let Phase::Open(day) = &town.phase
+                        && day.rung_bells & (1 << lot) != 0
+                    {
+                        "Heute schon geläutet".to_owned()
+                    } else {
+                        format!("Einmal pro Tag läuten · +{guests} Pilger")
+                    };
+                    metric(page, hud, "temple_bell", status);
+                } else if town.planning() {
                     price_cards(page, hud, town, chapter, lot, service, b.price);
                     if let Some(forecast) = town.offer_forecast(chapter, lot, &before) {
                         offer_cards(page, hud, b, &forecast, town.chapter);
@@ -657,7 +790,9 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                 }
             } else {
                 let (art, effect) = match b.kind {
-                    Kind::House | Kind::Villa => ("house", format!("{} Nachbarn", b.residents())),
+                    Kind::House | Kind::Villa | Kind::Machiya | Kind::Longhouse => {
+                        (kind_icon(b.kind), format!("{} Nachbarn", b.residents()))
+                    }
                     Kind::Well | Kind::Aqueduct => {
                         ("water", format!("{} Krüge auf der Insel", before.water))
                     }
@@ -670,6 +805,34 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                         ),
                     ),
                     Kind::Grove => ("olive", format!("{} Oliven auf der Insel", before.olives)),
+                    Kind::RicePaddy => (
+                        "rice_paddy",
+                        format!(
+                            "{} Körbe Reis von diesem Feld",
+                            town.paddy_harvest(lot, b.level, town.weather(chapter))
+                        ),
+                    ),
+                    Kind::TeaGarden => (
+                        "tea_garden",
+                        format!("+{} Schalen je Teehaus in der Nähe", 2 * b.level),
+                    ),
+                    Kind::Fishery => (
+                        "fishery",
+                        format!(
+                            "{} Fische am Tag",
+                            crate::model::fish_catch(b.level, town.weather(chapter))
+                        ),
+                    ),
+                    Kind::Woodlot => ("woodlot", format!("{} Scheite am Tag", 3 + 2 * b.level)),
+                    Kind::Boatyard => (
+                        "sea_trade",
+                        if town.voyage.is_some() {
+                            "Ein Schiff ist auf See"
+                        } else {
+                            "Schiff im Hafen"
+                        }
+                        .into(),
+                    ),
                     _ => (
                         "bread",
                         format!("+{} Portionen je Laden in der Nähe", b.level),
@@ -686,6 +849,9 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                         town.chapter,
                     );
                 }
+            }
+            if b.kind == Kind::Boatyard {
+                trade_routes(page, hud, town, chapter, lot, b.level);
             }
             if matches!(b.kind, Kind::Bakery | Kind::Taverna) && town.herb_support(lot) > 0 {
                 metric(
@@ -904,6 +1070,41 @@ fn building_link(kind: Kind) -> Option<(&'static str, &'static str)> {
         Kind::Aqueduct => ("well", "Mehr am Brunnen"),
         Kind::Forum => ("ferry", "Kürzere Wege"),
         Kind::Villa => ("budget", "Größere Budgets"),
+        Kind::RicePaddy => ("water", "Ein Brunnen nebenan erhöht die Reisernte"),
+        Kind::RiceKitchen => (
+            "rice_paddy",
+            "Reis von der Insel liefert mehr Portionen · extra Bonus direkt am Feld",
+        ),
+        Kind::TeaGarden => (
+            "tea_cup",
+            "Mehr Tee im Teehaus · ab Stufe 3 bis zu zwei Bauplätze weit",
+        ),
+        Kind::TeaHouse => ("tea_garden", "Mehr Tee mit einem Teegarten in Reichweite"),
+        Kind::PaperWorkshop => (
+            "temple_bell",
+            "Neben einem Tempel kommt beim Läuten ein Pilger mehr",
+        ),
+        Kind::Temple => (
+            "tea_garden",
+            "Ein Teegarten in Reichweite bringt zwei Plätze für Pilger",
+        ),
+        Kind::Fishery => (
+            "smokehouse",
+            "Kurze Wege zur Räucherei bringen mehr Portionen",
+        ),
+        Kind::Smokehouse => (
+            "fishery",
+            "Fang von der Fischerhütte · mehr mit Holz vom Holzplatz",
+        ),
+        Kind::Woodlot => ("smoked_fish", "Trockenes Holz für die Räucherei"),
+        Kind::Boatyard => (
+            "smoked_fish",
+            "Proviant aus einer Räucherei im Umkreis von drei Bauplätzen",
+        ),
+        Kind::FeastHall => (
+            "smoked_fish",
+            "Zwei Portionen Räucherfisch von nebenan ergeben fünf Plätze",
+        ),
         _ => return None,
     })
 }
@@ -912,6 +1113,93 @@ pub(super) fn metric(p: &mut ChildSpawnerCommands, hud: &Hud, art: &str, text: i
     p.spawn(row(5.0)).with_children(|row| {
         icon(row, hud, art, 24.0);
         label(row, hud, text, 16.0, Face::Body, SAND);
+    });
+}
+
+fn trade_routes(
+    page: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    town: &Town,
+    chapter: &Chapter,
+    lot: usize,
+    level: u8,
+) {
+    if let Some(voyage) = town.voyage {
+        card(page, frame_node(Val::Percent(100.0), 6.0, 11.0), CARD).with_children(|status| {
+            metric(
+                status,
+                hud,
+                "sea_trade",
+                format!(
+                    "{} unterwegs · zurück ab Tag {}",
+                    voyage.route.name(),
+                    voyage.arrival
+                ),
+            );
+            metric(
+                status,
+                hud,
+                "coin",
+                format!("Bei Ankunft +{} Silber", voyage.silver),
+            );
+        });
+        return;
+    }
+
+    page.spawn(row(9.0)).with_children(|options| {
+        for route in SailingRoute::ALL {
+            let source = town.trade_source(chapter, lot, route);
+            let ready = source.is_ok();
+            card(
+                options,
+                Node {
+                    flex_grow: 1.0,
+                    flex_basis: Val::Px(0.0),
+                    min_width: Val::Px(0.0),
+                    padding: UiRect::all(Val::Px(10.0)),
+                    ..column(6.0)
+                },
+                CARD,
+            )
+            .with_children(|details| {
+                metric(details, hud, route.icon(), route.name());
+                metric(
+                    details,
+                    hud,
+                    "smoked_fish",
+                    format!("{} Portionen Räucherfisch", route.provisions()),
+                );
+                metric(
+                    details,
+                    hud,
+                    "coin",
+                    format!(
+                        "+{} Silber ab Tag {}",
+                        route.silver(level),
+                        town.day + route.days()
+                    ),
+                );
+                let weather = town.weather_ahead(chapter, route.days() as usize);
+                if weather == Weather::Storm {
+                    metric(details, hud, "storm", "Sturm verzögert die Rückkehr");
+                }
+                if let Err(reason) = source {
+                    label(details, hud, reason.hint(), 15.0, Face::Body, MUTED);
+                }
+                if !town.planning() {
+                    button(
+                        details,
+                        hud,
+                        Action::SendVoyage(lot, route),
+                        "Beladen & ablegen",
+                        "ferry",
+                        "",
+                        Style::Primary,
+                        !ready,
+                    );
+                }
+            });
+        }
     });
 }
 
@@ -1015,6 +1303,118 @@ fn meter(p: &mut ChildSpawnerCommands, fraction: f32, fill: Color) {
 }
 
 fn expansion(kind: Kind, tier: u8, region: Region) -> &'static str {
+    if region == Region::Nordic {
+        use Kind::*;
+        let stages = match kind {
+            Longhouse | FeastHall => [
+                "Holzgeländer",
+                "Vordach",
+                "Seitenkammer",
+                "Dachgaube",
+                "Geschmückter Eingang",
+            ],
+            Fishery => [
+                "Zweites Trockengestell",
+                "Beiboot",
+                "Überdachter Fangplatz",
+                "Breiter Steg",
+                "Netzaufzug",
+            ],
+            Smokehouse => [
+                "Zweites Räuchergestell",
+                "Räucherkammer",
+                "Höherer Rauchfang",
+                "Vordach",
+                "Zweiter Rauchfang",
+            ],
+            Woodlot => [
+                "Holzstapel",
+                "Holzschuppen",
+                "Mehr Holzstapel",
+                "Holzgeländer",
+                "Überdachter Stapelplatz",
+            ],
+            Boatyard => [
+                "Seilwinde · Fernhandel",
+                "Seilschuppen",
+                "Hafenfahne",
+                "Verbreiterter Steg",
+                "Dachaufbau",
+            ],
+            Weaver => [
+                "Weiterer Webstuhl",
+                "Veranda",
+                "Färbekammer",
+                "Dachkammer",
+                "Gewebte Fahnen",
+            ],
+            Well | Storehouse => [
+                "Holzgeländer",
+                "Kleiner Schuppen",
+                "Vordach",
+                "Lagerkammer",
+                "Markierte Pfosten",
+            ],
+            _ => unreachable!("building unavailable in the Nordic campaign"),
+        };
+        return stages[usize::from(tier - 2)];
+    }
+    if region == Region::Japan {
+        use Kind::*;
+        let stages = match kind {
+            Machiya | Inn => [
+                "Veranda mit Laternen",
+                "Dachgaube",
+                "Vordach",
+                "Breiter Balkon",
+                "Dachkammer",
+            ],
+            Well => [
+                "Wassertröge",
+                "Vordach",
+                "Papierlaternen",
+                "Überdachte Kammer",
+                "Steinlaternen",
+            ],
+            RicePaddy => [
+                "Junge Reishalme",
+                "Dichtere Saat",
+                "Bewässerungsrinne",
+                "Reife Reisbüschel",
+                "Gestell für die Ernte",
+            ],
+            TeaGarden => [
+                "Bambus",
+                "Steinlaterne · größere Reichweite",
+                "Bambushain",
+                "Zweite Steinlaterne",
+                "Ahorn am Garten",
+            ],
+            RiceKitchen | TeaHouse | PaperWorkshop => [
+                "Auslage",
+                "Vordach",
+                "Papierlaternen",
+                "Dachwerkstatt",
+                "Verzierte Ladenschilder",
+            ],
+            Temple => [
+                "Steinlaternen",
+                "Seitendächer",
+                "Dritte Dachstufe",
+                "Lampions am Aufgang",
+                "Goldene Dachspitze",
+            ],
+            Storehouse => [
+                "Ladekisten",
+                "Vordach",
+                "Papierlaternen",
+                "Oberer Lagerraum",
+                "Steinlaternen",
+            ],
+            _ => unreachable!("building unavailable in Japan"),
+        };
+        return stages[usize::from(tier - 2)];
+    }
     if tier >= 5 {
         let names = match kind {
             Kind::House | Kind::Inn | Kind::Villa => ["Überdachter Hof", "Wohnkammer mit Fenster"],
@@ -1050,6 +1450,20 @@ fn expansion(kind: Kind, tier: u8, region: Region) -> &'static str {
         Kind::Baths => ["Zwei Seitenbecken", "Badegalerie", "Kuppelflügel"],
         Kind::Forum => ["Marktlaube", "Obere Arkaden", "Stadtgiebel"],
         Kind::Villa => ["Mosaikhof", "Säulenloggia", "Turmzimmer"],
+        Kind::RicePaddy
+        | Kind::RiceKitchen
+        | Kind::TeaGarden
+        | Kind::TeaHouse
+        | Kind::PaperWorkshop
+        | Kind::Temple
+        | Kind::Machiya
+        | Kind::Longhouse
+        | Kind::Fishery
+        | Kind::Smokehouse
+        | Kind::Woodlot
+        | Kind::Boatyard
+        | Kind::Weaver
+        | Kind::FeastHall => unreachable!("buildings from other regions have their own upgrades"),
     };
     names[usize::from(tier - 2)]
 }
@@ -1078,6 +1492,27 @@ fn upgrade_estimate(town: &Town, chapter: &Chapter, lot: usize) -> Option<Upgrad
             u16::from(building.level) + 1,
             u16::from(next.level) + 1,
             "Portionen je Küche",
+        )
+    } else if building.kind == Kind::RicePaddy {
+        ("rice_paddy", before.rice, after.rice, "Körbe Reis")
+    } else if building.kind == Kind::TeaGarden {
+        (
+            "tea_cup",
+            u16::from(building.level) * 2,
+            u16::from(next.level) * 2,
+            "Schalen je Teehaus",
+        )
+    } else if building.kind == Kind::Fishery {
+        ("fishery", before.fish, after.fish, "Fische")
+    } else if building.kind == Kind::Woodlot {
+        ("woodlot", before.wood, after.wood, "Scheite")
+    } else if building.kind == Kind::Boatyard {
+        let route = SailingRoute::Coastal;
+        (
+            "sea_trade",
+            route.silver(building.level) as u16,
+            route.silver(next.level) as u16,
+            "Silber im Inselhandel",
         )
     } else if building.kind == Kind::Storehouse {
         (
@@ -1595,7 +2030,18 @@ fn day_plan(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
             });
         }
     });
-    label(page, hud, "Fähre und Wasser", 16.0, Face::Bold, GOLD);
+    label(
+        page,
+        hud,
+        if chapter.region == Region::Nordic {
+            "Fähre, Wasser und Fang"
+        } else {
+            "Fähre und Wasser"
+        },
+        16.0,
+        Face::Bold,
+        GOLD,
+    );
     page.spawn(Node {
         align_items: AlignItems::Stretch,
         ..row(9.0)
@@ -1637,6 +2083,20 @@ fn day_plan(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
                 }
                 if weather == Weather::Feast {
                     metric(day, hud, "budget", "Größere Budgets");
+                }
+                if chapter.region == Region::Nordic
+                    && matches!(weather, Weather::Wind | Weather::Storm)
+                {
+                    metric(
+                        day,
+                        hud,
+                        "fishery",
+                        if weather == Weather::Storm {
+                            "−6 Fische pro Hütte"
+                        } else {
+                            "−2 Fische pro Hütte"
+                        },
+                    );
                 }
                 if matches!(weather, Weather::Clear | Weather::Cloud) {
                     metric(day, hud, "ferry", "Fähre nach Plan");
@@ -1712,9 +2172,15 @@ fn evening(
     let clear = report.stars > 0;
     let ending = clear && town.chapter + 1 == CHAPTERS.len();
     let rome_unlocked = clear && town.chapter + 1 == REGION_SIZE;
+    let japan_unlocked = clear && town.chapter + 1 == JAPAN_START;
+    let nordic_unlocked = clear && town.chapter + 1 == NORDIC_START;
     let tutorial_complete = clear && tutorial && town.chapter + 1 == coach::ISLANDS;
     let title = if ending {
-        "Ein Platz für ganz Rom"
+        "Alle Häfen erreicht"
+    } else if nordic_unlocked {
+        "Die Lichter der Inlandsee"
+    } else if japan_unlocked {
+        "Auf zu Japans Küsten"
     } else if rome_unlocked {
         "Das Bündnis steht"
     } else if clear {
@@ -1972,6 +2438,10 @@ fn evening(
                             "Zur Kampagnenkarte"
                         } else if rome_unlocked {
                             "Nach Rom segeln"
+                        } else if japan_unlocked {
+                            "Nach Japan segeln"
+                        } else if nordic_unlocked {
+                            "In den Norden segeln"
                         } else {
                             "Nächster Hafen"
                         },
@@ -2219,7 +2689,16 @@ fn hint(p: &mut ChildSpawnerCommands, hud: &Hud, content: &str, image: &str) {
 }
 
 pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
-    const PAGES: [&str; 6] = ["Steuerung", "Dein Tag", "Waren", "Nili", "Reisen", "Rom"];
+    const PAGES: [&str; 8] = [
+        "Steuerung",
+        "Dein Tag",
+        "Waren",
+        "Nili",
+        "Reisen",
+        "Rom",
+        "Japan",
+        "Nordisch",
+    ];
     modal(p, hud, 985.0, "", "Spielhilfe", "guide", |page| {
         page.spawn(row(7.0)).with_children(|tabs| {
             for (i, name) in PAGES.iter().enumerate() {
@@ -2335,7 +2814,7 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                         "Tausche freie Sterne gegen Gewänder und Kopfschmuck ein.",
                     ),
                 ],
-                _ => &[
+                5 => &[
                     (
                         "well",
                         "aqueduct",
@@ -2353,6 +2832,58 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                         "budget",
                         "In Villen wohnen mehr Menschen",
                         "Viele von ihnen können mehr ausgeben.",
+                    ),
+                ],
+                6 => &[
+                    (
+                        "rice_paddy",
+                        "rice_bowl",
+                        "Vom Feld in die Küche",
+                        "Ein Brunnen neben dem Feld bringt mehr Reis. Neben einem Feld kocht die Reisküche mehr Portionen.",
+                    ),
+                    (
+                        "tea_garden",
+                        "tea_cup",
+                        "Tee aus dem eigenen Garten",
+                        "Mehr Schalen für nahe Teehäuser. Ab Stufe 3 reicht der Garten weiter.",
+                    ),
+                    (
+                        "temple_bell",
+                        "temple",
+                        "Die Pilgerglocke",
+                        "Geh tagsüber mit Nili zum Tempel. Läute mit A oder tippe auf die Glocke. Die Gäste beten kostenlos.",
+                    ),
+                    (
+                        "lampion",
+                        "temple_bell",
+                        "Lampions am Weg",
+                        "Mit einer Lampionwerkstatt direkt neben dem Tempel kommt beim Läuten ein Pilger mehr.",
+                    ),
+                ],
+                _ => &[
+                    (
+                        "fishery",
+                        "smokehouse",
+                        "Fisch für die Räucherei",
+                        "Fischerhütten liefern Fang. Holzplätze erhöhen den Ertrag. Bei Wind und Sturm fällt der Fang kleiner aus.",
+                    ),
+                    (
+                        "smoked_fish",
+                        "feast_hall",
+                        "Die Festhalle versorgen",
+                        "Eine benachbarte Räucherei gibt zwei Portionen an die Festhalle ab und bewirtet so fünf zusätzliche Gäste.",
+                    ),
+                    (
+                        "boatyard",
+                        "sea_trade",
+                        "Für den Seehandel beladen",
+                        "Geh tagsüber zum Bootshaus und wähle eine Fahrt. Das Schiff lädt Fisch aus einer Räucherei in der Nähe.",
+                    ),
+                    (
+                        "storm",
+                        "coin",
+                        "Wetter und Rückkehr",
+                        "Inselhandel dauert einen Tag. Fernhandel ab Stufe 2 dauert zwei Tage. Bei Sturm kehrt das Schiff später zurück.",
                     ),
                 ],
             };

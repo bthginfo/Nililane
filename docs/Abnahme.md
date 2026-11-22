@@ -197,3 +197,27 @@ und die Hafenuhr lief weiter. Der Spielstand war nach der Installation
 - APK-Signatur v2 und v3, 16-KiB-Ausrichtung beider Bibliotheken und
   SHA-256-Abgleich des GitHub-Downloads.
 - Der Test auf einem physischen Android-Tablet steht noch aus.
+
+## Japan und die nordischen Häfen in 2.6.0
+
+- **Erster Einstieg.** In Japan und den nordischen Häfen folgen die neuen
+  Systeme über mehrere Kapitel. Die Tempelglocke erhält einen Marker in der
+  Gasse und eine eigene Aktion in Reichweite von Nili. Die Bootshauskarten
+  vergleichen Proviant, früheste Rückkehr und Silberertrag.
+- **Kampagne und Fortschritt.** 96 von 96 Häfen erreichen in den
+  Referenzpartien drei Sterne. Nach der Abendabrechnung werden Spielstand und
+  nächster Hafen geprüft. Japans geöffnete Gassen dauern bei Normaltempo
+  8 Stunden und 14 Minuten, die nordischen 9 Stunden und 33 Minuten.
+  Planung, Menüs und Wiederholungen kommen hinzu.
+- **Simulation.** Die 31 Rust-Tests decken die manuelle Bewegung zu den
+  Einsatzorten, Tempelbesuche, kostenfreies Gebet, die beiden Freischaltungen,
+  Kleidung, Warenvorräte und bei Sturm verzögerte Handelsfahrten ab. Der
+  Spielstand speichert Proviantabzug, Rückkehrtag und einmalige Auszahlung.
+- **Oberfläche.** Im Querformat 4:3 zeigt die Garderobe Japan und Nordisch
+  auf eigenen Karten. Gesperrte Artikel zeigen Sternpreis und Hafen.
+  [Japan](bilder/japan.jpg) · [Nordische Häfen](bilder/nordische-haefen.jpg)
+- **Android.** Die geprüfte APK enthält beide Prozessorarchitekturen und
+  alle 192 Musikaufnahmen offline. Signatur und 16-KiB-Ausrichtung sind
+  geprüft. Die Installation über 2.5.2 hat den vorhandenen Spielstand
+  bytegleich erhalten. Im Emulator haben A-Tastendrücke von Rom nach
+  Tomonoura und von Awajishima nach Borg geführt.

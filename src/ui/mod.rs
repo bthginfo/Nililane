@@ -93,7 +93,7 @@ pub fn setup(mut hud: ResMut<Hud>, assets: Res<AssetServer>) {
         assets.load("embedded://fonts/DMSans-Bold.ttf"),
         assets.load("embedded://fonts/DMSerifText-Regular.ttf"),
     ];
-    let icons = "house well bakery grove potter stoa taverna inn bread olive meze bed coin star sun water wind ferry fire chart book guide hammer lock check nili title_fade storehouse press shrine aqueduct baths forum villa mood cloud rain storm guest_book guest_down guest_empty guest_happy guest_mixed guest_steps guest_wait pad_dpad pad_view sunset pause budget age_child age_adult age_senior cat dog leaves scraps herb_garden";
+    let icons = "house well bakery grove potter stoa taverna inn bread olive meze bed coin star sun water wind ferry fire chart book guide hammer lock check nili title_fade storehouse press shrine aqueduct baths forum villa mood cloud rain storm guest_book guest_down guest_empty guest_happy guest_mixed guest_steps guest_wait pad_dpad pad_view sunset pause budget age_child age_adult age_senior cat dog leaves scraps herb_garden machiya temple temple_bell rice_paddy rice_kitchen rice_bowl tea_garden tea_house tea_cup paper_workshop lampion longhouse fishery smokehouse woodlot boatyard sea_trade weaver feast_hall smoked_fish woven_cloth hearth_bowl";
     for key in icons
         .split_whitespace()
         .map(str::to_owned)
@@ -133,7 +133,7 @@ pub fn draw(
             match (game.view, game.panel) {
                 (_, Panel::Guide) => panels::guide(base, &hud, &game),
                 (_, Panel::Options) => panels::options(base, &hud, &save),
-                (_, Panel::Wardrobe) => wardrobe::draw(base, &hud, &save, game.wardrobe_tab),
+                (_, Panel::Wardrobe) => wardrobe::draw(base, &hud, &save, &game),
                 (View::Title, _) => screens::title(base, &hud, &save),
                 (View::Chart, Panel::Replace) => panels::replace(base, &hud, &game),
                 (View::Chart, _) => screens::chart(base, &hud, &game, &save),
@@ -755,13 +755,32 @@ fn kind_icon(kind: Kind) -> &'static str {
         Kind::Baths => "baths",
         Kind::Forum => "forum",
         Kind::Villa => "villa",
+        Kind::Machiya => "machiya",
+        Kind::RicePaddy => "rice_paddy",
+        Kind::RiceKitchen => "rice_kitchen",
+        Kind::TeaGarden => "tea_garden",
+        Kind::TeaHouse => "tea_house",
+        Kind::PaperWorkshop => "paper_workshop",
+        Kind::Temple => "temple",
+        Kind::Longhouse => "longhouse",
+        Kind::Fishery => "fishery",
+        Kind::Smokehouse => "smokehouse",
+        Kind::Woodlot => "woodlot",
+        Kind::Boatyard => "boatyard",
+        Kind::Weaver => "weaver",
+        Kind::FeastHall => "feast_hall",
     }
 }
 
 fn has_places(service: Service) -> bool {
     matches!(
         service,
-        Service::Shade | Service::Bed | Service::Bath | Service::Trade
+        Service::Shade
+            | Service::Bed
+            | Service::Bath
+            | Service::Trade
+            | Service::Prayer
+            | Service::HearthMeal
     )
 }
 
@@ -846,6 +865,48 @@ fn stock_unit(service: Service, amount: u16) -> &'static str {
                 "Marktstände"
             }
         }
+        Service::Rice => {
+            if amount == 1 {
+                "Reisschale"
+            } else {
+                "Reisschalen"
+            }
+        }
+        Service::Tea => {
+            if amount == 1 {
+                "Schale Tee"
+            } else {
+                "Schalen Tee"
+            }
+        }
+        Service::Lantern => {
+            if amount == 1 {
+                "Lampion"
+            } else {
+                "Lampions"
+            }
+        }
+        Service::Prayer | Service::HearthMeal => {
+            if amount == 1 {
+                "Platz"
+            } else {
+                "Plätze"
+            }
+        }
+        Service::SmokedFish => {
+            if amount == 1 {
+                "Portion Fisch"
+            } else {
+                "Portionen Fisch"
+            }
+        }
+        Service::Textiles => {
+            if amount == 1 {
+                "Webware"
+            } else {
+                "Webwaren"
+            }
+        }
     }
 }
 
@@ -860,6 +921,13 @@ fn service_icon(service: Service) -> &'static str {
         Service::Offering => "shrine",
         Service::Bath => "baths",
         Service::Trade => "forum",
+        Service::Rice => "rice_bowl",
+        Service::Tea => "tea_cup",
+        Service::Lantern => "lampion",
+        Service::Prayer => "temple",
+        Service::SmokedFish => "smoked_fish",
+        Service::Textiles => "woven_cloth",
+        Service::HearthMeal => "hearth_bowl",
     }
 }
 
@@ -901,6 +969,9 @@ fn shown_goal(town: &crate::model::Town, goal: crate::campaign::Goal) -> (u32, u
         Goal::Variety(_) => value.max(day.tally.served.iter().filter(|&&n| n > 0).count() as u32),
         Goal::MarketDay(_) => value.max(day.tally.income),
         Goal::Water(_) => value.max(u32::from(day.water)),
+        Goal::Harvest(_) => value.max(u32::from(day.rice_harvest)),
+        Goal::Bell(_) => value + day.tally.bell_rings,
+        Goal::Catch(_) => value.max(u32::from(day.fish_catch)),
         Goal::Route(job, _) => value + day.tally.routes[job as usize],
         Goal::RouteVariety(_) => town
             .totals

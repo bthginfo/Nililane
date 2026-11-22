@@ -1,16 +1,20 @@
-# Nililane 2.5.2
+# Nililane 2.6.0
 
-Nililane ist ein 3D-Straßenmanagementspiel in Rust und Bevy. Mit dem Nilpferd Nili
-reist du zuerst durch das antike Griechenland und danach durch das antike
-Rom. Du planst die Gasse am Morgen, versorgst Nachbarn und Fährgäste und hilfst
-tagsüber dort, wo sich die Lieferungen stauen. Auf der Kampagnenkarte erkennst
-du die Größe des nächsten Hafens schon vor der Überfahrt.
+Nililane ist ein 3D-Straßenmanagementspiel in Rust und Bevy. Mit Nili
+reist du durch das antike Griechenland, das antike Rom, das feudale Japan
+und die nordischen Häfen der Wikingerzeit. Jede Reise hat 24 Kapitel.
+Du planst morgens die Gasse, versorgst Nachbarn und Fährgäste und steuerst
+Nili tagsüber bei seinen Aufgaben.
 
-**[Nililane 2.5.2 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/6c15f857cac1ee826a8cf11a14d773fdc4103134/Nililane-2.5.2.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/6c15f857cac1ee826a8cf11a14d773fdc4103134/Nililane-2.5.2.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.5.2)
+**[Nililane 2.6.0 für Android herunterladen](https://github.com/bthginfo/Nililane/releases/download/v2.6.0/Nililane-2.6.0.apk)** · [SHA-256](https://github.com/bthginfo/Nililane/releases/download/v2.6.0/Nililane-2.6.0.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.6.0)
 
 ![Nili mit Bewohnern und dem ausgebauten Wohnhof in Naxos](docs/bilder/naxos.jpg)
 
 ![Capua mit mehrstöckigem Aquädukt, Thermen und römischen Arkaden](docs/bilder/capua.jpg)
+
+![Tempeldächer, Reisfelder und Holzfähren in Japan](docs/bilder/japan.jpg)
+
+![Langhäuser mit Grasdächern und gestreifte Segel in Trondenes](docs/bilder/nordische-haefen.jpg)
 
 ## Auf dem Tablet spielen
 
@@ -48,6 +52,25 @@ Für Bauplätze, Preise und Angebote nutzt du morgens die Planung.
 Mit der Tastatur bewegst du Nili mit WASD oder den Pfeiltasten. Enter
 entspricht A, Escape entspricht B. X, Y, P, Q und E entsprechen X, Y,
 Start, LB und RB. N öffnet Nilis Touren. F öffnet das Gästebuch.
+
+## Neu in 2.6.0
+
+- **Japan** schaltet sich nach dem Rom-Finale frei. Brunnen und Reisfelder liefern
+  mehr Reis für die Küchen, Teegärten versorgen Teehäuser und schaffen Platz
+  am Tempel. Geh tagsüber mit Nili zum Tempel und läute mit **A** oder einem
+  Tipp auf die Glocke. Zusätzliche Pilger kommen zum kostenlosen Gebet. Eine
+  Lampionwerkstatt direkt nebenan bringt beim Läuten einen weiteren Gast.
+- **Nordische Häfen** öffnen sich nach Awajishima. Fischerhütten und Holzplätze
+  versorgen die Räuchereien, die wiederum mehr Plätze in der Festhalle ermöglichen.
+  Am Bootshaus belädst du Schiffe mit Räucherfisch für den Inselhandel oder
+  ab Stufe 2 für den Fernhandel. Bei Sturm kann die Rückkehr warten. Den Erlös
+  erhältst du morgens, wenn das Schiff zurückkommt.
+- Beide Reisen bringen eigene 3D-Landschaften, Bauten mit sechs sichtbaren
+  Stufen, Fähren, Einwohner und 48 neue Hafenstücke mit je einer Abendfassung.
+  Die Spielhilfe und die ersten Häfen zeigen die neuen Abläufe mit Bildern.
+- In der Garderobe stehen acht neue Stücke für Japan und acht für den Norden.
+  Unter dem Schloss steht der Hafen, dessen Abschluss den Kauf mit Sternen
+  freischaltet.
 
 ## Neu in 2.5.2
 
@@ -189,8 +212,11 @@ auch im 4:3-Format vollständig.
   Werkstätten, Höfen und Tavernen hinzu.
 - **Rom** schaltet sich nach Griechenland frei. In 24 weiteren Kapiteln
   verbinden Aquädukte, Thermen, Foren und Villen die Gassen von Ostia bis
-  Rom. Eigene Bauten, Kleidung, Musik und Schiffe prägen die zweite Reise.
-- Die 15 Gebäudetypen lassen sich bis Stufe 4 ausbauen. Für Läden stehen
+  Rom. Thermen profitieren von Aquädukten. Ein Forum erweitert die
+  Reichweite der Fährgäste, und Villen bringen wohlhabendere Nachbarn.
+- **Japan** führt von Tomonoura bis zum Fest auf Awajishima.
+- **Nordische Häfen** führen von Borg auf den Lofoten bis nach Hedeby.
+- Die 30 Gebäudetypen lassen sich bis Stufe 6 ausbauen. Für Läden stehen
   drei Preise zur Wahl. Die Ausbauvorschau benennt die sichtbare Erweiterung
   und zeigt, wie sich Wasser, Vorräte und Bewohnerzahlen verändern.
 - Im Hafenplan stehen Nachfrage, Vorräte, Zufriedenheit und die Vorhersage
@@ -201,9 +227,9 @@ auch im 4:3-Format vollständig.
   Zusatzsterne. Nach dem Abschluss kannst du bleiben, weiterreisen
   oder einen Hafen für mehr Sterne erneut besuchen.
 - Bauentscheidungen, laufende Tage und Sternrekorde werden lokal gespeichert.
-  Bei Normaltempo dauern die Markttage der Referenzpartien rund sechseinhalb
-  Stunden in Griechenland und elfeinhalb Stunden in Rom. Planung, Spieltempo
-  und Wiederholungen beeinflussen die tatsächliche Spielzeit.
+  Bei Normaltempo ergeben die Referenzpartien rund acht Stunden
+  geöffneter Gasse in Japan und gut neuneinhalb Stunden in den nordischen
+  Häfen. Planung, Tempo und Wiederholungen beeinflussen die Spielzeit.
 
 ## Aus dem Quellcode starten
 

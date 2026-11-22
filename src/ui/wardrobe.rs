@@ -1,7 +1,10 @@
 use super::*;
-use crate::cosmetics::{Category, Cosmetic};
+use crate::{
+    campaign::Region,
+    cosmetics::{Category, Cosmetic},
+};
 
-pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign, active: Category) {
+pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign, game: &Game) {
     let stars = save.available_stars();
     p.spawn((
         Node {
@@ -29,6 +32,28 @@ pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign, act
                 });
             line(closet, LINE);
             closet.spawn(row(6.0)).with_children(|tabs| {
+                for (region, title, image) in [
+                    (None, "Antike", "forum"),
+                    (Some(Region::Japan), "Japan", "temple"),
+                    (Some(Region::Nordic), "Nordisch", "boatyard"),
+                ] {
+                    button(
+                        tabs,
+                        hud,
+                        Action::WardrobeRegion(region),
+                        title,
+                        image,
+                        "",
+                        if game.wardrobe_region == region {
+                            Style::Selected
+                        } else {
+                            Style::Quiet
+                        },
+                        false,
+                    );
+                }
+            });
+            closet.spawn(row(6.0)).with_children(|tabs| {
                 for category in Category::ALL {
                     button(
                         tabs,
@@ -37,7 +62,7 @@ pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign, act
                         category.label(),
                         category.icon(),
                         "",
-                        if category == active {
+                        if category == game.wardrobe_tab {
                             Style::Primary
                         } else {
                             Style::Quiet
@@ -48,7 +73,9 @@ pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign, act
             });
             let items: Vec<_> = Cosmetic::ALL
                 .into_iter()
-                .filter(|item| item.category() == active)
+                .filter(|item| {
+                    item.category() == game.wardrobe_tab && item.region() == game.wardrobe_region
+                })
                 .collect();
             for items in items.chunks(4) {
                 closet
@@ -60,6 +87,7 @@ pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign, act
                         for &item in items {
                             let wearing = save.wardrobe.wearing(item);
                             let owned = save.wardrobe.owns(item);
+                            let locked = !save.cosmetic_available(item);
                             button_shell(
                                 row,
                                 Action::Wear(item),
@@ -68,7 +96,7 @@ pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign, act
                                 } else {
                                     Style::Quiet
                                 },
-                                !owned && item.cost() > stars,
+                                locked || (!owned && item.cost() > stars),
                                 Node {
                                     flex_grow: 1.0,
                                     flex_basis: Val::Px(0.0),
@@ -89,6 +117,9 @@ pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign, act
                                     ("star", item.cost().to_string())
                                 };
                                 panels::metric(tile, hud, art, cost);
+                                if let Some(island) = item.requires_chapter().filter(|_| locked) {
+                                    panels::metric(tile, hud, "lock", CHAPTERS[island].district);
+                                }
                             });
                         }
                     });

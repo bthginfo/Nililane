@@ -50,6 +50,15 @@ CELLO = Voice(42, 63, 0.87, 64, 59)
 PIZZ = Voice(45, 60, 0.72, 70, 56)
 BRUSHES = Voice(40, 58, 0.9, 67, 70)
 
+KOTO = Voice(107, 79, 1.19, 106, 56)
+SHAKUHACHI = Voice(77, 74, 0.94, 101, 68)
+SHAMISEN = Voice(106, 67, 1.12, 88, 45)
+KOTO_BACK = Voice(107, 61, 1.21, 85, 79)
+FIDDLE = Voice(110, 72, 0.92, 100, 60)
+RECORDER = Voice(74, 67, 0.97, 100, 69)
+DULCIMER = Voice(15, 69, 1.25, 91, 59)
+DULCIMER_BACK = Voice(15, 55, 1.29, 78, 80)
+
 # Lead, answering voice, plucked accompaniment. Quiet voices also swap at dusk.
 ENSEMBLES = {
     "lyre": (FLUTE, HARP, NYLON_BACK),
@@ -59,6 +68,12 @@ ENSEMBLES = {
     "chamber": (CLARINET, HARP, NYLON_BACK),
     "pavilion": (CLARINET, HARP, NYLON_BACK),
     "courtyard": (NYLON, FLUTE, HARP_BACK),
+    "koto": (KOTO, SHAKUHACHI, SHAMISEN),
+    "bamboo": (SHAKUHACHI, KOTO, KOTO_BACK),
+    "festival": (KOTO, SHAKUHACHI, KOTO_BACK),
+    "fjord": (FIDDLE, RECORDER, DULCIMER_BACK),
+    "hearth": (RECORDER, DULCIMER, HARP_BACK),
+    "sail": (FIDDLE, DULCIMER, DULCIMER_BACK),
 }
 METERS = {
     "4/4": (8, (0, 2, 4, 6)),
@@ -131,7 +146,12 @@ def arrange(score: Song, evening: bool):
     lead, reply, picking = ENSEMBLES[score.colors]
     if evening:
         lead, reply = reply, lead
-        picking = NYLON_BACK if picking is HARP_BACK else HARP_BACK
+        if score.colors in ("koto", "bamboo", "festival"):
+            picking = KOTO_BACK if lead is SHAKUHACHI else SHAMISEN
+        else:
+            picking = NYLON_BACK if picking is HARP_BACK else HARP_BACK
+        if score.colors in ("fjord", "hearth", "sail"):
+            lead, reply, picking = RECORDER, DULCIMER, DULCIMER_BACK
     bass = PIZZ if score.colors in ("pavilion", "chamber") else BASS
     voices = {0: lead, 1: reply, 2: picking, 3: bass, 4: CELLO, 9: BRUSHES}
     former = (score.tonic - 12, score.tonic - 8, score.tonic - 4)
@@ -192,7 +212,7 @@ def arrange(score: Song, evening: bool):
         if evening:
             # Sparse, ringing shapes leave room for the lower-register evening lead.
             positions = ((0.09, 0), (1.65, 1), (size / 2 + 0.33, 2), (size - 1.02, 1))
-        elif score.colors in ("trail", "courtyard") and not coda_bar:
+        elif score.colors in ("trail", "courtyard", "festival", "sail") and not coda_bar:
             positions = tuple((at + 0.24, degree) for at, degree in enumerate(
                 (0, 1, 2, 1, 0, 2, 1, 2)[:size]
             ))
@@ -211,7 +231,7 @@ def arrange(score: Song, evening: bool):
             sustain = chord[1] if bass is BASS else chord[0] + 12
             put(4, sustain, start + 0.13, size - 0.40, phrase_dynamics - 8)
 
-        active_rhythm = score.colors in ("trail", "courtyard", "guitar")
+        active_rhythm = score.colors in ("trail", "courtyard", "guitar", "festival", "sail")
         if active_rhythm and not evening and not coda_bar and 2 <= bar < len(measures) - 5:
             # Low strokes and soft brushes, with no tuned pattern over the score.
             put(9, 36, start, 0.46, 0)

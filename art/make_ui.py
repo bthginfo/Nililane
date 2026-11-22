@@ -392,10 +392,6 @@ def make_icon(name):
 ICONS = ("house well bakery grove potter stoa taverna inn bread olive meze bed coin star "
          "sun water wind ferry chart book guide hammer lock check nili storehouse press shrine aqueduct baths forum villa mood cloud rain storm "
          "guest_happy guest_mixed guest_down guest_wait guest_steps guest_empty guest_book pad_dpad pad_view sunset pause budget").split()
-for item in ICONS:
-    make_icon(item)
-
-
 def island_card(index):
     a = Art(230, 112)
     rng = random.Random(437 + index * 75)
@@ -437,13 +433,16 @@ def island_card(index):
     a.save("island_" + str(index))
 
 
-for i in range(48):
-    island_card(i)
+if __name__ == "__main__":
+    for item in ICONS:
+        make_icon(item)
+    for i in range(48):
+        island_card(i)
 
-# A continuous fade lets the live 3D street show through the edge of the title panel.
-fade = Image.new("RGBA", (384, 2))
-for x in range(fade.width):
-    alpha = round(240 * (1 - x / (fade.width - 1)) ** 1.55)
-    for y in range(2):
-        fade.putpixel((x, y), (11, 36, 40, alpha))
-fade.save(OUT / "title_fade.png", optimize=True)
+    # A continuous fade lets the live 3D street show through the edge of the title panel.
+    fade = Image.new("RGBA", (384, 2))
+    for x in range(fade.width):
+        alpha = round(240 * (1 - x / (fade.width - 1)) ** 1.55)
+        for y in range(2):
+            fade.putpixel((x, y), (11, 36, 40, alpha))
+    fade.save(OUT / "title_fade.png", optimize=True)

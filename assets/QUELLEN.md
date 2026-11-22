@@ -12,7 +12,7 @@ Hippogrove aus Waldwinkel. [Hippogrove-Revision](https://github.com/bthginfo/Hip
   Gasthaus, Figuren, Boote und Ufer entstehen in `src/world/`.
   `roman.rs` enthält die römische Architektur und das andere Tiberufer.
   `ships.rs` baut Rümpfe, Takelage, Segel, Ladung und Bugwellen.
-  `people.rs` baut römische und griechische Figuren mit einem gemeinsamen
+  `people.rs` baut die Figuren aller vier Regionen mit einem gemeinsamen
   Skelett. `construction.rs` steuert Gerüst, Ausbauteile und Staub.
   `work.rs` und `actors.rs` gestalten Nilis Bewegungen, Requisiten und Punktspuren.
   `clothes.rs` erzeugt Nilis Gewänder, Hüte und Accessoires.
@@ -25,7 +25,7 @@ Hippogrove aus Waldwinkel. [Hippogrove-Revision](https://github.com/bthginfo/Hip
   `art/make_audio.py` erzeugt das Meeresrauschen und die Klangmotive
   für Bau, Ausbau, Verkauf, Hafenglocke und Nilis Hilfe sowie das Regenbett und
   die römische Musik mit Leier, Flöte und Rahmentrommel.
-- Die 48 Hafenstücke und ihre Abendfassungen sind in `art/harbor_scores.py`
+- Die 96 Hafenstücke und ihre Abendfassungen sind in `art/harbor_scores.py`
   ausgeschrieben. `art/make_harbor_music.py` spielt die Partituren mit FluidSynth
   und dem SoundFont GeneralUser GS 2.0.3 von S. Christian Collins ein.
   Im Spiel liegen die fertigen Vorbis-Aufnahmen. [SoundFont und Lizenz](https://schristiancollins.com/generaluser.php)
@@ -34,3 +34,19 @@ Hippogrove aus Waldwinkel. [Hippogrove-Revision](https://github.com/bthginfo/Hip
   neuen Kleidungsbilder.
 - DM Sans und DM Serif Text stehen unter der SIL Open Font License.
   Die Lizenztexte liegen bei den Schriften in `fonts/`.
+
+## Japan und die nordischen Häfen
+
+`src/world/japan.rs` baut Tempel, Reisfelder, Holzhäuser und die Küste.
+Als Vorbilder dienten die historische Hafenstadt Tomonoura und die
+Insel- und Tempellandschaften der Inlandsee. Die buddhistische Tempelhalle
+und die Torii an der Küste sind getrennte Bauwerke. [Stadt Fukuyama](https://www.city.fukuyama.hiroshima.jp/soshiki/kanko/85749.html) · [Miyajima, Japan National Tourism Organization](https://www.japan.travel/en/spot/ma_179/)
+
+`src/world/nordic.rs` baut Langhäuser, Handwerksbauten und Fjordlandschaften.
+Die Modelle greifen Grasdächer, Holzbau und den Schiffbau der Wikingerzeit
+auf. Die Gäste tragen auch wollene Mäntel und Fibeln. [Lofotr Viking Museum](https://www.museumnord.no/en/our-venues/lofotr-viking-museum/) · [Viking Ship Museum Roskilde](https://www.vikingeskibsmuseet.dk/en/visit-the-museum/exhibitions/the-five-viking-ships/skuldelev-1) · [Dänisches Nationalmuseum](https://en.natmus.dk/historical-knowledge/denmark/prehistoric-period-until-1050-ad/the-viking-age/the-people/clothes-and-jewellery/)
+
+`art/make_japan_art.py` und `art/make_nordic_art.py` zeichnen die
+Hafenkarten, Waren- und Kleidungsbilder und erzeugen den Glockenklang
+und das Signal zur Abfahrt. Die neuen Hafenstücke verwenden für Japan
+Zither und Bambusflöte, für die nordischen Häfen Fidel, Blockflöte und Hackbrett.

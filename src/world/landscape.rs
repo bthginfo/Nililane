@@ -26,7 +26,10 @@ pub fn quay(layout: Layout) -> f32 {
 pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
     let columns = layout.width();
     let mut b = Batch::default();
-    let roman = Region::of(chapter) == Region::Rome;
+    let region = Region::of(chapter);
+    let roman = region == Region::Rome;
+    let japan = region == Region::Japan;
+    let nordic = region == Region::Nordic;
     let mut grain = Grain::new(401 + chapter as u32 * 4051);
     let wide = columns as f32 * LOT_STEP * 0.5 + 2.6;
     let coast = [
@@ -60,7 +63,13 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
             z + waterfront + grain.span(-0.16, 0.19),
         )
     });
-    let (earth, edge) = if roman {
+    let (earth, edge) = if nordic {
+        let earth = super::nordic::paving(2, 1, chapter);
+        (shift(earth, -16), shift(earth, -53))
+    } else if japan {
+        let earth = super::japan::paving(2, 1, chapter);
+        (shift(earth, -13), shift(earth, -54))
+    } else if roman {
         let earth = [
             [176, 151, 124],
             [163, 159, 134],
@@ -109,7 +118,11 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
             b.slab(
                 v(x + grain.span(-0.008, 0.008), 0.021, pz),
                 v(0.501, grain.span(0.037, 0.054), 0.316),
-                if roman {
+                if nordic {
+                    super::nordic::paving(i, row, chapter)
+                } else if japan {
+                    super::japan::paving(i, row, chapter)
+                } else if roman {
                     super::roman::paving(i, row)
                 } else {
                     palette[(i * 19 + row * 3) % palette.len()]
@@ -128,8 +141,22 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
     for row in 0..2 {
         for col in 0..layout.row(row) {
             let p = lot_position(lot_id(row, col), columns);
-            b.slab(p.with_y(0.021), v(2.84, 0.048, 2.44), [206, 177, 132]);
-            b.slab(p.with_y(0.040), v(2.65, 0.036, 2.21), [220, 192, 151]);
+            let borders = if nordic {
+                [153, 153, 138]
+            } else if japan {
+                [176, 166, 145]
+            } else {
+                [206, 177, 132]
+            };
+            let yard = if nordic {
+                [187, 181, 156]
+            } else if japan {
+                [201, 187, 157]
+            } else {
+                [220, 192, 151]
+            };
+            b.slab(p.with_y(0.021), v(2.84, 0.048, 2.44), borders);
+            b.slab(p.with_y(0.040), v(2.65, 0.036, 2.21), yard);
             let path_z = if row == 0 { -1.79 } else { 1.83 };
             for n in 0..3 {
                 b.slab(
@@ -157,7 +184,13 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
     for row in 0..2 {
         for col in layout.row(row)..columns {
             let at = lot_position(lot_id(row, col), columns);
-            shore_garden(&mut b, at, roman, chapter + row + col, &mut grain);
+            if nordic {
+                super::nordic::garden(&mut b, at, chapter, &mut grain);
+            } else if japan {
+                super::japan::garden(&mut b, at, chapter, &mut grain);
+            } else {
+                shore_garden(&mut b, at, roman, chapter + row + col, &mut grain);
+            }
         }
     }
     for n in 0..90 {
@@ -171,7 +204,11 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
     }
     promenade_wall(&mut b, wide, quay(layout));
     harbor(&mut b, quay(layout));
-    if roman {
+    if nordic {
+        super::nordic::bank(&mut b, wide, chapter, &mut grain);
+    } else if japan {
+        super::japan::bank(&mut b, wide, chapter, &mut grain);
+    } else if roman {
         super::roman::skyline(&mut b, wide, chapter, &mut grain);
         super::roman::quay_landmark(&mut b, -wide + 1.28, chapter);
         super::roman::quay_landmark(&mut b, wide - 1.45, chapter + 1);
@@ -454,10 +491,11 @@ pub fn water(columns: usize, region: Region) -> Mesh {
             let depth = ((x.abs() - wide + 1.0).max(0.0) + (z.abs() - 2.8).max(0.0)) / 16.0;
             let depth = depth.clamp(0.0, 1.0);
             let mix = |shallow: f32, deep: f32| (shallow + (deep - shallow) * depth) as u8;
-            let tint = if region == Region::Rome {
-                [mix(125.0, 49.0), mix(170.0, 111.0), mix(151.0, 124.0)]
-            } else {
-                [mix(100.0, 36.0), mix(177.0, 112.0), mix(166.0, 142.0)]
+            let tint = match region {
+                Region::Greece => [mix(100.0, 36.0), mix(177.0, 112.0), mix(166.0, 142.0)],
+                Region::Rome => [mix(125.0, 49.0), mix(170.0, 111.0), mix(151.0, 124.0)],
+                Region::Japan => [mix(109.0, 43.0), mix(172.0, 103.0), mix(159.0, 133.0)],
+                Region::Nordic => [mix(110.0, 48.0), mix(151.0, 82.0), mix(156.0, 112.0)],
             };
             let point = |x, z| v(x, WATER_LEVEL, z);
             let a = point(x, z);
@@ -520,6 +558,12 @@ pub fn foam(columns: usize, lane: usize) -> Mesh {
 }
 
 pub fn islands(chapter: usize) -> Mesh {
+    if Region::of(chapter) == Region::Nordic {
+        return super::nordic::distant(chapter);
+    }
+    if Region::of(chapter) == Region::Japan {
+        return super::japan::distant(chapter);
+    }
     if Region::of(chapter) == Region::Rome {
         return super::roman::far_bank(chapter);
     }

@@ -1,5 +1,9 @@
 #[path = "districts.rs"]
 mod districts;
+#[path = "japan_districts.rs"]
+mod japan;
+#[path = "nordic_districts.rs"]
+mod nordic;
 
 use crate::{
     errands::Job,
@@ -12,27 +16,31 @@ pub const REGION_SIZE: usize = 24;
 pub const fn harbor_stage(index: usize) -> usize {
     index % REGION_SIZE
 }
-pub const CHAPTER_COUNT: usize = REGION_SIZE * 2;
+pub const JAPAN_START: usize = REGION_SIZE * 2;
+pub const NORDIC_START: usize = REGION_SIZE * 3;
+pub const CHAPTER_COUNT: usize = REGION_SIZE * 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Region {
     Greece,
     Rome,
+    Japan,
+    Nordic,
 }
 
 impl Region {
+    pub const ALL: [Self; 4] = [Self::Greece, Self::Rome, Self::Japan, Self::Nordic];
+
     pub fn of(chapter: usize) -> Self {
-        if chapter < REGION_SIZE {
-            Self::Greece
-        } else {
-            Self::Rome
-        }
+        Self::ALL[(chapter / REGION_SIZE).min(Self::ALL.len() - 1)]
     }
 
     pub fn start(self) -> usize {
         match self {
             Self::Greece => 0,
             Self::Rome => REGION_SIZE,
+            Self::Japan => JAPAN_START,
+            Self::Nordic => NORDIC_START,
         }
     }
 
@@ -40,6 +48,8 @@ impl Region {
         match self {
             Self::Greece => "Griechenland",
             Self::Rome => "Rom",
+            Self::Japan => "Japan",
+            Self::Nordic => "Nordische Häfen",
         }
     }
 
@@ -47,6 +57,8 @@ impl Region {
         match self {
             Self::Greece => "ferry",
             Self::Rome => "forum",
+            Self::Japan => "temple",
+            Self::Nordic => "boatyard",
         }
     }
 
@@ -54,6 +66,8 @@ impl Region {
         match self {
             Self::Greece => "Drachmen",
             Self::Rome => "Denare",
+            Self::Japan => "Mon",
+            Self::Nordic => "Silber",
         }
     }
 }
@@ -69,6 +83,11 @@ pub enum Goal {
     Variety(u32),
     MarketDay(u32),
     Water(u32),
+    Harvest(u32),
+    Bell(u32),
+    Catch(u32),
+    Voyages(u32),
+    CargoIncome(u32),
     Route(Job, u32),
     RouteVariety(u32),
     FerryDay(u32),
@@ -89,6 +108,11 @@ impl Goal {
             | Self::Variety(n)
             | Self::MarketDay(n)
             | Self::Water(n)
+            | Self::Harvest(n)
+            | Self::Bell(n)
+            | Self::Catch(n)
+            | Self::Voyages(n)
+            | Self::CargoIncome(n)
             | Self::Route(_, n)
             | Self::RouteVariety(n)
             | Self::FerryDay(n)
@@ -111,6 +135,13 @@ impl Goal {
                 Service::Offering => "Weihegaben ausgeben",
                 Service::Bath => "Badegäste empfangen",
                 Service::Trade => "Gäste am Markt bedienen",
+                Service::Rice => "Reisgerichte servieren",
+                Service::Tea => "Schalen Tee servieren",
+                Service::Lantern => "Lampions verkaufen",
+                Service::Prayer => "Besuche am Tempel",
+                Service::SmokedFish => "Räucherfisch verkaufen",
+                Service::Textiles => "Webwaren verkaufen",
+                Service::HearthMeal => "Gäste am Herd bewirten",
             }
             .into(),
             Self::Renown(_) => "Ansehen sammeln".into(),
@@ -120,6 +151,11 @@ impl Goal {
             Self::Variety(_) => "Verschiedene Wünsche an einem Tag".into(),
             Self::MarketDay(_) => "Einnahmen an einem Tag".into(),
             Self::Water(_) => "Wasser bereitstellen".into(),
+            Self::Harvest(_) => "Reis an einem Tag ernten".into(),
+            Self::Bell(_) => "Tempelglocke läuten".into(),
+            Self::Catch(_) => "Fische an einem Tag fangen".into(),
+            Self::Voyages(_) => "Handelsschiffe zurückholen".into(),
+            Self::CargoIncome(_) => "Silber aus dem Seehandel".into(),
             Self::Route(job, _) => job.name().into(),
             Self::RouteVariety(_) => "Verschiedene Touren".into(),
             Self::FerryDay(_) => "Fährgäste an einem Tag".into(),
@@ -173,10 +209,11 @@ impl Chapter {
     pub fn day_seconds(&self) -> f32 {
         let walking_room = self.layout.width().saturating_sub(3) as f32 * 7.5;
         let market_room = (self.par.saturating_sub(8) as f32 * 2.25).min(23.0);
-        let regional = if self.region == Region::Rome {
-            5.0
-        } else {
-            0.0
+        let regional = match self.region {
+            Region::Greece => 0.0,
+            Region::Rome => 5.0,
+            Region::Japan => 10.0,
+            Region::Nordic => 12.0,
         };
         DAY_SECONDS + walking_room + market_room + regional
     }
@@ -498,8 +535,16 @@ pub static CHAPTERS: [Chapter; CHAPTER_COUNT] = {
         chapters[i] = districts::GREEK_LATE[i - GREEK_START.len()];
         i += 1;
     }
-    while i < CHAPTER_COUNT {
+    while i < JAPAN_START {
         chapters[i] = districts::ROMAN[i - REGION_SIZE];
+        i += 1;
+    }
+    while i < NORDIC_START {
+        chapters[i] = japan::CHAPTERS[i - JAPAN_START];
+        i += 1;
+    }
+    while i < CHAPTER_COUNT {
+        chapters[i] = nordic::CHAPTERS[i - NORDIC_START];
         i += 1;
     }
     let mut index = 0;

@@ -52,6 +52,152 @@ fn model(item: Cosmetic) -> Mesh {
         Cosmetic::Coral => garment(&mut fabric, [207, 105, 104], [249, 191, 137], true),
         Cosmetic::Night => garment(&mut fabric, [47, 59, 114], [155, 179, 211], false),
         Cosmetic::Mosaic => garment(&mut fabric, [61, 144, 135], [235, 166, 95], true),
+        Cosmetic::IndigoKosode => kosode(&mut fabric, [64, 93, 153], [177, 212, 222], false),
+        Cosmetic::AutumnKosode => kosode(&mut fabric, [184, 87, 59], [235, 170, 96], false),
+        Cosmetic::Haori => kosode(&mut fabric, [104, 67, 134], [249, 182, 112], true),
+        Cosmetic::FjordTunic => wool_coat(&mut fabric, [70, 118, 142], [195, 177, 127], false),
+        Cosmetic::DyedCloak => wool_coat(&mut fabric, [162, 83, 62], [239, 172, 101], true),
+        Cosmetic::WinterCoat => wool_coat(&mut fabric, [86, 116, 100], [221, 211, 179], true),
+        Cosmetic::WoolHood => {
+            let at = v(0.0, 1.535, -0.188);
+            fabric.gem(at, 0.414, 0.403, 0.258, 0.45, [111, 99, 135]);
+            fabric.gem(
+                at + v(0.0, -0.185, -0.037),
+                0.334,
+                0.268,
+                0.260,
+                0.24,
+                [124, 112, 147],
+            );
+            for side in [-1.0, 1.0] {
+                fabric.beam(
+                    at + v(side * 0.23, 0.226, 0.225),
+                    at + v(side * 0.383, -0.187, 0.24),
+                    0.057,
+                    [205, 187, 162],
+                );
+                fabric.beam(
+                    at + v(side * 0.379, -0.177, 0.25),
+                    at + v(side * 0.18, -0.451, 0.321),
+                    0.046,
+                    [205, 187, 162],
+                );
+            }
+        }
+        Cosmetic::SailorsCap => {
+            let at = v(0.0, 1.569, -0.038);
+            fabric.frustum(at, 0.382, 0.394, 0.077, 14, [168, 126, 83]);
+            fabric.frustum(
+                at + Vec3::Y * 0.077,
+                0.394,
+                0.264,
+                0.137,
+                14,
+                [78, 113, 143],
+            );
+            fabric.frustum(
+                at + Vec3::Y * 0.213,
+                0.264,
+                0.079,
+                0.072,
+                14,
+                [111, 146, 170],
+            );
+            for i in 0..14 {
+                let a = i as f32 * TAU / 14.0;
+                let r = v(a.cos(), 0.0, a.sin());
+                fabric.beam(
+                    at + r * 0.385 + Vec3::Y * 0.079,
+                    at + r * 0.264 + Vec3::Y * 0.213,
+                    0.029,
+                    [104, 141, 171],
+                );
+            }
+        }
+        Cosmetic::BraidBand => {
+            for i in 0..20 {
+                let a = i as f32 * TAU / 20.0;
+                let p = v(a.cos() * 0.372, 1.548 + a.sin() * 0.035, a.sin() * 0.34);
+                fabric.gem(
+                    p,
+                    0.068,
+                    0.041,
+                    0.053,
+                    -a,
+                    [[170, 85, 61], [212, 164, 94], [231, 202, 154]][i % 3],
+                );
+            }
+        }
+        Cosmetic::Kasa | Cosmetic::PilgrimHat => {
+            let pilgrim = item == Cosmetic::PilgrimHat;
+            let origin = v(0.0, 1.61, 0.007);
+            let radius = if pilgrim { 0.61 } else { 0.49 };
+            let straw = if pilgrim {
+                [175, 125, 74]
+            } else {
+                [221, 180, 113]
+            };
+            fabric.frustum(origin, radius, radius - 0.018, 0.052, 18, shift(straw, -17));
+            fabric.frustum(
+                origin + Vec3::Y * 0.052,
+                radius - 0.018,
+                0.056,
+                0.31,
+                18,
+                straw,
+            );
+            for i in 0..18 {
+                let theta = i as f32 * TAU / 18.0;
+                let r = v(theta.cos(), 0.0, theta.sin());
+                fabric.beam(
+                    origin + r * radius + Vec3::Y * 0.054,
+                    origin + r * 0.049 + Vec3::Y * 0.363,
+                    0.019,
+                    shift(straw, 18),
+                );
+            }
+            if pilgrim {
+                fabric.slab(v(0.0, 1.54, -0.40), v(0.47, 0.24, 0.027), [64, 91, 144]);
+                for x in [-0.42, 0.42] {
+                    fabric.beam(
+                        v(x, 1.63, 0.14),
+                        v(x * 0.7, 1.37, 0.21),
+                        0.026,
+                        [215, 202, 152],
+                    );
+                }
+            }
+        }
+        Cosmetic::Kanzashi => {
+            fabric.beam(v(0.16, 1.54, -0.06), v(0.48, 1.78, -0.047), 0.048, GOLD);
+            for i in 0..7 {
+                let a = i as f32 * TAU / 7.0;
+                fabric.gem(
+                    v(0.418 + a.cos() * 0.072, 1.739 + a.sin() * 0.074, -0.045),
+                    0.043,
+                    0.051,
+                    0.041,
+                    a,
+                    if i % 2 == 0 {
+                        [228, 116, 141]
+                    } else {
+                        [252, 175, 175]
+                    },
+                );
+            }
+            fabric.gem(v(0.42, 1.74, -0.012), 0.051, 0.049, 0.027, 0.09, GOLD);
+            for x in [0.38, 0.45] {
+                fabric.beam(v(x, 1.724, -0.048), v(x + 0.055, 1.496, -0.02), 0.017, GOLD);
+                fabric.gem(
+                    v(x + 0.055, 1.49, -0.02),
+                    0.032,
+                    0.048,
+                    0.026,
+                    0.5,
+                    [186, 102, 138],
+                );
+            }
+        }
         Cosmetic::Straw => hat(&mut fabric, [203, 155, 85], [55, 119, 121], true),
         Cosmetic::Petasos => hat(&mut fabric, [164, 72, 64], [232, 188, 127], false),
         Cosmetic::Sunbonnet => hat(&mut fabric, [229, 194, 124], [203, 105, 123], true),
@@ -257,7 +403,213 @@ fn accessory(b: &mut Batch, item: Cosmetic) {
             }
             b.gem(v(0.04, 0.595, 0.387), 0.079, 0.064, 0.026, 0.4, GOLD);
         }
+        Cosmetic::Obi => {
+            let at = |i| {
+                let angle = i as f32 * TAU / 18.0;
+                v(angle.cos() * 0.461, 0.67, angle.sin() * 0.405 - 0.017)
+            };
+            for i in 0..18 {
+                b.beam(
+                    at(i) + Vec3::Y * 0.041,
+                    at(i + 1) + Vec3::Y * 0.041,
+                    0.051,
+                    [234, 164, 97],
+                );
+                b.beam(at(i), at(i + 1), 0.059, [181, 77, 110]);
+                b.beam(
+                    at(i) - Vec3::Y * 0.037,
+                    at(i + 1) - Vec3::Y * 0.037,
+                    0.044,
+                    [234, 164, 97],
+                );
+            }
+            for x in [-0.13, 0.13] {
+                b.block(
+                    v(x, 0.69, -0.432),
+                    v(0.267, 0.177, 0.115),
+                    Quat::from_rotation_z(-x * 2.5),
+                    [194, 102, 137],
+                );
+            }
+            b.gem(
+                v(0.0, 0.684, -0.487),
+                0.101,
+                0.087,
+                0.048,
+                0.4,
+                [226, 152, 162],
+            );
+        }
+        Cosmetic::Inro => {
+            b.beam(
+                v(0.41, 0.83, 0.055),
+                v(0.49, 0.59, 0.16),
+                0.032,
+                [205, 168, 110],
+            );
+            b.gem(v(0.463, 0.743, 0.105), 0.052, 0.048, 0.046, 0.1, GOLD);
+            for n in 0..4 {
+                b.slab(
+                    v(0.50, 0.44 + n as f32 * 0.054, 0.17),
+                    v(0.106, 0.048, 0.143),
+                    [91, 59, 60],
+                );
+                b.slab(
+                    v(0.556, 0.449 + n as f32 * 0.054, 0.171),
+                    v(0.013, 0.022, 0.103),
+                    [209, 149, 71],
+                );
+            }
+            b.gem(
+                v(0.551, 0.533, 0.241),
+                0.035,
+                0.057,
+                0.019,
+                0.3,
+                [234, 173, 84],
+            );
+        }
+        Cosmetic::AmberBrooch => {
+            let at = v(-0.35, 0.894, 0.298);
+            fabric_pin(b, at, [222, 168, 91], [207, 114, 63]);
+            for (i, x) in [-0.052, 0.052].into_iter().enumerate() {
+                b.beam(
+                    at + v(x, -0.03, -0.003),
+                    at + v(x + 0.025, -0.153 - 0.028 * i as f32, -0.013),
+                    0.018,
+                    GOLD,
+                );
+            }
+        }
+        Cosmetic::WovenBag => {
+            b.beam(
+                v(0.28, 0.94, 0.266),
+                v(-0.44, 0.60, 0.255),
+                0.047,
+                [174, 130, 81],
+            );
+            b.block(
+                v(-0.46, 0.56, 0.198),
+                v(0.23, 0.25, 0.126),
+                Quat::from_rotation_z(0.20),
+                [77, 123, 132],
+            );
+            for n in 0..6 {
+                let y = 0.465 + n as f32 * 0.035;
+                b.beam(
+                    v(-0.57 - n as f32 * 0.005, y - 0.020, 0.265),
+                    v(-0.36 - n as f32 * 0.005, y + 0.019, 0.265),
+                    0.019,
+                    if n % 3 == 0 {
+                        [225, 188, 123]
+                    } else {
+                        [163, 126, 106]
+                    },
+                );
+            }
+            fabric_pin(b, v(-0.463, 0.626, 0.275), GOLD, [154, 82, 79]);
+        }
         _ => unreachable!("only accessories use these meshes"),
+    }
+}
+
+fn fabric_pin(b: &mut Batch, at: Vec3, outer: Tint, inner: Tint) {
+    b.gem(at, 0.102, 0.092, 0.031, 0.12, outer);
+    b.gem(at + v(0.0, 0.0, 0.029), 0.055, 0.055, 0.021, 0.35, inner);
+}
+
+fn wool_coat(b: &mut Batch, color: Tint, trim: Tint, cloak: bool) {
+    garment(b, color, trim, cloak);
+    b.gem(
+        v(0.0, 0.900, -0.031),
+        0.42,
+        0.107,
+        0.349,
+        0.39,
+        shift(color, 17),
+    );
+    if cloak {
+        let top = [v(-0.32, 0.914, -0.24), v(0.385, 0.944, -0.23)];
+        let ends = [v(-0.43, 0.398, -0.432), v(0.45, 0.469, -0.449)];
+        b.face(&[top[0], top[1], ends[1], ends[0]], shift(color, -13));
+        b.beam(ends[0], ends[1], 0.049, trim);
+        for (i, p) in ends.into_iter().enumerate() {
+            b.beam(top[i], p, 0.046, shift(trim, -12));
+        }
+    }
+    for side in [-1.0, 1.0] {
+        fabric_pin(b, v(side * 0.232, 0.864, 0.313), trim, [179, 120, 69]);
+    }
+    b.beam(v(-0.23, 0.855, 0.34), v(0.23, 0.86, 0.34), 0.029, trim);
+}
+
+fn kosode(b: &mut Batch, cloth: Tint, trim: Tint, formal: bool) {
+    let point = |ring: usize, i: usize| {
+        let (y, x, z) = [
+            (0.43, 0.408, 0.359),
+            (0.66, 0.450, 0.396),
+            (0.86, 0.47, 0.389),
+            (0.965, 0.357, 0.314),
+        ][ring];
+        let theta = i as f32 * TAU / 18.0;
+        v(theta.cos() * x, y, theta.sin() * z - 0.025)
+    };
+    for ring in 0..3 {
+        for i in 0..18 {
+            let tint = if ring == 0 && i % 3 == 0 {
+                shift(cloth, 21)
+            } else {
+                cloth
+            };
+            b.face(
+                &[
+                    point(ring, i),
+                    point(ring + 1, i),
+                    point(ring + 1, i + 1),
+                    point(ring, i + 1),
+                ],
+                shift(tint, (i * 9 % 20) as i16 - 9),
+            );
+        }
+    }
+    for side in [-1.0, 1.0] {
+        let shoulder = v(side * 0.218, 0.945, 0.265);
+        let cross = v(-side * 0.128, 0.684, 0.391);
+        b.beam(
+            shoulder,
+            cross,
+            0.053,
+            if side < 0.0 { trim } else { shift(trim, -22) },
+        );
+        b.block(
+            v(side * 0.431, 0.761, -0.019),
+            v(if formal { 0.239 } else { 0.183 }, 0.287, 0.39),
+            Quat::from_rotation_z(side * 0.16),
+            shift(cloth, if formal { -19 } else { 5 }),
+        );
+        b.beam(
+            v(side * 0.504, 0.663, -0.185),
+            v(side * 0.504, 0.663, 0.167),
+            0.043,
+            trim,
+        );
+    }
+    for (x, y, z) in [
+        (-0.24, 0.51, 0.311),
+        (0.16, 0.57, 0.348),
+        (0.29, 0.70, 0.288),
+    ] {
+        for i in 0..5 {
+            let a = i as f32 * TAU / 5.0;
+            b.gem(
+                v(x + a.cos() * 0.032, y + a.sin() * 0.032, z),
+                0.024,
+                0.028,
+                0.019,
+                a,
+                trim,
+            );
+        }
     }
 }
 

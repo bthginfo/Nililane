@@ -7,9 +7,9 @@ use crate::{
 };
 
 use super::{
-    buildings,
+    buildings, japan,
     mesh::{Batch, v},
-    roman, upgrades,
+    nordic, roman, upgrades,
 };
 
 #[derive(Component)]
@@ -88,6 +88,8 @@ pub fn addition(region: Region, kind: Kind, from: u8, to: u8) -> Mesh {
         match region {
             Region::Greece => buildings::append_upgrade(&mut batch, kind, tier),
             Region::Rome => roman::append_upgrade(&mut batch, kind, tier),
+            Region::Japan => japan::append_upgrade(&mut batch, kind, tier),
+            Region::Nordic => nordic::append_upgrade(&mut batch, kind, tier),
         }
     }
     batch.mesh()

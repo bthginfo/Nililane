@@ -61,7 +61,7 @@ with ZipFile(root / "linked.apk", "a") as apk:
         apk.write(root / "native" / abi / "libnililane.so", f"lib/{abi}/libnililane.so",
                   compress_type=ZIP_DEFLATED, compresslevel=6)
     music = Path("assets/audio/harbors")
-    for index in range(48):
+    for index in range(96):
         for suffix in ("", "-abend"):
             name = f"{index:02}{suffix}.ogg"
             apk.write(music / name, f"assets/audio/harbors/{name}", compress_type=ZIP_STORED)

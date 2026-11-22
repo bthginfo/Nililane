@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::campaign::{JAPAN_START, NORDIC_START, Region};
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Category {
     #[default]
@@ -54,10 +56,26 @@ pub enum Cosmetic {
     Belt,
     Basket,
     Amulet,
+    IndigoKosode,
+    AutumnKosode,
+    Haori,
+    Kasa,
+    PilgrimHat,
+    Kanzashi,
+    Obi,
+    Inro,
+    FjordTunic,
+    DyedCloak,
+    WinterCoat,
+    WoolHood,
+    SailorsCap,
+    BraidBand,
+    AmberBrooch,
+    WovenBag,
 }
 
 impl Cosmetic {
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 40] = [
         Self::Sea,
         Self::Saffron,
         Self::Toga,
@@ -82,6 +100,22 @@ impl Cosmetic {
         Self::Belt,
         Self::Basket,
         Self::Amulet,
+        Self::IndigoKosode,
+        Self::AutumnKosode,
+        Self::Haori,
+        Self::Kasa,
+        Self::PilgrimHat,
+        Self::Kanzashi,
+        Self::Obi,
+        Self::Inro,
+        Self::FjordTunic,
+        Self::DyedCloak,
+        Self::WinterCoat,
+        Self::WoolHood,
+        Self::SailorsCap,
+        Self::BraidBand,
+        Self::AmberBrooch,
+        Self::WovenBag,
     ];
 
     pub fn name(self) -> &'static str {
@@ -110,6 +144,22 @@ impl Cosmetic {
             "Goldgürtel",
             "Weidenkorb",
             "Bernstein",
+            "Indigo-Kosode",
+            "Ahorn-Kosode",
+            "Fest-Haori",
+            "Bambus-Kasa",
+            "Pilgerhut",
+            "Kanzashi",
+            "Seidenobi",
+            "Lack-Inrō",
+            "Fjordtunika",
+            "Krappmantel",
+            "Festmantel",
+            "Wollkapuze",
+            "Seglermütze",
+            "Flechtband",
+            "Bernsteinfibel",
+            "Webtasche",
         ][self as usize]
     }
 
@@ -139,12 +189,29 @@ impl Cosmetic {
             "wear_belt",
             "wear_basket",
             "wear_amulet",
+            "wear_indigo_kosode",
+            "wear_ahorn",
+            "wear_haori",
+            "wear_kasa",
+            "wear_pilgrim",
+            "wear_kanzashi",
+            "wear_obi",
+            "wear_inro",
+            "wear_fjord",
+            "wear_krapp",
+            "wear_winter",
+            "wear_wool",
+            "wear_sailor",
+            "wear_braid",
+            "wear_amber_brooch",
+            "wear_woven_bag",
         ][self as usize]
     }
 
     pub fn cost(self) -> u16 {
         [
-            3, 6, 16, 4, 12, 9, 4, 5, 5, 6, 7, 4, 5, 8, 6, 3, 4, 3, 6, 4, 4, 5, 5, 6,
+            3, 6, 16, 4, 12, 9, 4, 5, 5, 6, 7, 4, 5, 8, 6, 3, 4, 3, 6, 4, 4, 5, 5, 6, 4, 6, 8, 4,
+            6, 7, 5, 7, 4, 6, 8, 4, 6, 6, 5, 7,
         ][self as usize]
     }
 
@@ -157,7 +224,13 @@ impl Cosmetic {
             | Self::Linen
             | Self::Coral
             | Self::Night
-            | Self::Mosaic => Category::Garment,
+            | Self::Mosaic
+            | Self::IndigoKosode
+            | Self::AutumnKosode
+            | Self::Haori
+            | Self::FjordTunic
+            | Self::DyedCloak
+            | Self::WinterCoat => Category::Garment,
             Self::Straw
             | Self::Laurel
             | Self::Petasos
@@ -165,15 +238,48 @@ impl Cosmetic {
             | Self::Indigo
             | Self::Diadem
             | Self::Wreath
-            | Self::Headband => Category::Head,
+            | Self::Headband
+            | Self::Kasa
+            | Self::PilgrimHat
+            | Self::Kanzashi
+            | Self::WoolHood
+            | Self::SailorsCap
+            | Self::BraidBand => Category::Head,
             _ => Category::Accessory,
         }
+    }
+
+    pub fn requires_chapter(self) -> Option<usize> {
+        let island = match self {
+            Self::IndigoKosode => 0,
+            Self::AutumnKosode => 9,
+            Self::Haori => 23,
+            Self::Kasa => 1,
+            Self::PilgrimHat => 7,
+            Self::Kanzashi => 15,
+            Self::Obi => 4,
+            Self::Inro => 19,
+            Self::FjordTunic => return Some(NORDIC_START),
+            Self::DyedCloak => return Some(NORDIC_START + 5),
+            Self::WinterCoat => return Some(NORDIC_START + 23),
+            Self::WoolHood => return Some(NORDIC_START + 1),
+            Self::SailorsCap => return Some(NORDIC_START + 7),
+            Self::BraidBand => return Some(NORDIC_START + 14),
+            Self::AmberBrooch => return Some(NORDIC_START + 4),
+            Self::WovenBag => return Some(NORDIC_START + 19),
+            _ => return None,
+        };
+        Some(JAPAN_START + island)
+    }
+
+    pub fn region(self) -> Option<Region> {
+        self.requires_chapter().map(Region::of)
     }
 }
 
 #[derive(Default, Deserialize, Serialize)]
 pub struct Wardrobe {
-    owned: u32,
+    owned: u64,
     garment: Option<Cosmetic>,
     head: Option<Cosmetic>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -186,7 +292,7 @@ impl Wardrobe {
     }
 
     pub fn owns(&self, item: Cosmetic) -> bool {
-        self.owned & (1 << item as u32) != 0
+        self.owned & (1u64 << item as u32) != 0
     }
 
     pub fn wearing(&self, item: Cosmetic) -> bool {
@@ -210,7 +316,7 @@ impl Wardrobe {
         if !self.owns(item) && item.cost() > available {
             return false;
         }
-        self.owned |= 1 << item as u32;
+        self.owned |= 1u64 << item as u32;
         let slot = match item.category() {
             Category::Garment => &mut self.garment,
             Category::Head => &mut self.head,

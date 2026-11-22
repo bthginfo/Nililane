@@ -201,6 +201,20 @@ pub(super) fn add(b: &mut Batch, kind: Kind, level: u8, roman: bool) {
                 }
             }
         }
+        Kind::RicePaddy
+        | Kind::RiceKitchen
+        | Kind::TeaGarden
+        | Kind::TeaHouse
+        | Kind::PaperWorkshop
+        | Kind::Temple
+        | Kind::Machiya
+        | Kind::Longhouse
+        | Kind::Fishery
+        | Kind::Smokehouse
+        | Kind::Woodlot
+        | Kind::Boatyard
+        | Kind::Weaver
+        | Kind::FeastHall => unreachable!("buildings from other regions have their own upgrades"),
     }
 }
 
@@ -220,6 +234,8 @@ mod tests {
                     let mesh = match chapter.region {
                         Region::Greece => super::super::buildings::model(kind, level),
                         Region::Rome => super::super::roman::model(kind, level),
+                        Region::Japan => super::super::japan::model(kind, level),
+                        Region::Nordic => super::super::nordic::model(kind, level),
                     };
                     assert!(
                         mesh.count_vertices() > prior,

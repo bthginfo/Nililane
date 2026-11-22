@@ -190,7 +190,62 @@ impl Campaign {
     }
 
     pub fn equip(&mut self, item: Cosmetic) -> bool {
-        self.wardrobe.equip(item, self.available_stars())
+        self.cosmetic_available(item) && self.wardrobe.equip(item, self.available_stars())
+    }
+
+    pub fn cosmetic_available(&self, item: Cosmetic) -> bool {
+        item.requires_chapter().is_none_or(|chapter| {
+            self.records
+                .get(chapter)
+                .is_some_and(|record| record.stars > 0)
+        })
+    }
+}
+
+#[cfg(test)]
+mod japan_progress_tests {
+    use super::*;
+    use crate::campaign::{JAPAN_START, NORDIC_START};
+
+    #[test]
+    fn an_old_campaign_opens_japan_after_rome_and_keeps_outfits_locked_until_their_islands() {
+        let mut old = Campaign::default();
+        old.records.truncate(JAPAN_START);
+        old.record(0, 5, 3);
+        old.record(1, 5, 3);
+        assert!(old.equip(Cosmetic::Sea));
+        let load = |campaign: &Campaign| {
+            let json = serde_json::to_vec(campaign).unwrap();
+            Campaign::decode(&json[..]).unwrap()
+        };
+
+        let locked = load(&old);
+        assert_eq!(locked.records.len(), CHAPTERS.len());
+        assert!(!locked.unlocked(JAPAN_START));
+        assert!(locked.wardrobe.wearing(Cosmetic::Sea));
+
+        old.record(JAPAN_START - 1, 18, 3);
+        let mut ready = load(&old);
+        assert!(ready.unlocked(JAPAN_START));
+        assert!(!ready.unlocked(JAPAN_START + 1));
+        assert!(ready.available_stars() >= Cosmetic::IndigoKosode.cost());
+        assert!(!ready.equip(Cosmetic::IndigoKosode));
+        ready.record(JAPAN_START, 4, 2);
+        assert!(ready.unlocked(JAPAN_START + 1));
+        assert!(ready.equip(Cosmetic::IndigoKosode));
+        assert!(!ready.equip(Cosmetic::Haori));
+        assert!(!ready.unlocked(NORDIC_START));
+        ready.record(NORDIC_START - 1, 17, 3);
+        assert!(ready.unlocked(NORDIC_START));
+        assert!(!ready.equip(Cosmetic::FjordTunic));
+        ready.record(NORDIC_START, 4, 3);
+        assert!(ready.equip(Cosmetic::FjordTunic));
+        assert!(ready.wardrobe.owns(Cosmetic::IndigoKosode));
+        assert!(ready.equip(Cosmetic::IndigoKosode));
+        let upgraded = load(&ready);
+        assert!(upgraded.wardrobe.wearing(Cosmetic::IndigoKosode));
+        assert!(upgraded.wardrobe.owns(Cosmetic::FjordTunic));
+        assert_eq!(upgraded.records[JAPAN_START - 1].best_day, 18);
     }
 }
 
@@ -205,6 +260,9 @@ fn valid_town(town: &Town) -> bool {
         return false;
     };
     if town.day == 0
+        || town
+            .voyage
+            .is_some_and(|voyage| !voyage.valid(town, chapter))
         || !town.lots.iter().enumerate().all(|(i, b)| {
             b.is_none_or(|b| is_open(chapter, i) && (1..=MAX_LEVEL).contains(&b.level))
         })

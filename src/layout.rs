@@ -41,7 +41,7 @@ impl Layout {
     }
 
     pub const fn for_chapter(mut self, index: usize) -> Self {
-        const SIZES: [[u8; 2]; 48] = [
+        const SIZES: [[u8; 2]; crate::campaign::CHAPTER_COUNT] = [
             [3, 3],
             [4, 4],
             [4, 4],
@@ -90,12 +90,63 @@ impl Layout {
             [7, 8],
             [9, 8],
             [9, 9],
+            [4, 4],
+            [5, 5],
+            [6, 5],
+            [5, 6],
+            [6, 6],
+            [6, 7],
+            [7, 6],
+            [6, 6],
+            [8, 6],
+            [7, 7],
+            [6, 7],
+            [8, 7],
+            [7, 8],
+            [9, 6],
+            [7, 8],
+            [8, 8],
+            [7, 9],
+            [9, 7],
+            [8, 9],
+            [9, 8],
+            [8, 8],
+            [9, 8],
+            [9, 8],
+            [9, 9],
+            [4, 4],
+            [5, 5],
+            [6, 5],
+            [5, 6],
+            [6, 6],
+            [6, 7],
+            [7, 6],
+            [7, 7],
+            [6, 8],
+            [8, 6],
+            [7, 7],
+            [8, 7],
+            [7, 8],
+            [8, 8],
+            [9, 6],
+            [6, 9],
+            [8, 8],
+            [7, 9],
+            [9, 7],
+            [8, 9],
+            [8, 8],
+            [9, 8],
+            [9, 8],
+            [9, 9],
         ];
         self.rows = SIZES[index];
         self.shore = match index {
-            0 | 4 | 5 | 12 | 16 | 19 | 24 | 25 | 38 | 41 => Shore::Cove,
-            1 | 6 | 9 | 11 | 13 | 18 | 22 | 26 | 33 | 37 | 45 => Shore::Headland,
-            3 | 7 | 10 | 15 | 21 | 23 | 27 | 28 | 34 | 35 | 40 | 44 | 46 | 47 => Shore::Terrace,
+            0 | 4 | 5 | 12 | 16 | 19 | 24 | 25 | 38 | 41 | 48 | 52 | 55 | 63 | 67 | 72 | 79
+            | 82 | 86 | 90 | 94 => Shore::Cove,
+            1 | 6 | 9 | 11 | 13 | 18 | 22 | 26 | 33 | 37 | 45 | 50 | 54 | 56 | 59 | 64 | 68
+            | 74 | 77 | 78 | 83 | 84 | 88 | 91 => Shore::Headland,
+            3 | 7 | 10 | 15 | 21 | 23 | 27 | 28 | 34 | 35 | 40 | 44 | 46 | 47 | 49 | 53 | 57
+            | 60 | 61 | 65 | 69 | 71 | 73 | 75 | 80 | 81 | 85 | 89 | 93 | 95 => Shore::Terrace,
             _ => Shore::Lagoon,
         };
         self
@@ -160,7 +211,7 @@ mod tests {
         for i in 0..LOTS {
             assert_eq!(lot_id(lot_row(i), lot_col(i)), i);
         }
-        for (index, chapter) in CHAPTERS.iter().enumerate() {
+        for (index, chapter) in CHAPTERS[..crate::campaign::JAPAN_START].iter().enumerate() {
             let legacy = [3, 4, 4, 4, 5, 5].get(index).copied().unwrap_or(6);
             assert_eq!(chapter.layout.dock(), lot_id(1, legacy - 1));
             for row in 0..2 {
@@ -168,6 +219,10 @@ mod tests {
                     assert!(chapter.layout.contains(lot_id(row, col)));
                 }
             }
+            assert_eq!(chapter.layout.lots().count(), chapter.layout.count());
+        }
+        for chapter in &CHAPTERS[crate::campaign::JAPAN_START..] {
+            assert!(chapter.layout.contains(chapter.layout.dock()));
             assert_eq!(chapter.layout.lots().count(), chapter.layout.count());
         }
     }

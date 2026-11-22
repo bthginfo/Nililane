@@ -626,6 +626,7 @@ fn guest_card(
             identity.spawn(column(1.0)).with_children(|words| {
                 let guest = match visit.origin {
                     Origin::Home(_) => "Aus der Gasse",
+                    Origin::Ferry if visit.wants == Service::Prayer => "Auf Pilgerreise",
                     Origin::Ferry if visit.guided_to.is_some() => "Mit Nili unterwegs",
                     Origin::Ferry => "Von der Fähre",
                 };
@@ -635,6 +636,10 @@ fn guest_card(
                     ],
                     Region::Rome => [
                         "Flavia", "Gaius", "Livia", "Felix", "Tertia", "Lucius", "Junia", "Marius",
+                    ],
+                    Region::Japan => ["Aki", "Hana", "Sora", "Haru", "Yui", "Ren", "Mio", "Nao"],
+                    Region::Nordic => [
+                        "Liv", "Leif", "Eira", "Tora", "Signe", "Astrid", "Rune", "Inga",
                     ],
                 };
                 let day = town.day.saturating_sub(u32::from(town.planning())) as usize;
@@ -664,6 +669,7 @@ fn guest_card(
         });
         let quote = match verdict {
             Verdict::Pleased if visit.specialty_bonus > 0 => "Mein Lieblingsangebot!",
+            Verdict::Pleased if visit.wants == Service::Prayer => "Am Tempel war es ganz still.",
             Verdict::Pleased => "Ich habe bekommen, was ich gesucht habe!",
             Verdict::Missed(Miss::NoShop) => "Das habe ich hier vermisst.",
             Verdict::Missed(Miss::Walk) => "Der Weg zum Laden war mir zu weit.",
@@ -701,6 +707,15 @@ fn guest_card(
                 (Kind::Potter, Age::Child) => "Ein bisschen Farbe wäre schön.",
                 (Kind::Potter, Age::Adult) => "Ich suche etwas für den Alltag.",
                 (Kind::Potter, Age::Senior) => "Mir gefallen traditionelle Muster.",
+                (Kind::PaperWorkshop, Age::Child) => "Ein Lampion in Tierform wäre schön.",
+                (Kind::PaperWorkshop, Age::Adult) => "Ich suche einen Lampion für den Weg.",
+                (Kind::PaperWorkshop, Age::Senior) => "Ich mag die traditionellen Lampions.",
+                (Kind::TeaHouse, Age::Child) => "Ich mag milden Tee.",
+                (Kind::TeaHouse, Age::Adult) => "Gerösteter Tee duftet so gut.",
+                (Kind::TeaHouse, Age::Senior) => "Ich trinke gern frisch aufgebrühten Grüntee.",
+                (Kind::Weaver, Age::Child) => "Ein buntes Band für mein Haar!",
+                (Kind::Weaver, Age::Adult) => "Ich brauche etwas Warmes für die Fahrt.",
+                (Kind::Weaver, Age::Senior) => "Schönes Leinen fühlt sich gut an.",
                 (_, Age::Child) => "Ich mag es lieber süß.",
                 (_, Age::Adult) => "Ich hätte Lust auf etwas Herzhaftes.",
                 (_, Age::Senior) => "Am liebsten etwas Vertrautes.",

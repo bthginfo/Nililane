@@ -60,7 +60,7 @@ impl Job {
             Self::Freight => "4 Portionen Nachschub, aus dem Speicher 6",
             Self::Water => "4 Portionen mehr und 2 Krüge Wasser",
             Self::Welcome => "2 zusätzliche Fährgäste",
-            Self::Shade => "5 zusätzliche Rast- oder Badeplätze",
+            Self::Shade => "5 zusätzliche Plätze",
             Self::Quay => "Fährgäste gehen zwei Plätze weiter",
         }
     }
@@ -70,7 +70,9 @@ impl Job {
             Self::Freight => "Du brauchst einen Laden.",
             Self::Water => "Dafür brauchst du eine Quelle und einen Laden, der Wasser braucht.",
             Self::Welcome => "Du brauchst einen Laden als Ziel.",
-            Self::Shade => "Du brauchst einen Hain und eine Stoa oder Therme.",
+            Self::Shade => {
+                "Du brauchst einen Hain oder Teegarten und einen Ort für neue Schattenplätze."
+            }
             Self::Quay => "Nur bei Wind, Regen oder Sturm.",
         }
     }
@@ -164,14 +166,22 @@ impl Job {
         }
         let kind = town.lots[lot]?.kind;
         match self {
-            Self::Freight if kind.service().is_some() => Some((
+            Self::Freight if kind.service().is_some_and(|s| s.priced()) => Some((
                 nearest(|k| k == Kind::Storehouse).unwrap_or(Stop::Quay),
                 target,
             )),
             Self::Water if kind.water_user() => Some((nearest(Kind::water_source)?, target)),
             Self::Welcome if kind.service().is_some() => Some((Stop::Quay, target)),
-            Self::Shade if matches!(kind, Kind::Stoa | Kind::Baths) => {
-                Some((nearest(|k| k == Kind::Grove)?, target))
+            Self::Shade
+                if matches!(
+                    kind,
+                    Kind::Stoa | Kind::Baths | Kind::TeaHouse | Kind::Temple
+                ) =>
+            {
+                Some((
+                    nearest(|k| matches!(k, Kind::Grove | Kind::TeaGarden))?,
+                    target,
+                ))
             }
             _ => None,
         }

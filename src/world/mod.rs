@@ -2,10 +2,12 @@ mod actors;
 mod buildings;
 mod clothes;
 mod construction;
+mod japan;
 mod landscape;
 mod late_upgrades;
 mod mesh;
 pub(crate) mod motion;
+mod nordic;
 mod pets;
 pub use clothes::dress as dress_nili;
 pub(crate) use motion::stop as route_position;
@@ -85,6 +87,8 @@ pub(crate) struct Wake(usize);
 pub(crate) struct Gangway;
 #[derive(Component)]
 pub(crate) struct Bird(usize);
+#[derive(Component)]
+pub(crate) struct TempleBell(usize);
 
 #[derive(Resource)]
 pub struct Art {
@@ -96,8 +100,9 @@ pub struct Art {
     kinds: HashMap<(Region, Kind, u8), Handle<Mesh>>,
     additions: HashMap<(Region, Kind, u8, u8), Handle<Mesh>>,
     work: Parts,
-    hulls: [[Handle<Mesh>; 3]; 2],
-    sails: [[Handle<Mesh>; 3]; 2],
+    hulls: [[Handle<Mesh>; 3]; Region::ALL.len()],
+    sails: [[Handle<Mesh>; 3]; Region::ALL.len()],
+    temple_bell: Handle<Mesh>,
     house: Handle<Scene>,
     store: Handle<Scene>,
     tower: Handle<Scene>,
@@ -179,10 +184,10 @@ pub fn setup(
     });
     let scene =
         |path: &'static str, index| assets.load(GltfAssetLabel::Scene(index).from_asset(path));
-    let hulls = [Region::Greece, Region::Rome]
-        .map(|region| std::array::from_fn(|i| meshes.add(ships::hull(region, i))));
-    let sails = [Region::Greece, Region::Rome]
-        .map(|region| std::array::from_fn(|i| meshes.add(ships::sail(region, i))));
+    let hulls =
+        Region::ALL.map(|region| std::array::from_fn(|i| meshes.add(ships::hull(region, i))));
+    let sails =
+        Region::ALL.map(|region| std::array::from_fn(|i| meshes.add(ships::sail(region, i))));
     let art = Art {
         matte,
         sea,
@@ -194,6 +199,7 @@ pub fn setup(
         gold,
         hulls,
         sails,
+        temple_bell: meshes.add(japan::bell()),
         kinds: HashMap::new(),
         additions: HashMap::new(),
         work: Parts::prepare(&mut meshes, &mut materials),
@@ -447,6 +453,14 @@ pub fn sync(
                             MeshMaterial3d(art.matte.clone()),
                             Transform::from_translation(at),
                         ));
+                        if kind == Kind::Temple {
+                            parent.spawn((
+                                TempleBell(i),
+                                Mesh3d(art.temple_bell.clone()),
+                                MeshMaterial3d(art.matte.clone()),
+                                Transform::from_translation(at + japan::BELL_HOOK),
+                            ));
+                        }
                     }
                     if let Some(work) = work {
                         let mesh = if before == 0 {
@@ -511,12 +525,27 @@ fn building_mesh(
             meshes.add(match region {
                 Region::Greece => buildings::model(kind, level),
                 Region::Rome => roman::model(kind, level),
+                Region::Japan => japan::model(kind, level),
+                Region::Nordic => nordic::model(kind, level),
             })
         })
         .clone()
 }
 
 pub use construction::animate as animate_construction;
+
+pub(crate) fn animate_bells(game: Res<Game>, mut bells: Query<(&TempleBell, &mut Transform)>) {
+    for (bell, mut transform) in &mut bells {
+        let tilt = game
+            .bell_action
+            .filter(|(lot, _)| *lot == bell.0)
+            .map_or(0.0, |(_, since)| {
+                let elapsed = game.clock - since;
+                (elapsed * 13.0).sin() * (1.0 - elapsed / 2.2).max(0.0) * 0.44
+            });
+        transform.rotation = Quat::from_rotation_z(tilt);
+    }
+}
 
 type CameraRig<'w, 's> =
     Query<'w, 's, (&'static mut Transform, &'static mut Projection), With<StreetCamera>>;
@@ -705,6 +734,24 @@ pub fn animate(
         work::Pose::default()
     } else if let Some((route, (stage, at))) = route {
         work::perform(route.job, stage, at)
+    } else if let Some((_, since)) = game.loading_cargo
+        && t - since < 1.08
+    {
+        work::perform(
+            Job::Freight,
+            crate::errands::RouteStage::Collect,
+            (t - since) / 1.08,
+        )
+    } else if let Some((_, since)) = game.bell_action
+        && t - since < 0.9
+    {
+        let pull = ((t - since) / 0.9 * std::f32::consts::PI).sin();
+        work::Pose {
+            height: pull * 0.09,
+            pitch: -pull * 0.27,
+            arms: [pull * 0.46, pull * 1.18],
+            ..default()
+        }
     } else if let Some((_, activity, since)) = game.street_action
         && t - since < 0.60
     {
@@ -752,7 +799,16 @@ pub fn animate(
         };
         let bob = gait.abs() * 0.055 + (t * 4.1).sin() * 0.009;
         hippo.translation = home + Vec3::Y * (pose.height + bob);
-        let rot = Quat::from_rotation_y(yaw)
+        let facing = game
+            .bell_action
+            .filter(|(_, since)| t - since < 0.9)
+            .or_else(|| game.loading_cargo.filter(|(_, since)| t - since < 1.08))
+            .filter(|_| playing && !game.walking)
+            .map_or(yaw, |(lot, _)| {
+                let toward = lot_position(lot, cols) - home;
+                toward.x.atan2(toward.z)
+            });
+        let rot = Quat::from_rotation_y(facing)
             * Quat::from_rotation_x(pose.pitch)
             * Quat::from_rotation_z(pose.roll + gait * 0.038);
         hippo.rotation = hippo.rotation.slerp(rot, (blend * 1.32).min(1.0));
@@ -817,7 +873,19 @@ pub fn animate(
                 }
                 continue;
             }
-            let (x, z, angle) = if n == 1 {
+            let trade = town.voyage.filter(|_| playing && n == 1);
+            let (x, z, angle) = if let Some(voyage) = trade {
+                let elapsed = if voyage.departed_day == town.day {
+                    lives.map_or(40.0, |day| day.seconds - voyage.departed_at)
+                } else {
+                    40.0
+                };
+                (
+                    quay + 2.35 + elapsed.max(0.0) * 1.1,
+                    9.11 + elapsed.max(0.0) * 0.18,
+                    -0.17,
+                )
+            } else if n == 1 {
                 let w = cols as f32 * 1.6;
                 (-w * 0.58 + (t * 0.14).sin() * w * 0.44, 8.65, 0.22)
             } else {

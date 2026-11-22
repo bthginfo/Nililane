@@ -11,7 +11,7 @@ use crate::{
     campaign::{CHAPTERS, Region},
     game::{Game, View},
     layout::Layout,
-    model::{Age, Miss, Origin, Phase, Verdict, Visit},
+    model::{Age, Miss, Origin, Phase, Service, Verdict, Visit},
     save::Campaign,
 };
 
@@ -56,7 +56,7 @@ struct Outfit {
 
 #[derive(Resource)]
 pub struct Cast {
-    clothes: [[Outfit; STYLES]; 2],
+    clothes: [[Outfit; STYLES]; Region::ALL.len()],
 }
 
 pub fn stage(
@@ -66,7 +66,7 @@ pub fn stage(
     materials: &mut Assets<StandardMaterial>,
     matte: &Handle<StandardMaterial>,
 ) {
-    let clothes = [Region::Greece, Region::Rome].map(|region| {
+    let clothes = Region::ALL.map(|region| {
         std::array::from_fn(|index| {
             let (mesh, rest) = outfit(index, region);
             Outfit {
@@ -129,7 +129,31 @@ fn outfit(index: usize, region: Region) -> (Mesh, [Vec3; BONES]) {
     let style = index % 8;
     let age = Age::ALL[index / 8];
     let roman = region == Region::Rome;
-    let cloth = if roman {
+    let japan = region == Region::Japan;
+    let nordic = region == Region::Nordic;
+    let cloth = if nordic {
+        [
+            [132, 77, 63],
+            [67, 110, 139],
+            [137, 131, 87],
+            [76, 103, 95],
+            [154, 103, 68],
+            [163, 123, 112],
+            [96, 95, 132],
+            [151, 82, 74],
+        ][style]
+    } else if japan {
+        [
+            [66, 93, 146],
+            [166, 79, 86],
+            [212, 169, 96],
+            [79, 131, 114],
+            [157, 106, 152],
+            [93, 105, 141],
+            [174, 114, 75],
+            [98, 142, 94],
+        ][style]
+    } else if roman {
         [
             [198, 162, 124],
             [167, 57, 65],
@@ -162,6 +186,8 @@ fn outfit(index: usize, region: Region) -> (Mesh, [Vec3; BONES]) {
     ][(index * 7 + index / 3) % 6];
     let hair = if age == Age::Senior {
         [[186, 175, 158], [157, 151, 141], [211, 202, 178]][style % 3]
+    } else if japan {
+        [[48, 40, 37], [66, 49, 42], [42, 37, 35], [78, 56, 43]][style % 4]
     } else {
         [
             [73, 48, 36],
@@ -175,7 +201,14 @@ fn outfit(index: usize, region: Region) -> (Mesh, [Vec3; BONES]) {
     let width = 0.148 + (index % 5) as f32 * 0.013 - 0.020 * f32::from(age == Age::Child);
     let delicate = matches!(style, 1 | 4 | 7);
     let hem = if delicate { 0.162 } else { 0.259 } + (index % 3) as f32 * 0.012;
-    let belt = if roman {
+    let belt = if japan {
+        [
+            [195, 147, 79],
+            [88, 119, 123],
+            [205, 186, 150],
+            [146, 78, 90],
+        ][style % 4]
+    } else if roman {
         [157, 62, 48]
     } else {
         shift(cloth, -29)
@@ -217,7 +250,94 @@ fn outfit(index: usize, region: Region) -> (Mesh, [Vec3; BONES]) {
     );
     b.gem(v(0.044, 0.475, 0.127), 0.022, 0.020, 0.010, 0.18, GOLD);
 
-    if roman || matches!(style, 0 | 1 | 4 | 7) {
+    if nordic {
+        let wool = shift(cloth, -12);
+        b.gem(v(0.0, 0.60, -0.05), width * 1.19, 0.113, 0.138, 0.49, wool);
+        for sign in [-1.0, 1.0] {
+            b.beam(
+                v(sign * width * 0.77, 0.636, 0.083),
+                v(sign * width * 0.94, 0.445, 0.113),
+                0.037,
+                mantle,
+            );
+            b.gem(
+                v(sign * width * 0.67, 0.566, 0.133),
+                0.034,
+                0.040,
+                0.016,
+                sign,
+                GOLD,
+            );
+        }
+        if matches!(style, 0 | 2 | 3 | 7) {
+            let mut cloak = [
+                v(-width * 1.17, 0.57, -0.08),
+                v(-width * 1.04, 0.214, -0.165),
+                v(width * 1.10, 0.274, -0.171),
+                v(width * 1.25, 0.61, -0.089),
+            ];
+            cloak.reverse();
+            b.face(&cloak, wool);
+            b.beam(
+                v(-width * 1.04, 0.216, -0.165),
+                v(width * 1.10, 0.274, -0.171),
+                0.030,
+                mantle,
+            );
+        }
+        for x in [-0.082, -0.028, 0.026, 0.080] {
+            b.gem(
+                v(x, hem + 0.043, 0.133),
+                0.025,
+                0.019,
+                0.011,
+                x * 12.0,
+                GOLD,
+            );
+        }
+    } else if japan {
+        // Kosode lapels cross at the upper edge of the obi.
+        b.beam(
+            v(-width * 0.57, 0.647, 0.092),
+            v(width * 0.42, 0.486, 0.137),
+            0.036,
+            mantle,
+        );
+        b.beam(
+            v(width * 0.56, 0.646, 0.094),
+            v(-width * 0.57, 0.428, 0.135),
+            0.041,
+            CREAM,
+        );
+        wrap(
+            &mut b,
+            (0.427, width * 0.87, 0.116),
+            (0.482, width * 0.89, 0.126),
+            belt,
+            12,
+            false,
+        );
+        b.slab(
+            v(0.0, 0.459, -0.132),
+            v(0.155, 0.072, 0.068),
+            shift(belt, 8),
+        );
+        if matches!(style, 0 | 3 | 5) {
+            for i in -2..=2 {
+                let x = i as f32 * width * 0.35;
+                b.beam(
+                    v(x * 0.78, 0.425, 0.117),
+                    v(x, hem + 0.023, 0.133),
+                    0.015,
+                    shift(cloth, 19),
+                );
+            }
+        } else {
+            for (x, y) in [(-0.068, 0.30), (0.066, 0.25), (0.093, 0.36)] {
+                b.gem(v(x, y, 0.139), 0.025, 0.022, 0.006, x * 18.0, mantle);
+            }
+        }
+    } else if roman || matches!(style, 0 | 1 | 4 | 7) {
         let a = v(-width * 0.82, 0.652, 0.078);
         let center = v(-width * 0.26, 0.479, 0.139);
         let lower = v(width * 0.94, 0.303, 0.127);
@@ -258,8 +378,10 @@ fn outfit(index: usize, region: Region) -> (Mesh, [Vec3; BONES]) {
         b.gem(a + v(0.016, -0.026, 0.023), 0.027, 0.029, 0.013, 0.2, GOLD);
     }
     b.frustum(v(0.0, 0.61, 0.014), 0.058, 0.062, 0.103, 8, skin);
-    head(&mut b, index, roman, skin, hair, cloth);
-    if age == Age::Child || matches!(style, 0 | 2 | 6) {
+    head(&mut b, index, region, skin, hair, cloth);
+    if (japan && matches!(style, 2 | 6))
+        || (!japan && (age == Age::Child || matches!(style, 0 | 2 | 6)))
+    {
         b.beam(
             v(width * 0.66, 0.594, 0.127),
             v(-width * 0.63, 0.414, 0.127),
@@ -294,6 +416,31 @@ fn outfit(index: usize, region: Region) -> (Mesh, [Vec3; BONES]) {
             0.17,
             if side < 0.0 && roman { mantle } else { cloth },
         );
+        if nordic {
+            b.beam(
+                shoulder + v(0.0, -0.035, 0.005),
+                shoulder + v(side * 0.023, -0.184, 0.033),
+                0.095,
+                shift(cloth, 7),
+            );
+            b.slab(
+                shoulder + v(side * 0.028, -0.176, 0.033),
+                v(0.105, 0.031, 0.104),
+                mantle,
+            );
+        } else if japan {
+            b.block(
+                shoulder + v(side * 0.028, -0.085, 0.002),
+                v(0.128, 0.171, 0.145),
+                Quat::from_rotation_z(side * 0.11),
+                cloth,
+            );
+            b.slab(
+                shoulder + v(side * 0.030, -0.165, 0.008),
+                v(0.119, 0.028, 0.132),
+                mantle,
+            );
+        }
         b.beam(
             shoulder + v(0.0, -0.079, 0.0),
             shoulder + v(side * 0.021, -0.172, 0.033),
@@ -432,7 +579,7 @@ fn wrap(
     }
 }
 
-fn head(b: &mut Batch, index: usize, roman: bool, skin: Tint, hair: Tint, cloth: Tint) {
+fn head(b: &mut Batch, index: usize, region: Region, skin: Tint, hair: Tint, cloth: Tint) {
     let age = Age::ALL[index / 8];
     let w = 0.130 + (index % 4) as f32 * 0.009 + 0.023 * f32::from(age == Age::Child);
     let style = index % 8;
@@ -456,11 +603,68 @@ fn head(b: &mut Batch, index: usize, roman: bool, skin: Tint, hair: Tint, cloth:
         shift(hair, -2),
     );
     match style {
+        0 | 3 | 7 if region == Region::Nordic => {
+            let wool = shift(cloth, -8);
+            b.gem(v(0.0, 0.91, -0.067), w + 0.043, 0.161, 0.144, 0.31, wool);
+            for side in [-1.0, 1.0] {
+                b.beam(
+                    v(side * (w + 0.027), 0.885, 0.018),
+                    v(side * (w - 0.029), 0.713, 0.016),
+                    0.047,
+                    wool,
+                );
+                b.beam(
+                    v(side * 0.091, 0.969, 0.08),
+                    v(side * 0.120, 0.873, 0.085),
+                    0.025,
+                    shift(wool, 41),
+                );
+            }
+        }
+        2 | 4 if region == Region::Nordic => {
+            b.frustum(
+                v(0.0, 0.905, -0.017),
+                w + 0.019,
+                w + 0.020,
+                0.045,
+                12,
+                shift(cloth, 32),
+            );
+            b.frustum(v(0.0, 0.95, -0.017), w + 0.021, w * 0.58, 0.083, 12, cloth);
+            b.frustum(
+                v(0.0, 1.033, -0.017),
+                w * 0.58,
+                0.025,
+                0.039,
+                12,
+                shift(cloth, 17),
+            );
+        }
+        2 | 7 if region == Region::Japan => {
+            b.frustum(v(0.0, 0.92, 0.0), 0.245, 0.227, 0.030, 14, shift(GOLD, -15));
+            b.frustum(v(0.0, 0.95, 0.0), 0.227, 0.033, 0.15, 14, shift(CREAM, -9));
+            b.beam(
+                v(-0.121, 0.928, 0.07),
+                v(-0.068, 0.719, 0.079),
+                0.015,
+                cloth,
+            );
+        }
+        4 if region == Region::Japan => {
+            b.gem(v(0.0, 0.989, -0.063), 0.072, 0.052, 0.068, 0.4, hair);
+            b.beam(
+                v(-0.085, 0.976, -0.073),
+                v(0.111, 1.032, -0.073),
+                0.022,
+                GOLD,
+            );
+            b.gem(v(0.10, 1.023, -0.069), 0.037, 0.048, 0.026, 0.0, cloth);
+        }
         1 | 6 => {
             b.gem(v(0.0, 0.944, -0.142), 0.079, 0.075, 0.070, 0.45, hair);
             b.gem(v(0.0, 0.929, -0.108), 0.078, 0.032, 0.069, 0.29, cloth);
         }
-        2 if !roman => {
+        2 if region == Region::Greece => {
             b.frustum(v(0.0, 0.90, 0.0), 0.207, 0.135, 0.062, 12, CREAM);
             b.frustum(v(0.0, 0.957, 0.0), 0.137, 0.091, 0.069, 10, shift(GOLD, 11));
         }
@@ -486,7 +690,7 @@ fn head(b: &mut Batch, index: usize, roman: bool, skin: Tint, hair: Tint, cloth:
             }
         }
     }
-    if roman && matches!(style, 0 | 4) {
+    if region == Region::Rome && matches!(style, 0 | 4) {
         for side in [-1.0, 1.0] {
             for i in 0..4 {
                 let x = side * (w - i as f32 * 0.019);
@@ -562,7 +766,7 @@ fn pose(
     distance: f32,
     movement: f32,
     idle: f32,
-    reaction: Option<(Verdict, f32)>,
+    reaction: Option<(Verdict, f32, bool)>,
 ) -> [Transform; BONES] {
     let mut joints = outfit.rest.map(Transform::from_translation);
     let stride = match outfit.age {
@@ -579,7 +783,7 @@ fn pose(
     };
     let bob = (spring * (beat * 2.0).cos().abs() - 0.007) * movement;
     joints[0].translation.y += bob + 0.004 * idle;
-    let gesture = reaction.map_or(0.0, |(verdict, age)| {
+    let gesture = reaction.map_or(0.0, |(verdict, age, _)| {
         let strength = if verdict == Verdict::Pleased {
             1.0
         } else {
@@ -588,8 +792,14 @@ fn pose(
         let progress = (age / 1.28).clamp(0.0, 1.0);
         (progress * std::f32::consts::PI).sin() * strength
     });
+    let prayer = reaction.map_or(0.0, |(_, seconds, prays)| {
+        let bow = (seconds / 1.76).clamp(0.0, 1.0) * std::f32::consts::PI;
+        f32::from(prays) * bow.sin().max(0.0)
+    });
     joints[0].rotation = Quat::from_rotation_z(beat.sin() * 0.037 * movement)
-        * Quat::from_rotation_x(gesture * 0.11 + 0.10 * f32::from(outfit.age == Age::Senior));
+        * Quat::from_rotation_x(
+            gesture * 0.11 + prayer * 0.46 + 0.10 * f32::from(outfit.age == Age::Senior),
+        );
     for (side, offset) in [0.0, 0.5].into_iter().enumerate() {
         let phase = (cycle + offset).rem_euclid(1.0);
         let base = 1 + side * 4;
@@ -597,12 +807,14 @@ fn pose(
         joints[base].translation =
             joints[0].rotation * (shoulder - outfit.rest[0]) + joints[0].translation;
         let swing = -0.33 * (phase * std::f32::consts::TAU).cos() * movement - 0.06;
-        let hand = if side == 1 {
+        let hand = if prayer > 0.003 {
+            -0.98 * prayer
+        } else if side == 1 {
             -0.72 * gesture.max(0.0)
         } else {
             0.0
         };
-        let shrug = gesture.min(0.0) * (side as f32 * 2.0 - 1.0) * 0.22;
+        let shrug = (gesture.min(0.0) * 0.22 + prayer * 0.57) * (1.0 - 2.0 * side as f32);
         joints[base].rotation = Quat::from_rotation_z(shrug) * Quat::from_rotation_x(swing + hand);
 
         let hip = outfit.rest[base + 1] + v(0.0, bob, 0.0);
@@ -872,10 +1084,14 @@ pub fn animate(
         transform.rotation = Quat::from_rotation_y(walk.motion.yaw);
         transform.scale = Vec3::splat(person_scale(age, *i));
         let reaction = walk.reacting_for.and_then(|age| {
-            town.guest_history()
-                .get(*i)?
-                .verdict()
-                .map(|verdict| (verdict, age))
+            let visit = town.guest_history().get(*i)?;
+            visit.verdict().map(|verdict| {
+                (
+                    verdict,
+                    age,
+                    verdict == Verdict::Pleased && visit.wants == Service::Prayer,
+                )
+            })
         });
         let pose = pose(
             look,

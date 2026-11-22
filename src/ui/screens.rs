@@ -46,14 +46,7 @@ pub fn title(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign) {
     .with_children(|stack| {
         stack.spawn(row(8.0)).with_children(|brand| {
             icon(brand, hud, "ferry", 35.0);
-            label(
-                brand,
-                hud,
-                "NILIS HAFENREISEN DURCH DIE ANTIKE",
-                14.0,
-                Face::Bold,
-                GOLD,
-            );
+            label(brand, hud, "NILIS HAFENREISEN", 14.0, Face::Bold, GOLD);
         });
         label(stack, hud, "Nililane", 94.0, Face::Serif, SAND);
         label(
@@ -214,8 +207,8 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
             })
             .with_children(|tabs| {
                 tabs.spawn(row(7.0)).with_children(|routes| {
-                    for r in [Region::Greece, Region::Rome] {
-                        let locked = r == Region::Rome && !save.unlocked(r.start());
+                    for r in Region::ALL {
+                        let locked = !save.unlocked(r.start());
                         button(
                             routes,
                             hud,
@@ -547,6 +540,25 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
                         BorderRadius::all(Val::Px(3.0)),
                     ));
                 });
+            });
+        }
+        if let Some(voyage) = town.voyage {
+            card(stack, frame_node(Val::Auto, 5.0, 8.0), INK).with_children(|ship| {
+                panels::metric(
+                    ship,
+                    hud,
+                    "sea_trade",
+                    format!("Schiff auf See · ab Tag {}", voyage.arrival),
+                );
+            });
+        } else if town.planning() && town.cargo_today > 0 {
+            card(stack, frame_node(Val::Auto, 5.0, 8.0), INK).with_children(|ship| {
+                panels::metric(
+                    ship,
+                    hud,
+                    "sea_trade",
+                    format!("Schiff zurück · +{} Silber", town.cargo_today),
+                );
             });
         }
     });
@@ -885,6 +897,11 @@ pub fn goal(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, goal: Goal) {
                     Goal::Variety(_) => "book",
                     Goal::MarketDay(_) => "coin",
                     Goal::Water(_) => "water",
+                    Goal::Harvest(_) => "rice_paddy",
+                    Goal::Bell(_) => "temple_bell",
+                    Goal::Catch(_) => "fishery",
+                    Goal::Voyages(_) => "sea_trade",
+                    Goal::CargoIncome(_) => "coin",
                     Goal::Route(job, _) => job.icon(),
                     Goal::RouteVariety(_) => "nili",
                     Goal::FerryDay(_) => "ferry",

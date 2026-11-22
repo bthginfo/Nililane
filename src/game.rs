@@ -5,7 +5,7 @@ use bevy::{
 };
 
 use crate::{
-    campaign::{CHAPTERS, REGION_SIZE, Region},
+    campaign::{CHAPTERS, JAPAN_START, NORDIC_START, REGION_SIZE, Region},
     coach::{self, Lesson, Prompt, Step},
     controls::{self, Controls, Direction},
     cosmetics::{Category, Cosmetic},
@@ -16,6 +16,7 @@ use crate::{
     },
     save::Campaign,
     street::{self, Activity},
+    trade::SailingRoute,
     ui::{self, Hud},
     world::{StreetCamera, motion},
 };
@@ -65,6 +66,7 @@ pub enum Action {
     Options,
     Wardrobe,
     WardrobeTab(Category),
+    WardrobeRegion(Option<Region>),
     Wear(Cosmetic),
     Guide,
     GuideTab(usize),
@@ -96,6 +98,8 @@ pub enum Action {
     Open,
     Aid,
     AidAt(usize),
+    RingBell(usize),
+    SendVoyage(usize, SailingRoute),
     Nili,
     ChooseJob(Job),
     Dispatch,
@@ -119,6 +123,8 @@ enum Cue {
     Street(Activity),
     Aid,
     Sale,
+    TempleBell,
+    CastOff,
 }
 
 pub const BUILD_TIME: f32 = 1.58;
@@ -150,6 +156,7 @@ pub struct Game {
     pub chart: usize,
     pub guide: usize,
     pub wardrobe_tab: Category,
+    pub wardrobe_region: Option<Region>,
     pub build_page: usize,
     pub ledger_page: usize,
     pub review_guest: Option<usize>,
@@ -159,6 +166,8 @@ pub struct Game {
     pub nearby: Option<Nearby>,
     pub destination: Option<usize>,
     pub street_action: Option<(usize, Activity, f32)>,
+    pub bell_action: Option<(usize, f32)>,
+    pub loading_cargo: Option<(usize, f32)>,
     pub saw_prices: bool,
     pub lesson: Option<Lesson>,
     delivered: Option<Delivery>,
@@ -178,6 +187,8 @@ pub struct Game {
     pub work: [Option<Construction>; LOTS],
     pub preview: Town,
     preview_rome: Town,
+    preview_japan: Town,
+    preview_nordic: Town,
     checkpoint: f32,
     cue: Option<Cue>,
 }
@@ -203,7 +214,7 @@ impl Default for Game {
         preview.lots[1].as_mut().unwrap().level = 2;
         preview.lots[3].as_mut().unwrap().level = 3;
         preview.lots[5].as_mut().unwrap().level = 2;
-        let mut preview_rome = Town::new(CHAPTERS.len() - 1, &CHAPTERS[CHAPTERS.len() - 1]);
+        let mut preview_rome = Town::new(JAPAN_START - 1, &CHAPTERS[JAPAN_START - 1]);
         preview_rome.lots[..12].copy_from_slice(&[
             Some(model::Building::new(House)),
             Some(model::Building::new(Well)),
@@ -224,6 +235,35 @@ impl Default for Game {
         preview_rome.lots[12] = Some(model::Building::new(Grove));
         preview_rome.lots[14] = Some(model::Building::new(Storehouse));
         preview_rome.lots[16] = Some(model::Building::new(Villa));
+        let island = JAPAN_START + 5;
+        let mut preview_japan = Town::new(island, &CHAPTERS[island]);
+        for (lot, kind, level) in [
+            (0, Storehouse, 1),
+            (4, Machiya, 2),
+            (6, PaperWorkshop, 2),
+            (8, Temple, 3),
+            (10, TeaHouse, 2),
+        ] {
+            preview_japan.lots[lot] = Some(model::Building {
+                level,
+                ..model::Building::new(kind)
+            });
+        }
+        let island = NORDIC_START + 4;
+        let mut preview_nordic = Town::new(island, &CHAPTERS[island]);
+        for (lot, kind, level) in [
+            (0, Storehouse, 1),
+            (4, Longhouse, 3),
+            (5, Fishery, 2),
+            (6, FeastHall, 3),
+            (7, Smokehouse, 2),
+            (9, Boatyard, 3),
+        ] {
+            preview_nordic.lots[lot] = Some(model::Building {
+                level,
+                ..model::Building::new(kind)
+            });
+        }
         Self {
             view: View::Title,
             panel: Panel::None,
@@ -231,6 +271,7 @@ impl Default for Game {
             chart: 0,
             guide: 0,
             wardrobe_tab: Category::default(),
+            wardrobe_region: None,
             build_page: 0,
             ledger_page: 0,
             review_guest: None,
@@ -240,6 +281,8 @@ impl Default for Game {
             nearby: None,
             destination: None,
             street_action: None,
+            bell_action: None,
+            loading_cargo: None,
             saw_prices: false,
             lesson: None,
             delivered: None,
@@ -259,6 +302,8 @@ impl Default for Game {
             work: [None; LOTS],
             preview,
             preview_rome,
+            preview_japan,
+            preview_nordic,
             checkpoint: 0.0,
             cue: None,
         }
@@ -283,6 +328,15 @@ impl Game {
         }
     }
 
+    pub fn nearby_action(&self, town: &Town, lot: usize) -> Action {
+        let selected = self.lot_action(town, lot);
+        if selected == Action::LookAtLot(lot) && town.bell_ready(&CHAPTERS[town.chapter], lot) {
+            Action::RingBell(lot)
+        } else {
+            selected
+        }
+    }
+
     pub fn visible_town<'a>(&'a self, save: &'a Campaign) -> &'a Town {
         let region = match self.view {
             View::Street => return save.active_town().unwrap_or(&self.preview),
@@ -294,6 +348,8 @@ impl Game {
         match region {
             Region::Greece => &self.preview,
             Region::Rome => &self.preview_rome,
+            Region::Japan => &self.preview_japan,
+            Region::Nordic => &self.preview_nordic,
         }
     }
 
@@ -305,6 +361,8 @@ impl Game {
             self.nearby = None;
             self.destination = None;
             self.street_action = None;
+            self.bell_action = None;
+            self.loading_cargo = None;
             self.work.fill(None);
         }
         self.view = view;
@@ -632,7 +690,7 @@ pub fn frame(
                 Action::Dispatch
             } else if !town.planning() {
                 match game.nearby {
-                    Some(Nearby::Building(lot)) => game.lot_action(town, lot),
+                    Some(Nearby::Building(lot)) => game.nearby_action(town, lot),
                     Some(Nearby::Activity(slot, _)) => Action::StreetHelp(slot),
                     None => match game.lot_action(town, game.selected) {
                         action @ Action::AidAt(_) => action,
@@ -976,6 +1034,8 @@ fn start(chapter: usize, tutorial: bool, game: &mut Game, save: &mut Campaign) {
     town.coins += bonus;
     game.saw_prices = false;
     game.delivered = None;
+    game.bell_action = None;
+    game.loading_cargo = None;
     game.selected = coach::next(&town, rule, 1, false)
         .and_then(Step::lot)
         .unwrap_or(1);
@@ -1192,6 +1252,11 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
             game.focus = Some(action);
             game.dirty = true;
         }
+        Action::WardrobeRegion(region) => {
+            game.wardrobe_region = region;
+            game.focus = Some(action);
+            game.dirty = true;
+        }
         Action::Wear(item) => {
             if game.panel == Panel::Wardrobe && save.equip(item) {
                 game.focus = Some(action);
@@ -1324,6 +1389,43 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
             {
                 select(game, lot);
                 apply(Action::Aid, game, save);
+            }
+        }
+        Action::RingBell(lot) => {
+            let Some(town) = save.active_town_mut() else {
+                return;
+            };
+            let chapter = &CHAPTERS[town.chapter];
+            if motion::can_inspect(town, lot, chapter.layout) && town.ring_bell(chapter, lot) {
+                let guests = town.bell_guests(lot);
+                game.bell_action = Some((lot, game.clock));
+                game.show(Panel::None);
+                game.message(
+                    format!("Die Glocke ruft {guests} Pilger zum Tempel"),
+                    Cue::TempleBell,
+                );
+                game.save(save);
+            }
+        }
+        Action::SendVoyage(lot, route) => {
+            let Some(town) = save.active_town_mut() else {
+                return;
+            };
+            let chapter = &CHAPTERS[town.chapter];
+            if !motion::can_inspect(town, lot, chapter.layout) {
+                return;
+            }
+            match town.send_voyage(chapter, lot, route) {
+                Ok(voyage) => {
+                    game.loading_cargo = Some((lot, game.clock));
+                    game.show(Panel::None);
+                    game.message(
+                        format!("Schiff abgelegt · zurück ab Tag {}", voyage.arrival),
+                        Cue::CastOff,
+                    );
+                    game.save(save);
+                }
+                Err(reason) => game.message(reason.hint(), Cue::Blocked),
             }
         }
         Action::Nili => {
@@ -1500,8 +1602,15 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                         game.delivered = None;
                         game.destination = None;
                         game.street_action = None;
+                        game.bell_action = None;
+                        game.loading_cargo = None;
                         if edit == Action::Open {
                             take_control(town, game, false);
+                        } else if town.cargo_today > 0 {
+                            game.message(
+                                format!("Der Handel ist zurück · +{} Silber", town.cargo_today),
+                                Cue::Earned,
+                            );
                         }
                         if edit == Action::NextDay
                             && let Some(lot) =
@@ -1537,6 +1646,16 @@ impl Track {
         match self {
             Self::Menu(Region::Greece) => "embedded://audio/aegean.ogg".to_owned(),
             Self::Menu(Region::Rome) => "embedded://audio/roman_quay.ogg".to_owned(),
+            Self::Menu(Region::Japan) => Self::Harbor {
+                chapter: JAPAN_START,
+                evening: true,
+            }
+            .asset(),
+            Self::Menu(Region::Nordic) => Self::Harbor {
+                chapter: NORDIC_START,
+                evening: true,
+            }
+            .asset(),
             Self::Harbor { chapter, evening } => {
                 let suffix = if evening { "-abend" } else { "" };
                 let source = if cfg!(target_os = "android") {
@@ -1712,6 +1831,8 @@ pub fn audio(
             Cue::Street(_) => "embedded://audio/street_sweep.wav",
             Cue::Aid => "embedded://audio/nili_aid.wav",
             Cue::Sale => "embedded://audio/market_sale.wav",
+            Cue::TempleBell => "embedded://audio/temple_bell.wav",
+            Cue::CastOff => "embedded://audio/cast_off.wav",
         };
         commands.spawn((
             AudioPlayer::new(assets.load(file)),

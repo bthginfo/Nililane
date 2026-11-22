@@ -36,6 +36,20 @@ pub fn model(kind: Kind, level: u8) -> Mesh {
         Kind::Potter | Kind::Inn => shop(&mut b, kind),
         Kind::HerbGarden => super::buildings::herb_garden(&mut b, true),
         Kind::Press | Kind::Shrine => unreachable!("Roman districts use separate amenities"),
+        Kind::RicePaddy
+        | Kind::RiceKitchen
+        | Kind::TeaGarden
+        | Kind::TeaHouse
+        | Kind::PaperWorkshop
+        | Kind::Temple
+        | Kind::Machiya
+        | Kind::Longhouse
+        | Kind::Fishery
+        | Kind::Smokehouse
+        | Kind::Woodlot
+        | Kind::Boatyard
+        | Kind::Weaver
+        | Kind::FeastHall => unreachable!("buildings from other regions have their own meshes"),
     }
     for tier in 2..=level {
         append_upgrade(&mut b, kind, tier);

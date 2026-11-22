@@ -84,6 +84,8 @@ fn paint(region: Region, class: usize) -> Tint {
     match region {
         Region::Greece => [TEAL, BLUE, GOLD][class],
         Region::Rome => [WINE, [63, 112, 99], [172, 127, 68]][class],
+        Region::Japan => [[76, 103, 130], [180, 88, 66], [110, 143, 99]][class],
+        Region::Nordic => [[155, 73, 53], [69, 112, 131], [156, 118, 67]][class],
     }
 }
 
@@ -91,17 +93,24 @@ pub fn hull(region: Region, class: usize) -> Mesh {
     let mut b = Batch::default();
     let large = class == 0;
     let roman = region == Region::Rome;
+    let japan = region == Region::Japan;
+    let nordic = region == Region::Nordic;
     let length = LENGTHS[class];
     let width = WIDTHS[class];
     let tint = paint(region, class);
     let stations = [
         -1.0, -0.91, -0.73, -0.49, -0.23, 0.03, 0.30, 0.55, 0.76, 0.91, 1.0,
     ];
+    let planks = match region {
+        Region::Japan => [126, 85, 56],
+        Region::Nordic => [105, 76, 55],
+        _ => OCHRE,
+    };
     let sections = [
         (-0.19, 0.38, PITCH),
         (-0.04, 0.73, shift(OAK, 12)),
-        (0.10, 0.90, OCHRE),
-        (0.23, 0.98, shift(OCHRE, 10)),
+        (0.10, 0.90, planks),
+        (0.23, 0.98, shift(planks, 10)),
         (0.31, 1.0, tint),
         (0.395, 0.98, shift(OAK, 20)),
     ];
@@ -109,7 +118,14 @@ pub fn hull(region: Region, class: usize) -> Mesh {
         let t: f32 = stations[station];
         let fullness = (1.0f32 - t.abs().powf(if roman { 1.95 } else { 1.62 })).powf(0.60);
         let (level, breadth, _) = sections[strake];
-        let ends = t.abs().powi(5) * if roman { 0.29 } else { 0.22 };
+        let lift = if nordic {
+            0.40
+        } else if roman || japan {
+            0.29
+        } else {
+            0.22
+        };
+        let ends = t.abs().powi(5) * lift;
         v(
             t * length * (0.88 + 0.025 * strake as f32),
             level + ends,
@@ -158,6 +174,16 @@ pub fn hull(region: Region, class: usize) -> Mesh {
                 0.021,
                 GOLD,
             );
+            if nordic && station > 0 && station < stations.len() - 2 {
+                for band in 1..4 {
+                    b.beam(
+                        point(station, band, side),
+                        point(station + 1, band, side),
+                        0.028,
+                        PITCH,
+                    );
+                }
+            }
         }
     }
     b.beam(
@@ -208,7 +234,122 @@ pub fn hull(region: Region, class: usize) -> Mesh {
     }
     let stern = -length * 0.93;
     let prow = length * 0.95;
-    if roman {
+    if nordic {
+        for direction in [-1.0, 1.0] {
+            let end = direction * length * 0.91;
+            b.beam(
+                v(end - direction * 0.25, 0.64, 0.0),
+                v(end + direction * 0.08, 1.00, 0.0),
+                0.13,
+                PITCH,
+            );
+            b.beam(
+                v(end + direction * 0.08, 1.00, 0.0),
+                v(end + direction * 0.04, 1.27, 0.0),
+                0.094,
+                planks,
+            );
+            b.gem(
+                v(end + direction * 0.035, 1.26, 0.0),
+                0.127,
+                0.086,
+                0.069,
+                0.22,
+                tint,
+            );
+            b.gem(
+                v(end + direction * 0.104, 1.247, 0.0),
+                0.046,
+                0.046,
+                0.061,
+                0.0,
+                GOLD,
+            );
+        }
+        for station in [2, 4, 6, 8] {
+            for side in [-1.0, 1.0] {
+                let at = point(station, 5, side) + v(0.0, 0.034, -side * 0.022);
+                let color = if station % 4 == 0 {
+                    tint
+                } else {
+                    shift(GOLD, -21)
+                };
+                for i in 0..10 {
+                    let rim = |i| {
+                        let angle = i as f32 * std::f32::consts::TAU / 10.0;
+                        at + v(angle.cos() * 0.161, angle.sin() * 0.161, 0.0)
+                    };
+                    let mut face = [at + v(0.0, 0.0, side * 0.029), rim(i), rim(i + 1)];
+                    if side < 0.0 {
+                        face.reverse();
+                    }
+                    b.face(&face, shift(color, (i * 13 % 28) as i16 - 9));
+                }
+                b.gem(
+                    at + v(0.0, 0.0, side * 0.032),
+                    0.046,
+                    0.046,
+                    0.021,
+                    0.2,
+                    PITCH,
+                );
+            }
+        }
+    } else if japan {
+        b.beam(
+            v(prow - 0.23, 0.53, 0.0),
+            v(prow + 0.12, 0.88, 0.0),
+            0.127,
+            PITCH,
+        );
+        b.beam(
+            v(prow - 0.28, 0.55, 0.0),
+            v(prow + 0.115, 0.88, 0.0),
+            0.052,
+            OCHRE,
+        );
+        b.beam(
+            v(stern + 0.05, 0.22, 0.0),
+            v(stern - 0.08, 0.85, 0.0),
+            0.073,
+            PITCH,
+        );
+        let cabin = -length * 0.52;
+        let cabin_width = if large { 0.39 } else { 0.27 };
+        for side in [-1.0, 1.0] {
+            for offset in [-0.26, 0.26] {
+                b.slab(
+                    v(cabin + offset, 0.63, side * cabin_width),
+                    v(0.064, 0.46, 0.067),
+                    OAK,
+                );
+            }
+            for n in 0..6 {
+                let x = cabin - 0.27 + n as f32 * 0.106;
+                b.slab(
+                    v(x, 0.60, side * (cabin_width - 0.017)),
+                    v(0.035, 0.30, 0.037),
+                    shift(OCHRE, n as i16 * 4),
+                );
+            }
+        }
+        super::japan::roof(
+            &mut b,
+            v(cabin, 0.86, 0.0),
+            0.39,
+            cabin_width + 0.075,
+            0.18,
+            tint,
+        );
+        b.gem(
+            v(cabin - 0.31, 0.70, 0.07),
+            0.076,
+            0.099,
+            0.076,
+            0.3,
+            [234, 173, 104],
+        );
+    } else if roman {
         b.beam(
             v(stern + 0.32, 0.48, 0.0),
             v(stern + 0.015, 0.81, 0.0),
@@ -293,9 +434,18 @@ pub fn sail(region: Region, class: usize) -> Mesh {
     let y = if large { FERRY_SPAR } else { 1.73 };
     let height = if large { 1.10 } else { 0.87 };
     let tint = paint(region, class);
+    let japan = region == Region::Japan;
+    let nordic = region == Region::Nordic;
     let pinned = |u: f32, v_: f32| {
         let billow = (std::f32::consts::PI * u).sin() * (std::f32::consts::PI * v_ * 0.87).sin();
-        let x = (u - 0.5) * width * (1.0 - 0.17 * v_) - 0.21 + (v_ * v_) * 0.18;
+        let taper = if japan {
+            -0.085
+        } else if nordic {
+            0.022
+        } else {
+            0.17
+        };
+        let x = (u - 0.5) * width * (1.0 - taper * v_) - 0.21 + (v_ * v_) * 0.18;
         v(
             x,
             y - v_ * height - (1.0 - billow) * 0.042,
@@ -306,10 +456,24 @@ pub fn sail(region: Region, class: usize) -> Mesh {
         for col in 0..12 {
             let u = col as f32 / 12.0;
             let vs = row as f32 / 7.0;
-            let color = if row == 5 || (region == Region::Rome && col == 5) {
+            let striped = if nordic {
+                (col / 2) % 2 == 0 || row == 6
+            } else if japan {
+                matches!(col, 1 | 10) && row > 0
+            } else {
+                row == 5 || (region == Region::Rome && col == 5)
+            };
+            let color = if striped {
                 tint
             } else {
-                shift(MARBLE, (col * 8 % 17) as i16 - 9)
+                let linen = if japan {
+                    [236, 220, 182]
+                } else if nordic {
+                    [225, 209, 171]
+                } else {
+                    MARBLE
+                };
+                shift(linen, (col * 8 % 17) as i16 - 9)
             };
             let corners = [
                 pinned(u, vs),
@@ -334,6 +498,18 @@ pub fn sail(region: Region, class: usize) -> Mesh {
         0.061,
         OAK,
     );
+    if japan || nordic {
+        for n in 0..8 {
+            let u = n as f32 / 7.0;
+            let at = pinned(u, 0.0);
+            b.beam(
+                at - v(0.0, 0.045, 0.0),
+                at + v(0.0, 0.084, 0.0),
+                0.024,
+                CREAM,
+            );
+        }
+    }
     if !large {
         b.beam(pinned(0.0, 1.0), v(-0.79, 0.46, 0.07), 0.018, CREAM);
         b.beam(pinned(1.0, 1.0), v(1.18, 0.41, -0.07), 0.018, CREAM);
@@ -382,8 +558,8 @@ mod tests {
     use bevy::render::mesh::VertexAttributeValues;
 
     #[test]
-    fn the_ferry_and_its_oars_clear_the_pier_in_both_regions() {
-        for region in [Region::Greece, Region::Rome] {
+    fn the_ferry_and_its_oars_clear_the_pier_in_every_region() {
+        for region in Region::ALL {
             let mesh = hull(region, 0);
             let Some(VertexAttributeValues::Float32x3(points)) =
                 mesh.attribute(Mesh::ATTRIBUTE_POSITION)

@@ -331,6 +331,50 @@ fn map_signs(town: &Town, game: &Game) -> Vec<MapSign> {
             action: town.favor_plan(chapter, lot).map(|_| Action::AidAt(lot)),
         });
     }
+    if let Some(lot) = chapter
+        .layout
+        .lots()
+        .filter(|&lot| town.bell_ready(chapter, lot))
+        .min_by_key(|&lot| {
+            (
+                !crate::world::motion::can_inspect(town, lot, chapter.layout),
+                distance(lot, game.selected),
+            )
+        })
+    {
+        let nearby = crate::world::motion::can_inspect(town, lot, chapter.layout);
+        signs.push(MapSign {
+            point: Point::Lot(lot),
+            title: if nearby {
+                "Glocke läuten"
+            } else {
+                "Tempelglocke"
+            },
+            icon: "temple_bell",
+            action: Some(if nearby {
+                Action::RingBell(lot)
+            } else {
+                Action::LookAtLot(lot)
+            }),
+        });
+    }
+    if let Some(lot) = chapter.layout.lots().find(|&lot| {
+        town.trade_source(chapter, lot, crate::trade::SailingRoute::Coastal)
+            .is_ok()
+            && (chapter.goals.iter().any(|goal| {
+                matches!(
+                    goal,
+                    crate::campaign::Goal::Voyages(_) | crate::campaign::Goal::CargoIncome(_)
+                )
+            }) || crate::world::motion::can_inspect(town, lot, chapter.layout))
+    }) {
+        signs.push(MapSign {
+            point: Point::Lot(lot),
+            title: "Seehandel",
+            icon: "sea_trade",
+            action: Some(Action::LookAtLot(lot)),
+        });
+    }
     let step = coach::next(town, chapter, game.selected, game.saw_prices);
     if let Some(step) = step
         && let Some(lot) = step.lot()
