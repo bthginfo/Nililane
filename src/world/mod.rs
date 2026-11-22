@@ -656,7 +656,15 @@ pub fn animate(
             -0.095
         };
         let yaw = if playing { 0.13 } else { 0.19 };
-        let look = v(yaw, if playing { 1.12 } else { 0.91 }, 1.15).normalize();
+        let elevation =
+            if playing && !wardrobe && matches!(chapter.region, Region::Japan | Region::Nordic) {
+                1.41
+            } else if playing {
+                1.12
+            } else {
+                0.91
+            };
+        let look = v(yaw, elevation, 1.15).normalize();
         let right = v(look.z, 0.0, -look.x).normalize();
         let width = height * aspect;
         let pan = if playing { game.pan } else { Vec2::ZERO };

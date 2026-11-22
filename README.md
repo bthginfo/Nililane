@@ -6,7 +6,9 @@ und die nordischen Häfen der Wikingerzeit. Jede Reise hat 24 Kapitel.
 Du planst morgens die Gasse, versorgst Nachbarn und Fährgäste und steuerst
 Nili tagsüber bei seinen Aufgaben.
 
-**[Nililane 2.6.0 für Android herunterladen](https://github.com/bthginfo/Nililane/releases/download/v2.6.0/Nililane-2.6.0.apk)** · [SHA-256](https://github.com/bthginfo/Nililane/releases/download/v2.6.0/Nililane-2.6.0.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.6.0)
+**[Android-APK für ARM64-Tablets](https://raw.githubusercontent.com/bthginfo/Nililane/e105d3533c082a6634dc7f1442792332b5a722d9/Nililane-2.6.0.apk)** · [APK für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/e105d3533c082a6634dc7f1442792332b5a722d9/Nililane-2.6.0-x86_64.apk) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.6.0)
+
+[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/e105d3533c082a6634dc7f1442792332b5a722d9/Nililane-2.6.0.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/e105d3533c082a6634dc7f1442792332b5a722d9/Nililane-2.6.0-x86_64.apk.sha256)
 
 ![Nili mit Bewohnern und dem ausgebauten Wohnhof in Naxos](docs/bilder/naxos.jpg)
 
@@ -18,9 +20,8 @@ Nili tagsüber bei seinen Aufgaben.
 
 ## Auf dem Tablet spielen
 
-Die signierte APK benötigt Android 8 oder neuer, Vulkan 1.1 und ein Gerät
-mit ARM64- oder x86_64-Prozessor. Öffne die APK auf dem Tablet und installiere
-sie. Installiere das Update über deine bisherige Version, um deine laufende
+Die signierten Pakete benötigen Android 8 oder neuer und Vulkan 1.1.
+Wähle das Paket für deinen Prozessor und öffne es auf dem Tablet. Installiere das Update über deine bisherige Version, um deine laufende
 Gasse und die Sternrekorde mitzunehmen. Nililane läuft offline und öffnet sich im Querformat.
 
 Kopple den Xbox-Controller über die Android-Bluetooth-Einstellungen oder

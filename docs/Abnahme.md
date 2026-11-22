@@ -203,7 +203,9 @@ und die Hafenuhr lief weiter. Der Spielstand war nach der Installation
 - **Erster Einstieg.** In Japan und den nordischen Häfen folgen die neuen
   Systeme über mehrere Kapitel. Die Tempelglocke erhält einen Marker in der
   Gasse und eine eigene Aktion in Reichweite von Nili. Die Bootshauskarten
-  vergleichen Proviant, früheste Rückkehr und Silberertrag.
+  vergleichen Proviant, früheste Rückkehr und Silberertrag. An einem
+  begehbaren Bootshaus war die erste verfügbare Abfahrt vorausgewählt und
+  ließ sich direkt bestätigen. Die Hafenuhr lief währenddessen weiter.
 - **Kampagne und Fortschritt.** 96 von 96 Häfen erreichen in den
   Referenzpartien drei Sterne. Nach der Abendabrechnung werden Spielstand und
   nächster Hafen geprüft. Japans geöffnete Gassen dauern bei Normaltempo
@@ -216,8 +218,7 @@ und die Hafenuhr lief weiter. Der Spielstand war nach der Installation
 - **Oberfläche.** Im Querformat 4:3 zeigt die Garderobe Japan und Nordisch
   auf eigenen Karten. Gesperrte Artikel zeigen Sternpreis und Hafen.
   [Japan](bilder/japan.jpg) · [Nordische Häfen](bilder/nordische-haefen.jpg)
-- **Android.** Die geprüfte APK enthält beide Prozessorarchitekturen und
-  alle 192 Musikaufnahmen offline. Signatur und 16-KiB-Ausrichtung sind
+- **Android.** Die APKs für ARM64 und x86_64 enthalten je alle 192 Musikaufnahmen offline. Signatur und 16-KiB-Ausrichtung sind
   geprüft. Die Installation über 2.5.2 hat den vorhandenen Spielstand
   bytegleich erhalten. Im Emulator haben A-Tastendrücke von Rom nach
   Tomonoura und von Awajishima nach Borg geführt.

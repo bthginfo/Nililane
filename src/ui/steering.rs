@@ -141,18 +141,22 @@ pub(super) fn free(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &
                     _ if b.kind == Kind::Boatyard => ("Seehandel", "sea_trade"),
                     _ => (b.kind.name(), kind_icon(b.kind)),
                 };
-                button(near, hud, action, label, art, "A", Style::Primary, false);
                 if matches!(action, Action::RingBell(_)) {
-                    button(
-                        near,
-                        hud,
-                        Action::LookAtLot(lot),
-                        "Tempel ansehen",
-                        "temple",
-                        "",
-                        Style::Quiet,
-                        false,
-                    );
+                    near.spawn(row(6.0)).with_children(|choices| {
+                        button(choices, hud, action, label, art, "A", Style::Primary, false);
+                        button(
+                            choices,
+                            hud,
+                            Action::LookAtLot(lot),
+                            "Tempel ansehen",
+                            "temple",
+                            "",
+                            Style::Quiet,
+                            false,
+                        );
+                    });
+                } else {
+                    button(near, hud, action, label, art, "A", Style::Primary, false);
                 }
             }
             Some(Nearby::Activity(slot, activity)) => {

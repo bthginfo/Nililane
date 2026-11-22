@@ -939,7 +939,11 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                     "Zurück",
                     "",
                     "B",
-                    Style::Primary,
+                    if matches!(b.kind, Kind::Boatyard | Kind::Temple) {
+                        Style::Quiet
+                    } else {
+                        Style::Primary
+                    },
                     false,
                 );
             }

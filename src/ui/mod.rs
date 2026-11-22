@@ -266,6 +266,16 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
                 {
                     return Some(Action::Aid);
                 }
+                if town.bell_ready(chapter, lot) {
+                    return Some(Action::RingBell(lot));
+                }
+                if town.lots[lot].is_some_and(|b| b.kind == Kind::Boatyard)
+                    && let Some(route) = crate::trade::SailingRoute::ALL
+                        .into_iter()
+                        .find(|&route| town.trade_source(chapter, lot, route).is_ok())
+                {
+                    return Some(Action::SendVoyage(lot, route));
+                }
                 if let Some(job) = town
                     .supply_need(chapter, lot, &town.production(chapter))
                     .and_then(|need| need.suggested_job(town, chapter, lot))
@@ -274,7 +284,7 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
                 }
             }
             match town.lots[game.selected] {
-                Some(b) if town.planning() && b.kind.service().is_some() => {
+                Some(b) if town.planning() && b.kind.service().is_some_and(Service::priced) => {
                     let price =
                         crate::coach::recommended_price(town, game.selected).unwrap_or(b.price);
                     Action::Price(price)
