@@ -24,6 +24,8 @@ fn step_words(step: Step) -> (&'static str, &'static str) {
         Step::Aid(_, Favor::Jugs) => ("Wasser verteilen", "water"),
         Step::Aid(_, Favor::Shade) => ("Schattenplätze schaffen", "stoa"),
         Step::Aid(_, Favor::Cargo) => ("Vorrat auffüllen", "guest_empty"),
+        Step::Aid(_, Favor::Fire) => ("Ofenbrand löschen", "fire"),
+        Step::Aid(_, Favor::Crates) => ("Kisten sichern", "storehouse"),
         Step::Tour(_, job) => (job.name(), job.icon()),
         Step::Evening => ("Einnahmen am Abend", "sunset"),
     }
@@ -216,6 +218,28 @@ struct MapSign {
 fn map_signs(town: &Town, game: &Game) -> Vec<MapSign> {
     let chapter = &CHAPTERS[town.chapter];
     let mut signs = Vec::new();
+    if let Phase::Open(day) = &town.phase
+        && let Some((route, nili)) = day.manual_route()
+    {
+        let can_work = crate::world::motion::can_work(nili, route, chapter.layout);
+        signs.push(MapSign {
+            point: Point::Stop(nili.target(route)),
+            title: if can_work {
+                day.errand_action(route, nili.stage).unwrap_or("Hier")
+            } else if nili.stage.pickup() {
+                "1 · Abholort"
+            } else {
+                "2 · Ziel"
+            },
+            icon: if nili.stage.pickup() {
+                day.errand_icon(route)
+            } else {
+                "check"
+            },
+            action: can_work.then_some(Action::DoErrand),
+        });
+        return signs;
+    }
     if let Some(job) = game.job {
         if let Ok(route) = job.plan(town, chapter, game.selected) {
             signs.push(MapSign {
@@ -285,6 +309,24 @@ fn map_signs(town: &Town, game: &Game) -> Vec<MapSign> {
         });
     }
 
+    if let Some((favor, lot)) = town.incident(chapter) {
+        signs.push(MapSign {
+            point: if favor == Favor::Crates {
+                Point::Stop(Stop::Pier)
+            } else {
+                Point::Lot(lot)
+            },
+            title: if favor == Favor::Fire {
+                "Ofenbrand"
+            } else {
+                "Lose Kisten"
+            },
+            icon: favor.icon(),
+            action: town
+                .favor_plan(chapter, lot)
+                .map(|_| Action::Coach(Step::Aid(lot, favor))),
+        });
+    }
     let step = coach::next(town, chapter, game.selected, game.saw_prices);
     if let Some(step) = step
         && let Some(lot) = step.lot()
@@ -372,6 +414,7 @@ pub fn update(
     {
         let chapter = &CHAPTERS[town.chapter];
         let mut filled = 0;
+        let manual = matches!(&town.phase, Phase::Open(day) if day.manual_route().is_some());
         for sign in map_signs(town, &game) {
             let plot = |lot| {
                 let mut place = lot_position(lot, chapter.layout.width());
@@ -397,9 +440,9 @@ pub fn update(
             };
             let at = point / scale.0 - Vec2::new(WIDTH * 0.5, HEIGHT + 3.0);
             if at.x < safe[0] + 8.0
-                || at.x + WIDTH > size.x - safe[2] - 350.0
-                || at.y < safe[1] + 109.0
-                || at.y + HEIGHT > size.y - safe[3] - 145.0
+                || at.x + WIDTH > size.x - safe[2] - if manual { 12.0 } else { 350.0 }
+                || at.y < safe[1] + if manual { 48.0 } else { 109.0 }
+                || at.y + HEIGHT > size.y - safe[3] - if manual { 192.0 } else { 145.0 }
                 || active.iter().flatten().any(|p| {
                     let delta = (p.at - at).abs();
                     delta.x < WIDTH + 6.0 && delta.y < HEIGHT + 8.0

@@ -187,14 +187,26 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
                     .iter()
                     .filter(|r| r.stars > 0)
                     .count();
-                label(
-                    title,
-                    hud,
-                    format!("{completed} von {REGION_SIZE} Häfen"),
-                    18.0,
-                    Face::Bold,
-                    GOLD,
-                );
+                title.spawn(row(15.0)).with_children(|info| {
+                    label(
+                        info,
+                        hud,
+                        format!("{completed} von {REGION_SIZE} Häfen"),
+                        18.0,
+                        Face::Bold,
+                        GOLD,
+                    );
+                    button(
+                        info,
+                        hud,
+                        Action::Wardrobe,
+                        "Garderobe",
+                        "nili",
+                        "",
+                        Style::Quiet,
+                        false,
+                    );
+                });
             });
             body.spawn(Node {
                 justify_content: JustifyContent::SpaceBetween,
@@ -415,6 +427,10 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
 pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, tutorial: bool) {
     let ch = &CHAPTERS[town.chapter];
     let weather = town.weather(ch);
+    let manual = match &town.phase {
+        Phase::Open(day) => day.manual_route().map(|(route, nili)| (day, route, nili)),
+        _ => None,
+    };
     p.spawn(Node {
         position_type: PositionType::Absolute,
         top: Val::Px(22.0),
@@ -482,7 +498,11 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
                 );
             });
         });
-        if matches!(town.phase, Phase::Open(_)) {
+        if manual.is_some() {
+            card(stack, frame_node(Val::Auto, 4.0, 8.0), DEEP).with_children(|time| {
+                panels::metric(time, hud, "pause", "Hafenuhr pausiert");
+            });
+        } else if matches!(town.phase, Phase::Open(_)) {
             card(stack, frame_node(Val::Px(290.0), 6.0, 10.0), INK).with_children(|time| {
                 time.spawn(Node {
                     justify_content: JustifyContent::SpaceBetween,
@@ -534,6 +554,11 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
             });
         }
     });
+
+    if let Some((day, route, nili)) = manual {
+        steering::draw(p, hud, town, day, route, nili);
+        return;
+    }
 
     let rail = Node {
         position_type: PositionType::Absolute,
@@ -598,9 +623,9 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
     let plan = game.job.map(|job| (job, job.plan(town, ch, game.selected)));
     let step = coach::next(town, ch, game.selected, game.saw_prices);
     let (primary, hot, ico, action) = if plan.is_some() {
-        ("Nili losschicken", "A", "nili", Action::Dispatch)
+        ("Nili steuern", "A", "nili", Action::Dispatch)
     } else if town.favor_plan(ch, game.selected).is_some() {
-        ("Nili losschicken", "A", "nili", Action::Aid)
+        ("Nili steuern", "A", "nili", Action::Aid)
     } else if town.planning() && town.lots[game.selected].is_none() {
         ("Bauen", "A", "hammer", Action::Plot)
     } else if town.planning()

@@ -11,7 +11,7 @@ use crate::{
     campaign::{CHAPTERS, Region},
     game::{Game, View},
     layout::Layout,
-    model::{Miss, Origin, Phase, Verdict, Visit},
+    model::{Age, Miss, Origin, Phase, Verdict, Visit},
     save::Campaign,
 };
 
@@ -51,6 +51,7 @@ struct Outfit {
     mesh: Handle<Mesh>,
     bind: Handle<SkinnedMeshInverseBindposes>,
     rest: [Vec3; BONES],
+    age: Age,
 }
 
 #[derive(Resource)]
@@ -76,6 +77,7 @@ pub fn stage(
                         .collect::<Vec<_>>(),
                 )),
                 rest,
+                age: Age::ALL[index / 8],
             }
         })
     });
@@ -125,6 +127,7 @@ pub fn stage(
 
 fn outfit(index: usize, region: Region) -> (Mesh, [Vec3; BONES]) {
     let style = index % 8;
+    let age = Age::ALL[index / 8];
     let roman = region == Region::Rome;
     let cloth = if roman {
         [
@@ -157,15 +160,19 @@ fn outfit(index: usize, region: Region) -> (Mesh, [Vec3; BONES]) {
         [204, 145, 102],
         [122, 83, 65],
     ][(index * 7 + index / 3) % 6];
-    let hair = [
-        [73, 48, 36],
-        [123, 75, 46],
-        [46, 35, 29],
-        [83, 54, 41],
-        [168, 109, 61],
-        [164, 151, 132],
-    ][(index * 3 + index / 2) % 6];
-    let width = 0.148 + (index % 5) as f32 * 0.013;
+    let hair = if age == Age::Senior {
+        [[186, 175, 158], [157, 151, 141], [211, 202, 178]][style % 3]
+    } else {
+        [
+            [73, 48, 36],
+            [123, 75, 46],
+            [46, 35, 29],
+            [83, 54, 41],
+            [168, 109, 61],
+            [164, 151, 132],
+        ][(index * 3 + index / 2) % 6]
+    };
+    let width = 0.148 + (index % 5) as f32 * 0.013 - 0.020 * f32::from(age == Age::Child);
     let delicate = matches!(style, 1 | 4 | 7);
     let hem = if delicate { 0.162 } else { 0.259 } + (index % 3) as f32 * 0.012;
     let belt = if roman {
@@ -252,7 +259,7 @@ fn outfit(index: usize, region: Region) -> (Mesh, [Vec3; BONES]) {
     }
     b.frustum(v(0.0, 0.61, 0.014), 0.058, 0.062, 0.103, 8, skin);
     head(&mut b, index, roman, skin, hair, cloth);
-    if matches!(style, 0 | 2 | 6) {
+    if age == Age::Child || matches!(style, 0 | 2 | 6) {
         b.beam(
             v(width * 0.66, 0.594, 0.127),
             v(-width * 0.63, 0.414, 0.127),
@@ -426,7 +433,8 @@ fn wrap(
 }
 
 fn head(b: &mut Batch, index: usize, roman: bool, skin: Tint, hair: Tint, cloth: Tint) {
-    let w = 0.130 + (index % 4) as f32 * 0.009;
+    let age = Age::ALL[index / 8];
+    let w = 0.130 + (index % 4) as f32 * 0.009 + 0.023 * f32::from(age == Age::Child);
     let style = index % 8;
     let rings = [
         (0.685, w * 0.50, 0.072),
@@ -456,7 +464,7 @@ fn head(b: &mut Batch, index: usize, roman: bool, skin: Tint, hair: Tint, cloth:
             b.frustum(v(0.0, 0.90, 0.0), 0.207, 0.135, 0.062, 12, CREAM);
             b.frustum(v(0.0, 0.957, 0.0), 0.137, 0.091, 0.069, 10, shift(GOLD, 11));
         }
-        3 | 5 => {
+        3 | 5 if age != Age::Child => {
             b.gem(v(0.0, 0.716, 0.068), w * 0.77, 0.062, 0.058, 0.47, hair);
             b.gem(v(0.0, 0.751, 0.112), 0.072, 0.019, 0.019, 0.21, hair);
         }
@@ -557,9 +565,19 @@ fn pose(
     reaction: Option<(Verdict, f32)>,
 ) -> [Transform; BONES] {
     let mut joints = outfit.rest.map(Transform::from_translation);
-    let cycle = distance / 0.56;
+    let stride = match outfit.age {
+        Age::Child => 0.46,
+        Age::Adult => 0.56,
+        Age::Senior => 0.49,
+    };
+    let cycle = distance / stride;
     let beat = cycle * std::f32::consts::TAU;
-    let bob = (0.018 * (beat * 2.0).cos().abs() - 0.007) * movement;
+    let spring = if outfit.age == Age::Child {
+        0.029
+    } else {
+        0.018
+    };
+    let bob = (spring * (beat * 2.0).cos().abs() - 0.007) * movement;
     joints[0].translation.y += bob + 0.004 * idle;
     let gesture = reaction.map_or(0.0, |(verdict, age)| {
         let strength = if verdict == Verdict::Pleased {
@@ -571,7 +589,7 @@ fn pose(
         (progress * std::f32::consts::PI).sin() * strength
     });
     joints[0].rotation = Quat::from_rotation_z(beat.sin() * 0.037 * movement)
-        * Quat::from_rotation_x(gesture * 0.11);
+        * Quat::from_rotation_x(gesture * 0.11 + 0.10 * f32::from(outfit.age == Age::Senior));
     for (side, offset) in [0.0, 0.5].into_iter().enumerate() {
         let phase = (cycle + offset).rem_euclid(1.0);
         let base = 1 + side * 4;
@@ -589,7 +607,7 @@ fn pose(
 
         let hip = outfit.rest[base + 1] + v(0.0, bob, 0.0);
         let (z, y, pivot) = if phase < 0.60 {
-            ((0.30 - phase) * 0.56, 0.0, 0.0)
+            ((0.30 - phase) * stride, 0.0, 0.0)
         } else {
             let swing = (phase - 0.60) / 0.40;
             let lift = (swing * std::f32::consts::PI).sin();
@@ -747,18 +765,39 @@ pub fn animate(
     let mut active = Vec::with_capacity(RESIDENTS);
     reactions.0.clear();
     if let Phase::Open(day) = &town.phase {
-        if let Some(route) = day.route.filter(|route| {
-            route.job == crate::errands::Job::Welcome && day.seconds >= route.pickup_at + 0.16
+        if let Some((route, _)) = day.route_pose().filter(|(route, (stage, phase))| {
+            use crate::errands::RouteStage::*;
+            route.job == crate::errands::Job::Welcome
+                && (matches!(stage, Carry | Deliver) || *stage == Collect && *phase > 0.17)
         }) {
             let path = motion::delivery_path(route, layout);
             for n in 0..2 {
                 let offset = 0.40 + n as f32 * 0.30;
-                let mut motion = path.sample(
-                    day.seconds - route.depart_at - offset,
-                    route.arrival - route.depart_at,
-                    0.0,
-                );
-                motion.at += v(-0.24 + n as f32 * 0.37, 0.0, 0.09);
+                let motion = if let Some((_, nili)) = day.manual_route() {
+                    let yaw = nili.yaw;
+                    let rotation = Quat::from_rotation_y(yaw);
+                    let at = motion::controlled_position(nili)
+                        + rotation * v(-0.32 + n as f32 * 0.53, 0.0, -0.59 - n as f32 * 0.29);
+                    let at = motion::ground(at, layout);
+                    let follower = crate::errands::NiliControl {
+                        position: at.to_array(),
+                        ..nili
+                    };
+                    Motion {
+                        at: motion::controlled_position(follower),
+                        yaw,
+                        distance: game.walk_distance + offset,
+                        moving: game.walking,
+                    }
+                } else {
+                    let mut motion = path.sample(
+                        day.seconds - route.depart_at - offset,
+                        route.arrival - route.depart_at,
+                        0.0,
+                    );
+                    motion.at += v(-0.24 + n as f32 * 0.37, 0.0, 0.09);
+                    motion
+                };
                 let effort = f32::from(motion.moving);
                 active.push((
                     day.visits.len() + n,
@@ -776,7 +815,7 @@ pub fn animate(
             }
             if let Some(walk) = visit_walk(visit, i, day.seconds, layout) {
                 if let (Some(seconds), Some(verdict)) = (walk.reacting_for, visit.verdict()) {
-                    let height = 1.09 * (0.98 + (i % 7) as f32 * 0.047);
+                    let height = 1.09 * person_scale(i);
                     reactions.0.push(Reaction {
                         guest: i,
                         head: walk.motion.at + Vec3::Y * height,
@@ -819,14 +858,15 @@ pub fn animate(
             continue;
         };
         *visible = Visibility::Inherited;
-        let look = &cast.clothes[region as usize][(i * 7 + town.chapter) % STYLES];
+        let style = Age::guest(*i) as usize * 8 + (i * 7 + town.chapter / 3) % 8;
+        let look = &cast.clothes[region as usize][style];
         if mesh.0 != look.mesh {
             mesh.0 = look.mesh.clone();
             skin.inverse_bindposes = look.bind.clone();
         }
         transform.translation = walk.motion.at;
         transform.rotation = Quat::from_rotation_y(walk.motion.yaw);
-        transform.scale = Vec3::splat(0.98 + (i % 7) as f32 * 0.047);
+        transform.scale = Vec3::splat(person_scale(*i));
         let reaction = walk.reacting_for.and_then(|age| {
             town.guest_history()
                 .get(*i)?
@@ -846,4 +886,13 @@ pub fn animate(
             }
         }
     }
+}
+
+fn person_scale(index: usize) -> f32 {
+    let base = match Age::guest(index) {
+        Age::Child => 0.73,
+        Age::Adult => 1.01,
+        Age::Senior => 0.94,
+    };
+    base + (index % 4) as f32 * 0.034
 }

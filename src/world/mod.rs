@@ -1,9 +1,11 @@
 mod actors;
 mod buildings;
+mod clothes;
 mod construction;
 mod landscape;
 mod mesh;
-mod motion;
+pub(crate) mod motion;
+pub use clothes::dress as dress_nili;
 pub(crate) use motion::stop as route_position;
 pub(crate) use work::animate as animate_work;
 mod people;
@@ -26,7 +28,7 @@ use bevy::{
 use crate::{
     campaign::{CHAPTERS, Region},
     errands::{Job, Stop},
-    game::{Game, View},
+    game::{Game, Panel, View},
     layout::{Layout, lot_col, lot_row},
     model::{Kind, Phase, Weather},
     save::Campaign,
@@ -237,6 +239,7 @@ pub fn setup(
         ))
         .with_children(|parent| {
             parent.spawn(SceneRoot(scene("embedded://models/hippo.glb", 0)));
+            clothes::spawn(parent, &mut meshes, &art.matte);
             for job in Job::ALL {
                 parent.spawn((
                     JobPack(job),
@@ -561,17 +564,27 @@ pub fn animate(
     let quay = landscape::quay(chapter.layout);
     let t = game.clock;
     let playing = game.view == View::Street;
+    let wardrobe = game.panel == Panel::Wardrobe;
+    let showcase = v(quay + 0.08, 0.137, 4.70);
+    let lives = if let Phase::Open(day) = &town.phase {
+        Some(day)
+    } else {
+        None
+    };
+    let manual = lives.and_then(|day| day.manual_route());
     let clock = match &town.phase {
         Phase::Plan => 0.09,
         Phase::Open(day) => 0.13 + (day.seconds / chapter.day_seconds()) * 0.74,
         Phase::Report(_) => 0.87,
     };
-    let sunset = if playing {
+    let sunset = if wardrobe {
+        0.0
+    } else if playing {
         ((clock - 0.61) * 3.65).clamp(0.0, 1.0)
     } else {
         0.22
     };
-    let weather = if playing {
+    let weather = if playing && !wardrobe {
         town.weather(chapter)
     } else {
         Weather::Clear
@@ -596,13 +609,23 @@ pub fn animate(
         } else {
             20.4
         };
-        let height = dims.max(12.9) / (1.0 + if playing { game.zoom } else { 0.0 });
+        let height = if wardrobe {
+            4.75
+        } else {
+            dims.max(12.9) / (1.0 + if playing { game.zoom } else { 0.0 })
+        };
         if let Projection::Orthographic(ortho) = lens.as_mut() {
             ortho.scaling_mode = ScalingMode::FixedVertical {
                 viewport_height: height,
             };
         }
-        let offset = if playing { 0.12 } else { -0.095 };
+        let offset = if manual.is_some() {
+            0.0
+        } else if playing {
+            0.12
+        } else {
+            -0.095
+        };
         let yaw = if playing { 0.13 } else { 0.19 };
         let look = v(yaw, 0.86, 1.15).normalize();
         let right = v(look.z, 0.0, -look.x).normalize();
@@ -615,7 +638,12 @@ pub fn animate(
             let plot = lot_position(game.selected, cols).dot(right);
             framing = framing.clamp(plot - width * 0.17, plot + width * 0.32);
         }
-        let target = right * framing + v(0.0, 0.38, 0.28 + pan.y);
+        let center = if manual.is_some() { 1.12 } else { 0.28 };
+        let target = if wardrobe {
+            showcase + Vec3::Y * 0.71 - right * width * 0.285
+        } else {
+            right * framing + v(0.0, 0.38, center + pan.y)
+        };
         let eye = target + look * 36.0;
         camera.translation = camera.translation.lerp(eye, blend);
         let rotation = Transform::from_translation(eye)
@@ -636,41 +664,40 @@ pub fn animate(
     ambient.brightness = (510.0 - sunset * 146.0) * (0.49 + bright * 0.51);
     let p = lot_position(game.selected, cols);
     if let Ok((mut transform, mut visible)) = rigs.p2().single_mut() {
-        *visible = if playing {
+        *visible = if playing && manual.is_none() && !wardrobe {
             Visibility::Inherited
         } else {
             Visibility::Hidden
         };
         transform.translation = p + Vec3::Y * (t * 3.7).sin() * 0.017;
     }
-    let lives = if let Phase::Open(day) = &town.phase {
-        Some(day)
-    } else {
-        None
-    };
-    let route = lives.and_then(|day| day.route.map(|route| (day.seconds, route)));
+    let route = lives.and_then(|day| day.route_pose());
     let pending = game
         .job
         .and_then(|job| job.plan(town, chapter, game.selected).ok());
     if let Ok((mut transform, mut visible)) = rigs.p6().single_mut() {
-        let pin = route.map(|(_, route)| route).or(pending);
-        if let Some(pin) = pin.filter(|_| playing) {
+        let pin = manual
+            .map(|(route, nili)| nili.target(route))
+            .or_else(|| route.map(|(route, _)| route.delivery))
+            .or_else(|| pending.map(|route| route.delivery));
+        if let Some(pin) = pin.filter(|_| playing && !wardrobe) {
             *visible = Visibility::Inherited;
-            transform.translation = motion::stop(pin.delivery, chapter.layout);
+            transform.translation = motion::stop(pin, chapter.layout);
             transform.rotation = Quat::from_rotation_y((t * 2.6).sin() * 0.24);
         } else {
             *visible = Visibility::Hidden;
         }
     }
-    let pose = if let Some((seconds, route)) = route {
-        let (stage, at) = route.stage(seconds);
+    let pose = if wardrobe {
+        work::Pose::default()
+    } else if let Some((route, (stage, at))) = route {
         work::perform(route.job, stage, at)
     } else {
         game.delivery()
             .map_or_else(work::Pose::default, |done| work::celebrate(t - done.since))
     };
     for (pack, mut transform, mut visible) in &mut rigs.p7() {
-        let next = if route.is_some_and(|(_, route)| pack.0 == route.job) && pose.carry {
+        let next = if route.is_some_and(|(route, _)| pack.0 == route.job) && pose.carry {
             let tilt = pose.pack_tilt;
             let rotation = Quat::from_euler(EulerRot::XYZ, tilt.x, tilt.y, tilt.z);
             transform.rotation = rotation;
@@ -691,56 +718,27 @@ pub fn animate(
             1.0 + pose.stretch,
             1.0 - 0.5 * pose.stretch,
         ) * 0.87;
-        if let Some((seconds, route)) = route {
-            let motion = motion::job_walk(route, seconds, chapter.layout);
-            let beat = motion.distance * 8.8;
-            gait = if motion.moving { beat.sin() } else { 0.0 };
-            hippo.translation = motion.at + Vec3::Y * (0.047 * gait.abs() + pose.height - 0.033);
-            let tilt =
-                Quat::from_rotation_x(pose.pitch) * Quat::from_rotation_z(pose.roll + gait * 0.045);
-            hippo.rotation = hippo
-                .rotation
-                .slerp(Quat::from_rotation_y(motion.yaw) * tilt, blend * 1.32);
+        let (home, yaw) = if wardrobe {
+            (showcase, 0.24 + (t * 0.78).sin() * 0.13)
+        } else if let Some(nili) = lives.and_then(|day| day.nili) {
+            (motion::controlled_position(nili), nili.yaw)
+        } else if playing {
+            let stop = lives.map_or(Stop::Quay, |day| day.nili_at);
+            (motion::stop(stop, chapter.layout) - Vec3::Y * 0.025, 0.22)
         } else {
-            let home = if playing {
-                if let Some(day) = lives {
-                    let dock = if day.route.is_none() && day.tally.routes_today() == 0 {
-                        day.favor_at.map_or(day.nili_at, Stop::Parcel)
-                    } else {
-                        day.nili_at
-                    };
-                    let stop = motion::stop(dock, chapter.layout);
-                    stop + v(0.18, -0.045, 0.09)
-                } else {
-                    v(
-                        p.x + 0.47,
-                        0.056,
-                        if lot_row(game.selected) == 0 {
-                            -0.32
-                        } else {
-                            0.79
-                        },
-                    )
-                }
-            } else {
-                v((t * 0.29).sin() * 3.25, 0.052, -0.02)
-            };
-            let walk = home - hippo.translation;
-            let moving = walk.length_squared() > 0.035;
-            gait = (t * if moving { 10.4 } else { 4.1 }).sin() * if moving { 1.0 } else { 0.07 };
-            let bob = gait.abs() * 0.058;
-            hippo.translation = hippo
-                .translation
-                .lerp(home + Vec3::Y * (bob + pose.height), blend * 0.62);
-            if pose.height > 0.02 {
-                hippo.translation.y = home.y + pose.height;
-            }
-            let yaw = if moving { walk.x.atan2(walk.z) } else { 0.22 };
-            let rot = Quat::from_rotation_y(yaw)
-                * Quat::from_rotation_x(pose.pitch)
-                * Quat::from_rotation_z(pose.roll + gait * 0.038);
-            hippo.rotation = hippo.rotation.slerp(rot, blend);
-        }
+            (v(1.4, 0.056, 0.28), 0.22)
+        };
+        gait = if game.walking {
+            (game.walk_distance * 6.2).sin()
+        } else {
+            0.0
+        };
+        let bob = gait.abs() * 0.055 + (t * 4.1).sin() * 0.009;
+        hippo.translation = home + Vec3::Y * (pose.height + bob);
+        let rot = Quat::from_rotation_y(yaw)
+            * Quat::from_rotation_x(pose.pitch)
+            * Quat::from_rotation_z(pose.roll + gait * 0.038);
+        hippo.rotation = hippo.rotation.slerp(rot, (blend * 1.32).min(1.0));
     }
     for (mut transform, limb) in &mut rigs.p5() {
         let amount = if limb.leg { 0.40 } else { -0.34 };

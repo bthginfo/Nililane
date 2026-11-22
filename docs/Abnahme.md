@@ -1,4 +1,4 @@
-# Spielreview und Abnahme · Nililane 2.3.2
+# Spielreview und Abnahme · Nililane 2.4.0
 
 ## Einstieg als neuer Spieler
 
@@ -67,12 +67,20 @@ während des Tages berücksichtigt die noch anstehenden Wünsche.
 | Mechanik | Stand in Nililane |
 | --- | --- |
 | Einzelne Gästereaktionen als Entscheidungshilfe | Sprechblasen in der Gasse, Gründe und Gastbudget im Gästebuch, Sprung zum betroffenen Laden. |
-| Rezepte und Sortimente pro Laden | Preise und Produktionsketten für Wasser, Oliven und Warenvorräte. Ein wählbares Angebot innerhalb eines Ladens ist offen. |
+| Sortimente und verschiedene Gästewünsche | Backstuben, Töpfereien und Tavernen zeigen erwartete Käufe der drei Altersgruppen und bieten passende Spezialitäten. |
 | Straßengestaltung | Unterschiedliche Küsten, Bauplätze und sichtbare Ausbauten. Frei platzierbare Bepflanzung und Dekoration ist offen. |
-| Kleine Aufgaben während des Tages | Nili übernimmt Lieferungen, Gästeführung und Hilfe nach Unwettern. |
+| Kleine Aufgaben während des Tages | Nili wird bei Lieferungen, Gästeführung, Ofenbränden und Hilfe nach Unwettern direkt gesteuert. |
 | Freies Bauen | Nach dem Kapitelabschluss kann man im Hafen weiterspielen. Ein eigener Einstieg ohne Kampagnenziele ist offen. |
 
 [Spielbeschreibung des Minami-Lane-Teams](https://doottinygames.itch.io/minami-lane)
+
+GamesRadar+ hebt die kleinen Tätigkeiten während des Tages und die
+persönlichen Gästestimmen hervor. Games Asylum beschreibt, wie
+unterschiedliche Geschmäcker die Auswahl im Laden beeinflussen.
+Gamereactor nennt die Wiederholung von Bauen und Warten als Schwäche.
+Nililane erweitert deshalb die Eingriffe am laufenden Tag und zeigt bei
+Spezialitäten, für welche Altersgruppe sich eine Änderung lohnt.
+[GamesRadar+](https://www.gamesradar.com/games/management/i-finally-tried-minami-lane-after-seeing-over-5-000-positive-reviews-and-within-4-hours-its-already-the-chillest-management-game-ive-ever-played/) · [Games Asylum](https://www.gamesasylum.com/2025/07/10/minami-lane-review/) · [Gamereactor](https://www.gamereactor.eu/minami-lane-1578993/)
 
 ## Kampagnenprüfung in 2.3
 
@@ -95,10 +103,22 @@ Der Hafentipp nennt die beiden Häuser und ihren Wasserbedarf.
 
 ## Prüfungen
 
-- Formatierung, Clippy mit Warnungen als Fehler und 17 Rust-Tests
+- Formatierung, Clippy mit Warnungen als Fehler und 20 Rust-Tests
   einschließlich der drei Einstiegsinseln und des erneuten Ladens während
   einer Bitte vom Kai. Die Prüfung der Fährmodelle misst den Abstand von
   Rumpf und Rudern zum Steg bei vier Wellenstärken.
+- In 2.4 erreichen die Fußwege alle Gebäude und Anleger der 48 Häfen.
+  Eine gespeicherte manuelle Lieferung hält die Hafenuhr an, lässt sich
+  fortsetzen und wird einmal abgerechnet. In der Kampagnensimulation
+  ließen sich erneut alle 48 Häfen mit drei Sternen abschließen.
+- Im 4:3-Format wurden Ofenbrand und Kistenbergung ab dem letzten
+  Arbeitsschritt gespielt. Beim Klick auf eine Backstube erschienen
+  Vorrat, erwartete Gäste und Wasserbedarf. Die Auswahl der Honigfladen
+  brachte in einem Vergleichslauf zwei Punkte zusätzliches Ansehen bei
+  gleicher Verkaufszahl.
+- In der Garderobe blieben nach Purpurtoga und Fischerhut von 36 freien
+  Sternen 16 übrig. Beide Stücke erschienen am Modell. Die Sternrekorde
+  beeinflussen die Freischaltung auch nach dem Kauf.
 - Der Vergleich der Android-Aufnahmen im 4:3-Format zeigt ruhige Dachkanten
   und Schatten im Startmenü von 2.3.2. Menschen und Schiffe bewegen sich
   weiter. Die Aufnahmen stammen aus dem Vulkan-Emulator.

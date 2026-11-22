@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     campaign::CHAPTERS,
     coach::ISLANDS,
+    cosmetics::{Cosmetic, Wardrobe},
     model::{MAX_LEVEL, Origin, Phase, Town, is_open},
 };
 
@@ -27,6 +28,8 @@ pub struct Campaign {
     pub music: bool,
     pub sounds: bool,
     pub large_ui: bool,
+    #[serde(default, skip_serializing_if = "Wardrobe::is_empty")]
+    pub wardrobe: Wardrobe,
 }
 
 impl Default for Campaign {
@@ -39,6 +42,7 @@ impl Default for Campaign {
             music: true,
             sounds: true,
             large_ui: false,
+            wardrobe: Wardrobe::default(),
         }
     }
 }
@@ -146,6 +150,19 @@ impl Campaign {
             };
         }
     }
+
+    pub fn available_stars(&self) -> u16 {
+        let earned = self
+            .records
+            .iter()
+            .map(|record| u16::from(record.stars.min(3)))
+            .sum::<u16>();
+        earned.saturating_sub(self.wardrobe.spent())
+    }
+
+    pub fn equip(&mut self, item: Cosmetic) -> bool {
+        self.wardrobe.equip(item, self.available_stars())
+    }
 }
 
 fn valid_town(town: &Town) -> bool {
@@ -172,6 +189,7 @@ fn valid_town(town: &Town) -> bool {
             && day.visits.iter().all(|visit| valid_visit(visit, chapter))
             && day.favor_at.is_none_or(valid_slot)
             && day.nili_at.valid(town, chapter)
+            && day.nili.is_none_or(crate::errands::NiliControl::valid)
             && day
                 .route
                 .is_none_or(|route| route.valid(town, chapter, day.seconds));
@@ -223,6 +241,74 @@ fn desktop_dir() -> PathBuf {
 mod tests {
     use super::*;
     use crate::model::{Kind, Price};
+
+    #[test]
+    fn wardrobe_spends_only_newly_earned_stars_and_can_rewear_items() {
+        use Cosmetic::*;
+        let mut progress = Campaign::default();
+        assert!(!progress.equip(Sea));
+        progress.record(0, 3, 3);
+        assert!(progress.equip(Sea));
+        assert_eq!(progress.available_stars(), 0);
+        assert_eq!(progress.records[0].stars, 3);
+        assert!(progress.unlocked(1));
+        assert!(progress.equip(Sea));
+        assert!(!progress.wardrobe.wearing(Sea));
+        assert!(progress.equip(Sea));
+        progress.record(1, 4, 2);
+        progress.record(1, 3, 3);
+        assert!(!progress.equip(Straw));
+        progress.record(2, 4, 1);
+        assert!(progress.equip(Straw));
+        let data = serde_json::to_vec(&progress).unwrap();
+        let progress = Campaign::decode(data.as_slice()).unwrap();
+        assert_eq!(progress.available_stars(), 0);
+        assert!(progress.wardrobe.wearing(Sea));
+        assert!(progress.wardrobe.wearing(Straw));
+        assert!(progress.unlocked(3));
+    }
+
+    #[test]
+    fn a_controlled_delivery_pauses_the_market_and_is_paid_once_after_reload() {
+        use crate::errands::{Job, ManualStage, NiliControl};
+        let chapter = &CHAPTERS[1];
+        let mut town = Town::new(1, chapter);
+        assert!(town.build(chapter, 8, Kind::Well));
+        assert!(town.open(chapter));
+        town.tick(chapter, 3.0);
+        let route = town.dispatch(chapter, Job::Water, 7).unwrap();
+        let Phase::Open(day) = &mut town.phase else {
+            unreachable!()
+        };
+        day.nili = Some(NiliControl {
+            position: [-1.6, 0.8],
+            yaw: 0.0,
+            stage: ManualStage::Delivery,
+        });
+        let progress = Campaign {
+            town: Some(town),
+            ..Campaign::default()
+        };
+        let data = serde_json::to_vec(&progress).unwrap();
+        let mut town = Campaign::decode(data.as_slice()).unwrap().town.unwrap();
+        assert!(!town.tick(chapter, 60.0));
+        assert!(town.finish_controlled(chapter).is_none());
+        let Phase::Open(day) = &mut town.phase else {
+            unreachable!()
+        };
+        assert_eq!(day.seconds, 3.0);
+        let nili = day.nili.as_mut().unwrap();
+        assert_eq!(nili.position, [-1.6, 0.8]);
+        nili.stage = ManualStage::Unload(1.0);
+        assert!(town.finish_controlled(chapter).is_some());
+        assert!(town.finish_controlled(chapter).is_none());
+        let Phase::Open(day) = &town.phase else {
+            unreachable!()
+        };
+        assert!((day.seconds - route.finish).abs() < 0.001);
+        assert_eq!(day.tally.routes[Job::Water as usize], 1);
+        assert!(day.route.is_none());
+    }
 
     #[test]
     fn repeating_the_tutorial_preserves_the_campaign_across_reloads() {

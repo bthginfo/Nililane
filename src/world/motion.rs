@@ -2,9 +2,57 @@ use bevy::prelude::*;
 
 use super::{landscape, lot_position, mesh::v};
 use crate::{
-    errands::Stop,
+    errands::{NiliControl, Route, Stop},
     layout::{Layout, lot_row},
 };
+
+const ROAD_EDGE: f32 = 0.99;
+const PIER_HALF_WIDTH: f32 = 0.39;
+const INTERACT_DISTANCE: f32 = 0.79;
+
+pub fn ground(at: Vec3, layout: Layout) -> Vec2 {
+    let reach = (layout.width() as f32 - 1.0) * super::LOT_STEP * 0.5;
+    let quay = landscape::quay(layout);
+    let x =
+        at.x.clamp(-reach - 1.0, (reach + 1.0).max(quay + PIER_HALF_WIDTH));
+    let far = if (quay - PIER_HALF_WIDTH..=quay + PIER_HALF_WIDTH).contains(&x) {
+        6.27
+    } else {
+        ROAD_EDGE
+    };
+    Vec2::new(x, at.z.clamp(-ROAD_EDGE, far))
+}
+
+pub fn controlled_position(nili: NiliControl) -> Vec3 {
+    let [x, z] = nili.position;
+    let pier = ((z - 2.5) / 0.56).clamp(0.0, 1.0);
+    v(x, 0.057 + pier * 0.078, z)
+}
+
+pub fn walk(nili: &mut NiliControl, delta: Vec2, layout: Layout) -> f32 {
+    let prior = Vec2::from_array(nili.position);
+    let x = if prior.y > ROAD_EDGE {
+        let quay = landscape::quay(layout);
+        (prior.x + delta.x).clamp(quay - PIER_HALF_WIDTH, quay + PIER_HALF_WIDTH)
+    } else {
+        prior.x + delta.x
+    };
+    let next = ground(v(x, 0.0, prior.y + delta.y), layout);
+    let step = next - prior;
+    if step.length_squared() > 0.000001 {
+        nili.position = next.to_array();
+        nili.yaw = step.x.atan2(step.y);
+    }
+    step.length()
+}
+
+pub fn can_work(nili: NiliControl, route: Route, layout: Layout) -> bool {
+    nili.stage.action(route.job).is_some()
+        && stop(nili.target(route), layout)
+            .xz()
+            .distance_squared(Vec2::from_array(nili.position))
+            <= INTERACT_DISTANCE * INTERACT_DISTANCE
+}
 
 pub fn entrance(lot: usize, layout: Layout) -> Vec3 {
     let lot_center = lot_position(lot, layout.width());
@@ -148,4 +196,49 @@ pub fn job_walk(route: crate::errands::Route, seconds: f32, layout: Layout) -> M
         route.arrival - route.depart_at,
         reach.length(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        campaign::CHAPTERS,
+        errands::{Job, ManualStage},
+    };
+
+    #[test]
+    fn every_harbor_has_walkable_entrances_and_a_safe_pier() {
+        for chapter in &CHAPTERS {
+            let layout = chapter.layout;
+            let quay = landscape::quay(layout);
+            let mut nili = NiliControl {
+                position: [quay, 3.16],
+                yaw: 0.0,
+                stage: ManualStage::Pickup,
+            };
+            for _ in 0..60 {
+                walk(&mut nili, Vec2::new(0.06, 0.10), layout);
+            }
+            assert!((nili.position[0] - quay).abs() < 0.391);
+            assert!((nili.position[1] - 6.27).abs() < 0.001);
+            for point in layout
+                .lots()
+                .map(|lot| Stop::Parcel(lot as u8))
+                .chain([Stop::Quay, Stop::Pier])
+            {
+                let route = Route::new(
+                    Job::Water,
+                    false,
+                    Stop::Quay,
+                    point,
+                    Stop::Quay,
+                    0.0,
+                    chapter,
+                )
+                .unwrap();
+                nili.position = ground(stop(point, layout), layout).to_array();
+                assert!(can_work(nili, route, layout));
+            }
+        }
+    }
 }

@@ -1,7 +1,7 @@
 use crate::{
     campaign::{Chapter, Region},
     model::{
-        GuestTip, Miss, Origin, SERVICES, Service, Tally, Town, Verdict, Visit,
+        Age, GuestTip, Miss, Origin, SERVICES, Service, Tally, Town, Verdict, Visit,
         satisfaction_percent,
     },
 };
@@ -647,7 +647,14 @@ fn guest_card(
                     Face::Bold,
                     MUTED,
                 );
-                label(words, hud, verdict_name(verdict), 21.0, Face::Bold, SAND);
+                label(
+                    words,
+                    hud,
+                    format!("{} · {}", Age::guest(index).label(), verdict_name(verdict)),
+                    18.0,
+                    Face::Bold,
+                    SAND,
+                );
             });
             identity.spawn(Node {
                 flex_grow: 1.0,

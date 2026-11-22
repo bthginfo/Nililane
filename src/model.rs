@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     campaign::{Chapter, Goal},
-    errands::{Blocked, JOB_TYPES, Job, Route, Stop},
+    errands::{Blocked, JOB_TYPES, Job, ManualStage, NiliControl, Route, RouteStage, Stop},
 };
 
 pub use crate::layout::{LOTS, distance};
@@ -193,11 +193,98 @@ impl Price {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Age {
+    Child,
+    Adult,
+    Senior,
+}
+
+impl Age {
+    pub const ALL: [Self; 3] = [Self::Child, Self::Adult, Self::Senior];
+
+    pub fn guest(index: usize) -> Self {
+        match index % 7 {
+            0 | 4 => Self::Child,
+            3 | 6 => Self::Senior,
+            _ => Self::Adult,
+        }
+    }
+
+    pub fn group(self) -> &'static str {
+        match self {
+            Self::Child => "Kinder",
+            Self::Adult => "Erwachsene",
+            Self::Senior => "Ältere Gäste",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Child => "Kind",
+            Self::Adult => "Erwachsen",
+            Self::Senior => "Älterer Gast",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Assortment {
+    #[default]
+    Standard,
+    Colorful,
+    Hearty,
+    Classic,
+}
+
+impl Assortment {
+    pub const ALL: [Self; 4] = [Self::Standard, Self::Colorful, Self::Hearty, Self::Classic];
+
+    pub fn standard(&self) -> bool {
+        *self == Self::Standard
+    }
+
+    pub fn supported(kind: Kind) -> bool {
+        matches!(kind, Kind::Bakery | Kind::Taverna | Kind::Potter)
+    }
+
+    pub fn flavor(self) -> Option<Age> {
+        match self {
+            Self::Standard => None,
+            Self::Colorful => Some(Age::Child),
+            Self::Hearty => Some(Age::Adult),
+            Self::Classic => Some(Age::Senior),
+        }
+    }
+
+    pub fn label(self, kind: Kind) -> &'static str {
+        let offers = match kind {
+            Kind::Bakery => ["Landbrot", "Honigfladen", "Olivenlaib", "Kräuterbrot"],
+            Kind::Potter => [
+                "Schlichte Schalen",
+                "Bunte Becher",
+                "Vorratskrüge",
+                "Blaue Schalen",
+            ],
+            Kind::Taverna => [
+                "Tagesgericht",
+                "Honigobst",
+                "Oliventeller",
+                "Kräutereintopf",
+            ],
+            _ => return "Grundangebot",
+        };
+        offers[self as usize]
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Building {
     pub kind: Kind,
     pub level: u8,
     pub price: Price,
+    #[serde(default, skip_serializing_if = "Assortment::standard")]
+    pub assortment: Assortment,
 }
 
 impl Building {
@@ -206,6 +293,7 @@ impl Building {
             kind,
             level: 1,
             price: Price::Regular,
+            assortment: Assortment::Standard,
         }
     }
 
@@ -287,6 +375,8 @@ pub enum Favor {
     Jugs,
     Shade,
     Cargo,
+    Fire,
+    Crates,
 }
 
 impl Favor {
@@ -295,6 +385,8 @@ impl Favor {
             Self::Jugs => "Wasser verteilen",
             Self::Shade => "Schatten spenden",
             Self::Cargo => "Ware vom Kai holen",
+            Self::Fire => "Ofenbrand löschen",
+            Self::Crates => "Verrutschte Kisten sichern",
         }
     }
 
@@ -303,14 +395,16 @@ impl Favor {
             Self::Jugs => "2 Portionen mehr für Läden in der Nähe",
             Self::Shade => "2 Plätze mehr je Stoa oder Therme",
             Self::Cargo => "3 Portionen für einen Laden",
+            Self::Fire => "Nach dem Löschen kommen 3 Portionen dazu.",
+            Self::Crates => "3 gerettete Portionen für einen Laden",
         }
     }
 
     pub(crate) fn job(self) -> Job {
         match self {
-            Self::Jugs => Job::Water,
+            Self::Jugs | Self::Fire => Job::Water,
             Self::Shade => Job::Shade,
-            Self::Cargo => Job::Freight,
+            Self::Cargo | Self::Crates => Job::Freight,
         }
     }
 
@@ -318,7 +412,21 @@ impl Favor {
         match self {
             Self::Jugs => kind.water_source(),
             Self::Shade => matches!(kind, Kind::Grove | Kind::Stoa | Kind::Baths),
-            Self::Cargo => kind.service().is_some(),
+            Self::Cargo | Self::Crates => kind.service().is_some(),
+            Self::Fire => matches!(kind, Kind::Bakery | Kind::Potter),
+        }
+    }
+
+    pub fn incident(self) -> bool {
+        matches!(self, Self::Fire | Self::Crates)
+    }
+
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::Jugs => "water",
+            Self::Shade => "grove",
+            Self::Cargo | Self::Crates => "storehouse",
+            Self::Fire => "fire",
         }
     }
 }
@@ -500,6 +608,46 @@ pub struct Day {
     pub nili_at: Stop,
     #[serde(default)]
     pub route: Option<Route>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nili: Option<NiliControl>,
+}
+
+impl Day {
+    pub fn manual_route(&self) -> Option<(Route, NiliControl)> {
+        Some((self.route?, self.nili?))
+    }
+
+    pub fn route_pose(&self) -> Option<(Route, (RouteStage, f32))> {
+        let route = self.route?;
+        let pose = self
+            .nili
+            .map_or_else(|| route.stage(self.seconds), |nili| nili.stage.animation());
+        Some((route, pose))
+    }
+
+    pub fn errand_title(&self, route: Route) -> &'static str {
+        if route.favor {
+            self.favor.name()
+        } else {
+            route.job.name()
+        }
+    }
+
+    pub fn errand_icon(&self, route: Route) -> &'static str {
+        if route.favor {
+            self.favor.icon()
+        } else {
+            route.job.icon()
+        }
+    }
+
+    pub fn errand_action(&self, route: Route, stage: ManualStage) -> Option<&'static str> {
+        if route.favor && self.favor == Favor::Fire && matches!(stage, ManualStage::Delivery) {
+            Some("Feuer löschen")
+        } else {
+            stage.action(route.job)
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -565,6 +713,30 @@ pub struct Production {
     pub olives: u16,
     pub used_water: u16,
     pub used_olives: u16,
+    pub short_water: [bool; LOTS],
+}
+
+pub struct SupplyNeed {
+    pub stock: u16,
+    pub guests: u16,
+    pub short_water: bool,
+    pub ages: [u16; 3],
+}
+
+impl SupplyNeed {
+    pub fn shortage(&self) -> u16 {
+        self.guests.saturating_sub(self.stock)
+    }
+
+    pub fn suggested_job(&self, town: &Town, chapter: &Chapter, lot: usize) -> Option<Job> {
+        if self.shortage() == 0 {
+            return None;
+        }
+        [self.short_water.then_some(Job::Water), Some(Job::Freight)]
+            .into_iter()
+            .flatten()
+            .find(|job| job.plan(town, chapter, lot).is_ok())
+    }
 }
 
 pub fn is_open(chapter: &Chapter, lot: usize) -> bool {
@@ -677,7 +849,43 @@ impl Town {
     }
 
     pub fn next_favor(&self, chapter: &Chapter) -> Favor {
+        if let Phase::Open(day) = &self.phase {
+            return day.favor;
+        }
+        if self.chapter >= crate::coach::ISLANDS
+            && self.day >= 2
+            && (self.day + self.chapter as u32) % 3 == 2
+        {
+            let weather = self.weather(chapter);
+            let event = match weather {
+                Weather::Wind | Weather::Rain | Weather::Storm => Favor::Crates,
+                _ => Favor::Fire,
+            };
+            if self.incident_lot(chapter, event).is_some() {
+                return event;
+            }
+        }
         chapter.favors[(self.day.saturating_sub(1) as usize) % chapter.favors.len()]
+    }
+
+    fn incident_lot(&self, chapter: &Chapter, favor: Favor) -> Option<usize> {
+        chapter
+            .layout
+            .lots()
+            .filter(|&lot| self.lots[lot].is_some_and(|building| favor.allows(building.kind)))
+            .min_by_key(|&lot| distance(lot, chapter.layout.dock()))
+    }
+
+    pub fn incident(&self, chapter: &Chapter) -> Option<(Favor, usize)> {
+        let Phase::Open(day) = &self.phase else {
+            return None;
+        };
+        if day.favor.incident() && day.seconds >= 8.0 && day.favor_at.is_none() {
+            self.incident_lot(chapter, day.favor)
+                .map(|lot| (day.favor, lot))
+        } else {
+            None
+        }
     }
 
     pub fn visitors(&self, chapter: &Chapter) -> (u16, u16) {
@@ -823,6 +1031,7 @@ impl Town {
             let level = u16::from(b.level);
             let cost = level + u16::from(heat) + 2 * u16::from(b.kind == Kind::Baths);
             let stocked = plan.water - plan.used_water >= cost;
+            plan.short_water[lot] = !stocked;
             if stocked {
                 plan.used_water += cost;
             }
@@ -999,12 +1208,72 @@ impl Town {
         demand
     }
 
+    pub fn supply_need(
+        &self,
+        chapter: &Chapter,
+        lot: usize,
+        production: &Production,
+    ) -> Option<SupplyNeed> {
+        let service = self.lots.get(lot)?.as_ref()?.kind.service()?;
+        let mut day = match &self.phase {
+            Phase::Open(day) => day.as_ref().clone(),
+            _ => self.day_plan(chapter, production),
+        };
+        let stock = day.stock[lot];
+        day.stock[lot] = u16::MAX;
+        let mut visits: Vec<_> = std::mem::take(&mut day.visits)
+            .into_iter()
+            .enumerate()
+            .collect();
+        visits.sort_by(|a, b| a.1.at.total_cmp(&b.1.at));
+        let mut guests = 0;
+        let mut ages = [0; 3];
+        for (index, visit) in visits
+            .iter()
+            .filter(|(_, v)| !v.resolved && v.wants == service)
+        {
+            if let Ok(shop) = target(&self.lots, &day, visit, chapter) {
+                if shop == lot {
+                    guests += 1;
+                    ages[Age::guest(*index) as usize] += 1;
+                } else {
+                    day.stock[shop] -= 1;
+                }
+            }
+        }
+        Some(SupplyNeed {
+            stock,
+            guests,
+            short_water: production.short_water[lot],
+            ages,
+        })
+    }
+
+    pub fn set_assortment(&mut self, lot: usize, value: Assortment) -> bool {
+        if !self.planning() {
+            return false;
+        }
+        let Some(building) = self.lots.get_mut(lot).and_then(Option::as_mut) else {
+            return false;
+        };
+        if !Assortment::supported(building.kind) {
+            return false;
+        }
+        building.assortment = value;
+        true
+    }
+
     pub fn open(&mut self, chapter: &Chapter) -> bool {
         if !self.planning() {
             return false;
         }
         let production = self.production(chapter);
-        self.phase = Phase::Open(Box::new(Day {
+        self.phase = Phase::Open(Box::new(self.day_plan(chapter, &production)));
+        true
+    }
+
+    fn day_plan(&self, chapter: &Chapter, production: &Production) -> Day {
+        Day {
             seconds: 0.0,
             water: production.water,
             stock: production.stock,
@@ -1014,8 +1283,8 @@ impl Town {
             favor_at: None,
             nili_at: Stop::Quay,
             route: None,
-        }));
-        true
+            nili: None,
+        }
     }
 
     pub fn dispatch(&mut self, chapter: &Chapter, job: Job, lot: usize) -> Result<Route, Blocked> {
@@ -1037,12 +1306,20 @@ impl Town {
             || day.favor_at.is_some()
             || !chapter.layout.contains(lot)
             || !day.favor.allows(kind)
+            || (day.favor.incident() && self.incident_lot(chapter, day.favor) != Some(lot))
         {
             return None;
         }
         let target = Stop::Parcel(lot as u8);
         let pickup = match day.favor {
             Favor::Cargo => Stop::Quay,
+            Favor::Crates => Stop::Pier,
+            Favor::Fire => chapter
+                .layout
+                .lots()
+                .filter(|&i| self.lots[i].is_some_and(|building| building.kind.water_source()))
+                .min_by_key(|&i| distance(lot, i))
+                .map_or(Stop::Quay, |i| Stop::Parcel(i as u8)),
             Favor::Jugs => target,
             Favor::Shade => chapter
                 .layout
@@ -1074,6 +1351,26 @@ impl Town {
     }
 
     pub fn tick(&mut self, chapter: &Chapter, elapsed: f32) -> bool {
+        if matches!(&self.phase, Phase::Open(day) if day.manual_route().is_some()) {
+            return false;
+        }
+        self.tick_market(chapter, elapsed)
+    }
+
+    pub fn finish_controlled(&mut self, chapter: &Chapter) -> Option<(Route, bool)> {
+        let Phase::Open(day) = &self.phase else {
+            return None;
+        };
+        let (route, nili) = day.manual_route()?;
+        if !matches!(nili.stage, ManualStage::Unload(progress) if progress >= 1.0) {
+            return None;
+        }
+        let elapsed = route.finish - day.seconds;
+        // Keep the original market timing and settle the reward at the planned arrival.
+        Some((route, self.tick_market(chapter, elapsed + 0.0001)))
+    }
+
+    fn tick_market(&mut self, chapter: &Chapter, elapsed: f32) -> bool {
         let Phase::Open(day) = &mut self.phase else {
             return false;
         };
@@ -1190,8 +1487,9 @@ fn resolve_visits(lots: &[Option<Building>; LOTS], day: &mut Day, chapter: &Chap
                 day.stock[shop] -= 1;
                 day.tally.served[service] += 1;
                 day.tally.income += b.price.coins(visit.wants);
-                day.tally.reputation +=
-                    1 + u32::from(b.price == Price::Fair && visit.budget == Price::Fine);
+                day.tally.reputation += 1
+                    + u32::from(b.price == Price::Fair && visit.budget == Price::Fine)
+                    + u32::from(b.assortment.flavor() == Some(Age::guest(index)));
                 day.tally.ferry_served += u32::from(visit.origin == Origin::Ferry);
                 visit.shop = Some(shop as u8);
             }
@@ -1275,7 +1573,7 @@ fn finish_favor(lots: &[Option<Building>; LOTS], day: &mut Day, lot: usize) {
                 }
             }
         }
-        Favor::Cargo => day.stock[lot] += 3,
+        Favor::Cargo | Favor::Crates | Favor::Fire => day.stock[lot] += 3,
     }
     day.tally.income += 6;
     day.tally.reputation += 2;
@@ -1747,6 +2045,7 @@ mod tests {
             .enumerate()
             .filter_map(|(i, building)| {
                 let b = building.filter(|b| day.favor.allows(b.kind))?;
+                town.favor_plan(chapter, i)?;
                 let deficit = b
                     .kind
                     .service()

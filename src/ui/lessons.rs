@@ -91,15 +91,15 @@ impl Wording {
             Prompt::Action(Step::Aid(_, Favor::Cargo)) => (
                 "nili",
                 "Nili kann aushelfen",
-                "Er bringt drei Laibe zur Backstube.",
-                "Nili losschicken",
+                "Steuere Nili zum Kai. Dort nimmst du die Kiste auf.",
+                "Nili steuern",
                 true,
             ),
             Prompt::Action(Step::Aid(..)) => (
                 "nili",
                 "Nili kann aushelfen",
-                "Schick Nili los, damit er aushelfen kann.",
-                "Nili losschicken",
+                "Geh mit Nili zur Markierung und bestätige dort mit A oder per Tipp.",
+                "Nili steuern",
                 true,
             ),
             Prompt::Action(Step::Tour(_, Job::Water)) => (
@@ -112,7 +112,7 @@ impl Wording {
             Prompt::Action(Step::Tour(..)) => (
                 "storehouse",
                 "Nachschub für Delos",
-                "Schick Nili vom Kai zur Töpferei.",
+                "Hol die Kiste mit Nili am Kai und bring sie zur Töpferei.",
                 "Nilis Touren",
                 true,
             ),

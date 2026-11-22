@@ -74,9 +74,29 @@ impl Job {
         match self {
             Self::Freight => "Der Nachschub ist da.",
             Self::Water => "Nili hat frisches Wasser gebracht.",
-            Self::Welcome => "Die Fährgäste sind auf dem Weg zum Laden.",
+            Self::Welcome => "Die Fährgäste sind am Ziel.",
             Self::Shade => "Die neuen Schattenplätze sind fertig.",
             Self::Quay => "Der Kai ist frei. Fährgäste kommen weiter.",
+        }
+    }
+
+    pub fn collect_action(self) -> &'static str {
+        match self {
+            Self::Freight => "Kiste aufnehmen",
+            Self::Water => "Krüge füllen",
+            Self::Welcome => "Gäste begrüßen",
+            Self::Shade => "Zweige sammeln",
+            Self::Quay => "Treibgut greifen",
+        }
+    }
+
+    pub fn deliver_action(self) -> &'static str {
+        match self {
+            Self::Freight => "Kiste abgeben",
+            Self::Water => "Wasser abgeben",
+            Self::Welcome => "Gäste verabschieden",
+            Self::Shade => "Zweige verteilen",
+            Self::Quay => "Treibgut ablegen",
         }
     }
 
@@ -243,6 +263,68 @@ pub enum RouteStage {
     Collect,
     Carry,
     Deliver,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub enum ManualStage {
+    Pickup,
+    Collect(f32),
+    Delivery,
+    Unload(f32),
+}
+
+impl ManualStage {
+    pub fn pickup(self) -> bool {
+        matches!(self, Self::Pickup | Self::Collect(_))
+    }
+
+    pub fn action(self, job: Job) -> Option<&'static str> {
+        match self {
+            Self::Pickup => Some(job.collect_action()),
+            Self::Delivery => Some(job.deliver_action()),
+            _ => None,
+        }
+    }
+
+    pub fn animation(self) -> (RouteStage, f32) {
+        match self {
+            Self::Pickup => (RouteStage::Approach, 0.0),
+            Self::Collect(progress) => (RouteStage::Collect, progress),
+            Self::Delivery => (RouteStage::Carry, 0.0),
+            Self::Unload(progress) => (RouteStage::Deliver, progress),
+        }
+    }
+
+    pub fn confirm(self) -> Self {
+        match self {
+            Self::Pickup => Self::Collect(0.0),
+            Self::Delivery => Self::Unload(0.0),
+            stage => stage,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct NiliControl {
+    pub position: [f32; 2],
+    pub yaw: f32,
+    pub stage: ManualStage,
+}
+
+impl NiliControl {
+    pub fn target(self, route: Route) -> Stop {
+        if self.stage.pickup() {
+            route.pickup
+        } else {
+            route.delivery
+        }
+    }
+
+    pub fn valid(self) -> bool {
+        self.position.iter().all(|coord| coord.abs() <= 30.0)
+            && self.yaw.is_finite()
+            && (0.0..=1.0).contains(&self.stage.animation().1)
+    }
 }
 
 impl RouteStage {

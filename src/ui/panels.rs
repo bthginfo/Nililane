@@ -3,7 +3,7 @@ use crate::{
     campaign::{Chapter, REGION_SIZE, Region},
     coach::{self, Step},
     errands::Job,
-    model::{Building, HarborPlan, MAX_LEVEL, Price, Report, SERVICES, Town},
+    model::{Assortment, Building, HarborPlan, MAX_LEVEL, Price, Report, SERVICES, Town},
 };
 
 pub fn street_panel(
@@ -18,6 +18,7 @@ pub fn street_panel(
         Panel::Brief => brief(p, hud, town, chapter, tutorial),
         Panel::Build => build(p, hud, game, town, chapter),
         Panel::Details => details(p, hud, game, town, chapter),
+        Panel::Assortment => assortment(p, hud, game, town, chapter),
         Panel::Goals => goals(p, hud, town, chapter),
         Panel::Forecast => forecast(p, hud, game, town, chapter),
         Panel::Nili => nili(p, hud, town, chapter),
@@ -445,23 +446,91 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                         format!("{} {currency} pro Verkauf", b.price.coins(service)),
                     );
                 });
-                if let Phase::Open(day) = &town.phase
-                    && day.stock[lot] == 0
-                    && Job::Freight.plan(town, chapter, lot).is_ok()
+                if let Some(need) = town.supply_need(chapter, lot, &before) {
+                    card(page, frame_node(Val::Percent(100.0), 6.0, 9.0), DEEP).with_children(
+                        |supply| {
+                            supply.spawn(row(13.0)).with_children(|stats| {
+                                metric(
+                                    stats,
+                                    hud,
+                                    "guest_book",
+                                    format!("{} Gäste erwartet", need.guests),
+                                );
+                                let missing = need.shortage();
+                                let (art, text) = if missing > 0 {
+                                    ("guest_empty", format!("Nachschub nötig · {missing} fehlen"))
+                                } else {
+                                    ("check", "Vorrat reicht".to_owned())
+                                };
+                                metric(stats, hud, art, text);
+                            });
+                            if b.kind.water_user() {
+                                let label = if need.short_water {
+                                    if town.planning() {
+                                        "Wasser fehlt"
+                                    } else {
+                                        "Am Morgen fehlte Wasser"
+                                    }
+                                } else {
+                                    "Genug Wasser für die Produktion"
+                                };
+                                metric(supply, hud, "water", label);
+                            }
+                            if matches!(town.phase, Phase::Open(_)) && need.shortage() > 0 {
+                                let recommended = need.suggested_job(town, chapter, lot);
+                                supply.spawn(row(8.0)).with_children(|choices| {
+                                    for job in [Job::Water, Job::Freight] {
+                                        if job.plan(town, chapter, lot).is_ok() {
+                                            button(
+                                                choices,
+                                                hud,
+                                                Action::ChooseJob(job),
+                                                job.name(),
+                                                job.icon(),
+                                                "",
+                                                if recommended == Some(job) {
+                                                    Style::Primary
+                                                } else {
+                                                    Style::Quiet
+                                                },
+                                                false,
+                                            );
+                                        }
+                                    }
+                                });
+                            }
+                        },
+                    );
+                }
+                if let Some((favor, at)) = town.incident(chapter)
+                    && at == lot
+                    && town.favor_plan(chapter, lot).is_some()
                 {
                     button(
                         page,
                         hud,
-                        Action::ChooseJob(Job::Freight),
-                        "Nachschub bringen",
-                        "guest_empty",
-                        "",
-                        Style::Quiet,
+                        Action::Aid,
+                        favor.name(),
+                        favor.icon(),
+                        "A",
+                        Style::Primary,
                         false,
                     );
                 }
                 if town.planning() {
                     price_cards(page, hud, town, chapter, lot, service, b.price);
+                    if Assortment::supported(b.kind) {
+                        button(
+                            page,
+                            hud,
+                            Action::ShowAssortment,
+                            &format!("Angebot · {}", b.assortment.label(b.kind)),
+                            service_icon(service),
+                            "",
+                            Style::Quiet,
+                            false,
+                        );
+                    }
                 }
             } else {
                 let (art, effect) = match b.kind {
@@ -558,6 +627,101 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
     );
 }
 
+fn assortment(
+    p: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    game: &Game,
+    town: &Town,
+    chapter: &Chapter,
+) {
+    let lot = game.selected;
+    let Some(building) = town.lots[lot] else {
+        return;
+    };
+    let Some(need) = town.supply_need(chapter, lot, &town.production(chapter)) else {
+        return;
+    };
+    let art = kind_icon(building.kind);
+    modal(
+        p,
+        hud,
+        730.0,
+        building.kind.name(),
+        "Angebot wählen",
+        art,
+        |page| {
+            metric(
+                page,
+                hud,
+                "star",
+                "+1 Ansehen pro Gast, dem die Spezialität gefällt",
+            );
+            for choices in Assortment::ALL.chunks(2) {
+                page.spawn(Node {
+                    align_items: AlignItems::Stretch,
+                    ..row(8.0)
+                })
+                .with_children(|strip| {
+                    for &choice in choices {
+                        let selected = building.assortment == choice;
+                        button_shell(
+                            strip,
+                            Action::Assortment(choice),
+                            if selected {
+                                Style::Selected
+                            } else {
+                                Style::Quiet
+                            },
+                            false,
+                            Node {
+                                flex_grow: 1.0,
+                                flex_basis: Val::Px(0.0),
+                                min_width: Val::Px(0.0),
+                                padding: UiRect::all(Val::Px(10.0)),
+                                ..row(7.0)
+                            },
+                        )
+                        .with_children(|card| {
+                            icon(card, hud, if selected { "check" } else { art }, 35.0);
+                            card.spawn(column(4.0)).with_children(|copy| {
+                                label(
+                                    copy,
+                                    hud,
+                                    choice.label(building.kind),
+                                    19.0,
+                                    Face::Bold,
+                                    SAND,
+                                );
+                                let expects = choice.flavor().map_or_else(
+                                    || "Für alle Gäste".into(),
+                                    |age| {
+                                        format!(
+                                            "{} · {} erwartet",
+                                            age.group(),
+                                            need.ages[age as usize]
+                                        )
+                                    },
+                                );
+                                label(copy, hud, expects, 15.0, Face::Body, MUTED);
+                            });
+                        });
+                    }
+                });
+            }
+            button(
+                page,
+                hud,
+                Action::Back,
+                "Zurück zum Gebäude",
+                "",
+                "B",
+                Style::Quiet,
+                false,
+            );
+        },
+    );
+}
+
 fn building_link(kind: Kind) -> Option<(&'static str, &'static str)> {
     Some(match kind {
         Kind::Bakery | Kind::Potter | Kind::Inn => ("water", "Mehr mit Wasser"),
@@ -573,7 +737,7 @@ fn building_link(kind: Kind) -> Option<(&'static str, &'static str)> {
     })
 }
 
-fn metric(p: &mut ChildSpawnerCommands, hud: &Hud, art: &str, text: impl Into<String>) {
+pub(super) fn metric(p: &mut ChildSpawnerCommands, hud: &Hud, art: &str, text: impl Into<String>) {
     p.spawn(row(5.0)).with_children(|row| {
         icon(row, hud, art, 24.0);
         label(row, hud, text, 16.0, Face::Body, SAND);
@@ -1382,6 +1546,16 @@ fn pause(p: &mut ChildSpawnerCommands, hud: &Hud, tutorial: bool) {
         button(
             page,
             hud,
+            Action::Wardrobe,
+            "Nilis Garderobe",
+            "nili",
+            "",
+            Style::Quiet,
+            false,
+        );
+        button(
+            page,
+            hud,
             Action::Chart,
             if tutorial {
                 "Übung beenden"
@@ -1622,24 +1796,30 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                         "Der Speicher versorgt Läden bis zu zwei Bauplätze entfernt.",
                     ),
                     (
-                        "house",
-                        "budget",
-                        "Weg und Budget zählen",
-                        "Nachbarn laufen bis zu vier Plätze. Bei Fährgästen hängt die Strecke vom Hafen ab.",
+                        "guest_book",
+                        "water",
+                        "Gebäude antippen",
+                        "Die Details zeigen erwartete Gäste, den Vorrat und wo Wasser fehlt.",
                     ),
                 ],
                 3 => &[
                     (
                         "nili",
-                        "star",
-                        "Bitte vom Kai erfüllen",
-                        "Schick Nili zum markierten Ort. Dafür bekommst du 6 Münzen und gewinnst Ansehen.",
+                        "pad_dpad",
+                        "Nili direkt steuern",
+                        "Bewege den linken Stick oder ziehe auf dem runden Steuerfeld.",
                     ),
                     (
                         "water",
-                        "bakery",
-                        "Tour wählen und Ziel markieren",
-                        "Wasser holt Nili an der Quelle, Zweige im Olivenhain.",
+                        "check",
+                        "Abholen und abgeben",
+                        "Bestätige mit A oder per Tipp, sobald Nili bei der Markierung steht.",
+                    ),
+                    (
+                        "fire",
+                        "storehouse",
+                        "Bei Zwischenfällen helfen",
+                        "Lösche einen Ofenbrand oder sichere Kisten, die beim Unwetter verrutscht sind.",
                     ),
                     (
                         "wind",
@@ -1662,10 +1842,10 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                         "Sterne gibt es für die Aufträge, den Abschluss in der Zeit und die Bitten vom Kai.",
                     ),
                     (
-                        "check",
-                        "chart",
-                        "Automatisch gespeichert",
-                        "Auf der Karte siehst du deinen Fortschritt.",
+                        "nili",
+                        "star",
+                        "Garderobe auf der Kampagnenkarte",
+                        "Tausche freie Sterne gegen Gewänder und Kopfschmuck ein.",
                     ),
                 ],
                 _ => &[

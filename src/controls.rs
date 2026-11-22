@@ -48,6 +48,7 @@ pub struct Controls {
     pub direction: Option<Direction>,
     pub zoom: f32,
     pub pan: Vec2,
+    pub walk: Vec2,
     repeating: Option<Direction>,
     repeat_in: f32,
 }
@@ -137,6 +138,13 @@ pub fn poll(
     controls.pressed = input.pressed;
     controls.zoom = input.zoom.clamp(-1.0, 1.0);
     controls.pan = input.pan.clamp_length_max(1.0);
+    let axis = |negative, positive| {
+        f32::from(input.held & positive != 0) - f32::from(input.held & negative != 0)
+    };
+    let digital = Vec2::new(axis(LEFT, RIGHT), axis(UP, DOWN));
+    let stick = Vec2::new(input.left.x, -input.left.y);
+    let magnitude = ((stick.length() - 0.16) / 0.84).clamp(0.0, 1.0);
+    controls.walk = (digital + stick.normalize_or_zero() * magnitude).clamp_length_max(1.0);
     let direction = [
         (UP, Direction::Up),
         (DOWN, Direction::Down),

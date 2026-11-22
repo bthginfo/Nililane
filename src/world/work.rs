@@ -4,16 +4,16 @@ use bevy::prelude::*;
 
 use crate::{
     campaign::CHAPTERS,
-    errands::{Job, RouteStage},
-    game::{Game, View},
-    model::Phase,
+    errands::{Job, RouteStage, Stop},
+    game::{Game, Panel, View},
+    model::{Favor, Phase},
     save::Campaign,
 };
 
 use super::{
     buildings::{GOLD, MARBLE},
     mesh::{Batch, v},
-    motion::{Path, delivery_path, stop},
+    motion::{Path, controlled_position, delivery_path, stop},
 };
 
 const TRAIL: usize = 15;
@@ -121,6 +121,9 @@ pub(crate) enum Mark {
     Pickup,
     Particle(Job, usize),
     Star(usize),
+    Flame,
+    Smoke(usize),
+    Crates,
 }
 
 pub(super) fn spawn(
@@ -174,6 +177,33 @@ pub(super) fn spawn(
     for i in 0..SPARKS {
         spawn(Mark::Star(i), star.clone());
     }
+    let mut fire = Batch::default();
+    fire.gem(v(0.0, 0.24, 0.0), 0.30, 0.32, 0.24, 0.1, [218, 91, 41]);
+    fire.gem(v(0.03, 0.20, 0.09), 0.18, 0.24, 0.14, 0.8, [251, 179, 79]);
+    fire.gem(v(-0.15, 0.32, -0.02), 0.13, 0.27, 0.12, 0.4, [227, 113, 49]);
+    spawn(Mark::Flame, meshes.add(fire.mesh()));
+    let mut smoke = Batch::default();
+    smoke.gem(Vec3::ZERO, 0.17, 0.18, 0.13, 0.12, [121, 116, 107]);
+    let plume = meshes.add(smoke.mesh());
+    for i in 0..4 {
+        spawn(Mark::Smoke(i), plume.clone());
+    }
+    let mut boxes = Batch::default();
+    for (point, tilt) in [(v(0.05, 0.17, 0.19), 0.2), (v(-0.28, 0.18, -0.22), -0.43)] {
+        boxes.block(
+            point,
+            v(0.39, 0.37, 0.36),
+            Quat::from_rotation_y(tilt),
+            [161, 114, 74],
+        );
+        boxes.block(
+            point + Vec3::Y * 0.14,
+            v(0.39, 0.065, 0.37),
+            Quat::from_rotation_y(tilt),
+            [217, 168, 109],
+        );
+    }
+    spawn(Mark::Crates, meshes.add(boxes.mesh()));
 }
 
 pub fn animate(
@@ -184,17 +214,26 @@ pub fn animate(
     let town = game.visible_town(&save);
     let chapter = &CHAPTERS[town.chapter];
     let layout = chapter.layout;
-    let active = match &town.phase {
-        Phase::Open(day) => day.route.map(|route| (route, route.stage(day.seconds))),
-        _ => None,
+    let day = if let Phase::Open(day) = &town.phase {
+        Some(day)
+    } else {
+        None
     };
+    let active = day.and_then(|day| day.route_pose());
+    let manual = day.and_then(|day| day.manual_route());
     let preview = game
         .job
         .and_then(|job| job.plan(town, chapter, game.selected).ok());
     let route = active.map(|(route, _)| route).or(preview);
     let stage = active.map(|(_, (stage, _))| stage);
     let track = route.map(|route| {
-        if stage == Some(RouteStage::Approach) {
+        if let Some((_, nili)) = manual {
+            Path::road(
+                controlled_position(nili),
+                stop(nili.target(route), layout),
+                0.34,
+            )
+        } else if stage == Some(RouteStage::Approach) {
             Path::road(stop(route.from, layout), stop(route.pickup, layout), 0.34)
         } else {
             delivery_path(route, layout)
@@ -206,8 +245,27 @@ pub fn animate(
             RouteStage::Deliver => route.delivery,
             _ => return None,
         };
-        Some((route.job, stop(place, layout), at, stage))
+        let point = manual.map_or_else(
+            || stop(place, layout),
+            |(_, nili)| controlled_position(nili),
+        );
+        Some((route.job, point, at, stage))
     });
+    let incident = town.incident(chapter);
+    let fire = incident
+        .filter(|(event, _)| *event == Favor::Fire)
+        .map(|(_, lot)| {
+            stop(Stop::Parcel(lot as u8), layout)
+                + v(
+                    0.19,
+                    0.0,
+                    if crate::layout::lot_row(lot) == 0 {
+                        -0.29
+                    } else {
+                        0.33
+                    },
+                )
+        });
     let celebration = game.delivery().filter(|_| active.is_none()).map(|done| {
         (
             stop(done.route.delivery, layout),
@@ -215,7 +273,7 @@ pub fn animate(
         )
     });
     for (mark, mut transform, mut visible) in &mut marks {
-        let effect = if game.view == View::Street {
+        let effect = if game.view == View::Street && game.panel != Panel::Wardrobe {
             match *mark {
                 Mark::Trail(i) => track
                     .as_ref()
@@ -254,6 +312,24 @@ pub fn animate(
                 Mark::Star(i) => celebration.and_then(|(point, p)| {
                     particle(point + Vec3::Y * 0.62, p - i as f32 * 0.049, i, 0.91, 0.68)
                 }),
+                Mark::Flame => fire.map(|point| {
+                    let flicker = 0.94 + (game.clock * 6.4).sin() * 0.08;
+                    Transform::from_translation(point).with_scale(v(1.0, flicker, 0.96))
+                }),
+                Mark::Smoke(i) => fire.map(|point| {
+                    let lift = (game.clock * 0.61 + i as f32 * 0.25).fract();
+                    Transform::from_translation(
+                        point + v(lift * 0.39, 0.46 + lift * 1.15, lift * -0.13),
+                    )
+                    .with_scale(Vec3::splat(0.62 + lift * 1.22))
+                    .with_rotation(Quat::from_rotation_y(lift * 1.1 + i as f32))
+                }),
+                Mark::Crates => incident
+                    .filter(|(event, _)| *event == Favor::Crates)
+                    .filter(|_| {
+                        !manual.is_some_and(|(route, nili)| route.favor && !nili.stage.pickup())
+                    })
+                    .map(|_| Transform::from_translation(stop(Stop::Pier, layout))),
             }
         } else {
             None

@@ -4,6 +4,10 @@ mod lessons;
 mod panels;
 mod prompts;
 mod screens;
+mod steering;
+mod wardrobe;
+
+pub use steering::{WalkPad, WalkPointer, animate_walk_pad, walk_input};
 
 use std::collections::HashMap;
 
@@ -93,11 +97,12 @@ pub fn setup(mut hud: ResMut<Hud>, assets: Res<AssetServer>) {
         assets.load("embedded://fonts/DMSans-Bold.ttf"),
         assets.load("embedded://fonts/DMSerifText-Regular.ttf"),
     ];
-    let icons = "house well bakery grove potter stoa taverna inn bread olive meze bed coin star sun water wind ferry chart book guide hammer lock check nili title_fade storehouse press shrine aqueduct baths forum villa mood cloud rain storm guest_book guest_down guest_empty guest_happy guest_mixed guest_steps guest_wait pad_dpad pad_view sunset pause budget";
+    let icons = "house well bakery grove potter stoa taverna inn bread olive meze bed coin star sun water wind ferry fire chart book guide hammer lock check nili title_fade storehouse press shrine aqueduct baths forum villa mood cloud rain storm guest_book guest_down guest_empty guest_happy guest_mixed guest_steps guest_wait pad_dpad pad_view sunset pause budget";
     for key in icons
         .split_whitespace()
         .map(str::to_owned)
         .chain((0..CHAPTERS.len()).map(|n| format!("island_{n}")))
+        .chain(crate::cosmetics::Cosmetic::ALL.map(|item| item.icon().to_owned()))
     {
         hud.pictures
             .insert(key.clone(), assets.load(format!("embedded://ui/{key}.png")));
@@ -132,6 +137,7 @@ pub fn draw(
             match (game.view, game.panel) {
                 (_, Panel::Guide) => panels::guide(base, &hud, &game),
                 (_, Panel::Options) => panels::options(base, &hud, &save),
+                (_, Panel::Wardrobe) => wardrobe::draw(base, &hud, &save),
                 (View::Title, _) => screens::title(base, &hud, &save),
                 (View::Chart, Panel::Replace) => panels::replace(base, &hud, &game),
                 (View::Chart, _) => screens::chart(base, &hud, &game, &save),
@@ -211,6 +217,7 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
     }
     let action = match (game.view, game.panel) {
         (_, Panel::Options) => Action::LargeUi,
+        (_, Panel::Wardrobe) => Action::Back,
         (_, Panel::Guide) => Action::GuideTab(game.guide),
         (View::Title, _) => {
             if save.active_town().is_some() {
@@ -250,6 +257,21 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
         }
         (View::Street, Panel::Details) => {
             let town = save.active_town()?;
+            let chapter = &CHAPTERS[town.chapter];
+            if matches!(town.phase, Phase::Open(_)) {
+                let lot = game.selected;
+                if town.incident(chapter).is_some_and(|(_, at)| at == lot)
+                    && town.favor_plan(chapter, lot).is_some()
+                {
+                    return Some(Action::Aid);
+                }
+                if let Some(job) = town
+                    .supply_need(chapter, lot, &town.production(chapter))
+                    .and_then(|need| need.suggested_job(town, chapter, lot))
+                {
+                    return Some(Action::ChooseJob(job));
+                }
+            }
             match town.lots[game.selected] {
                 Some(b) if town.planning() && b.kind.service().is_some() => {
                     let price =
@@ -270,6 +292,9 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
             } else {
                 Action::NextDay
             }
+        }
+        (View::Street, Panel::Assortment) => {
+            Action::Assortment(save.active_town()?.lots[game.selected]?.assortment)
         }
         (View::Street, _) => Action::Back,
     };

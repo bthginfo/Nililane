@@ -15,9 +15,11 @@ Hippogrove aus Waldwinkel. [Hippogrove-Revision](https://github.com/bthginfo/Hip
   `people.rs` baut römische und griechische Figuren mit einem gemeinsamen
   Skelett. `construction.rs` steuert Gerüst, Ausbauteile und Staub.
   `work.rs` und `actors.rs` gestalten Nilis Bewegungen, Requisiten und Punktspuren.
+  `clothes.rs` erzeugt die Gewänder, Hüte und den Kranz für Nili.
   `sky.rs` zeichnet Wolken, Regenschlieren und Sturmwellen.
-- Die Bildtafeln und Spielsymbole in `ui/` kommen aus `art/make_ui.py`.
+- Die Bildtafeln und die meisten Spielsymbole in `ui/` kommen aus `art/make_ui.py`.
   Dazu gehören die Gästehinweise, das Gästebuch, die Controller-Symbole und das Budgetsymbol.
+  Das Feuersymbol und die Garderobenbilder wurden für Nililane 2.4 gezeichnet.
   `art/make_audio.py` erzeugt das Meeresrauschen und die Klangmotive
   für Bau, Ausbau, Verkauf, Hafenglocke und Nilis Hilfe sowie das Regenbett und
   die römische Musik mit Leier, Flöte und Rahmentrommel.

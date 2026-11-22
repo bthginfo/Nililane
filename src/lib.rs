@@ -1,6 +1,7 @@
 mod campaign;
 mod coach;
 mod controls;
+mod cosmetics;
 mod errands;
 mod game;
 mod layout;
@@ -71,10 +72,12 @@ pub fn run() {
                 frame,
                 ui::draw,
                 ui::refresh,
+                ui::animate_walk_pad,
                 ui::refresh_guest_summary,
                 game::audio,
                 world::sync,
                 world::animate,
+                world::dress_nili,
                 world::animate_people,
                 world::animate_work,
                 ui::update_reactions,
@@ -167,6 +170,13 @@ fn embed_assets(app: &App) {
         "ui/cloud.png",
         "ui/coin.png",
         "ui/ferry.png",
+        "ui/fire.png",
+        "ui/wear_sea.png",
+        "ui/wear_saffron.png",
+        "ui/wear_toga.png",
+        "ui/wear_straw.png",
+        "ui/wear_laurel.png",
+        "ui/wear_petasos.png",
         "ui/forum.png",
         "ui/grove.png",
         "ui/guide.png",

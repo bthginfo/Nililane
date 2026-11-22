@@ -1,4 +1,4 @@
-# Nililane 2.3.2
+# Nililane 2.4.0
 
 Nililane ist ein 3D-Straßenmanagementspiel in Rust und Bevy. Mit dem Nilpferd Nili
 reist du zuerst durch das antike Griechenland und danach durch das antike
@@ -6,7 +6,7 @@ Rom. Du planst die Gasse am Morgen, versorgst Nachbarn und Fährgäste und hilfs
 tagsüber dort, wo sich die Lieferungen stauen. Auf der Kampagnenkarte erkennst
 du die Größe des nächsten Hafens schon vor der Überfahrt.
 
-**[Nililane 2.3.2 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/70aad5cedabadc4c9582b260a0439135d4997e81/Nililane-2.3.2.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/70aad5cedabadc4c9582b260a0439135d4997e81/Nililane-2.3.2.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.3.2)
+**[Nililane 2.4.0 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/3863cc7e6658183653ff872e5f0297fd6fa06963/Nililane-2.4.0.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/3863cc7e6658183653ff872e5f0297fd6fa06963/Nililane-2.4.0.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.4.0)
 
 ![Nili mit Bewohnern und dem ausgebauten Wohnhof in Naxos](docs/bilder/naxos.jpg)
 
@@ -29,9 +29,9 @@ sowie Musik und Spielklänge separat schalten.
 
 | Xbox-Controller | Aktion |
 | --- | --- |
-| Steuerkreuz oder linker Stick | Bauplatz oder Menüaktion wählen |
-| A | Bestätigen, Grundstück öffnen oder Nili helfen lassen |
-| B | Zurück, während des Spiels pausieren |
+| Steuerkreuz oder linker Stick | Bauplatz oder Menüaktion wählen, während eines Auftrags Nili bewegen |
+| A | Bestätigen, Grundstück öffnen oder am markierten Ort abholen und abgeben |
+| B | Zurück, pausieren oder den laufenden Auftrag abbrechen |
 | X | Aufträge ansehen |
 | Y | Tag starten, das Tempo wechseln oder auf der Kampagnenkarte das Tutorial neu starten |
 | RB | Hafenplan mit Wetter, Nachfrage und Vorräten öffnen |
@@ -41,10 +41,32 @@ sowie Musik und Spielklänge separat schalten.
 | LB | Kamera zurücksetzen |
 | Start | Pausenmenü öffnen |
 
-Touch und Maus wählen Bauplätze und Schaltflächen. Mit der Tastatur bedienen
+Tippe ein Gebäude an, um seinen Bedarf zu sehen. Bewege Nili während eines
+Auftrags mit dem runden Steuerfeld und tippe am Ziel auf die helle Aktion.
+Mit der Tastatur bedienen
 Pfeiltasten oder WASD die Auswahl, Enter bestätigt, Escape geht zurück.
 X, Y, P, Q und E entsprechen X, Y, Start, LB und RB. N öffnet Nilis Touren.
 F öffnet das Gästebuch.
+
+## Neu in 2.4.0
+
+- **Nili selbst steuern.** Mit linkem Stick oder Touch zum markierten Ort
+  gehen und dort abholen oder abgeben. Die Hafenuhr pausiert während der
+  Steuerung. Beim Abschluss verstreicht die eingeplante Zeit des Auftrags.
+- **Bedarf am Gebäude.** Die Details vergleichen Vorrat und erwartete Gäste,
+  zeigen knappes Wasser und schlagen verfügbare Touren vor.
+- **Zwischenfälle am Hafen.** Ab Rhodos können ein kleiner Ofenbrand oder
+  verrutschte Kisten nach Unwetter einen Hafenauftrag auslösen.
+- **Drei Altersgruppen.** Kinder, Erwachsene und ältere Gäste haben
+  eigene Körperformen und Laufbewegungen. Backstuben, Tavernen und
+  Töpfereien können morgens eine Spezialität für eine Gruppe wählen.
+  Wer sie mag und einkauft, bringt zusätzliches Ansehen.
+- **Nilis Garderobe.** Auf der Kampagnenkarte und im Pausenmenü kannst du
+  mit verdienten Sternen drei Gewänder und drei Kopfbedeckungen kaufen.
+  Kombiniere ein Gewand mit einer Kopfbedeckung. Sternrekorde und
+  Freischaltungen bleiben erhalten.
+
+![Nili trägt in der Garderobenvorschau eine Purpurtoga und einen Fischerhut](docs/bilder/garderobe.jpg)
 
 ## Neu in 2.3.2
 
