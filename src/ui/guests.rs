@@ -162,6 +162,7 @@ pub(super) fn summary(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town) {
             head.spawn((
                 SummaryText::Score,
                 Text::new("—"),
+                TextLayout::new_with_no_wrap(),
                 TextFont {
                     font: hud.fonts[1].clone(),
                     font_size: 27.0,
@@ -656,10 +657,16 @@ fn guest_card(
         });
         let quote = match verdict {
             Verdict::Pleased => "Genau das habe ich gesucht!",
-            Verdict::Missed(Miss::NoShop) => "Das hätte ich gern hier gekauft.",
+            Verdict::Missed(Miss::NoShop) => "Das habe ich hier vermisst.",
             Verdict::Missed(Miss::Walk) => "Der Weg zum Laden war mir zu weit.",
             Verdict::Missed(Miss::Price) => "Das war mir zu teuer.",
-            Verdict::Missed(Miss::Empty) => "Die Auslage war schon leer.",
+            Verdict::Missed(Miss::Empty) => {
+                if has_places(visit.wants) {
+                    "Es war kein Platz mehr frei."
+                } else {
+                    "Das war schon ausverkauft."
+                }
+            }
         };
         label(
             c,
@@ -692,7 +699,7 @@ fn guest_card(
                         kind_icon(shop.kind),
                     )
                 }
-                GuestTip::Build(_, kind) => (format!("Bauplatz für {}", kind.name()), "hammer"),
+                GuestTip::Build(_, kind) => (format!("{} bauen", kind.name()), "hammer"),
             };
             button(
                 c,
@@ -733,10 +740,10 @@ pub(super) fn evening_hint(town: &Town, tally: &Tally) -> (String, &'static str)
     if let Some((count, service, reason)) = most {
         (
             format!(
-                "{} · {} · {} Gäste. {}",
+                "{} · {} · {count} {}. {}",
                 service.name(),
                 reason.label(),
-                count,
+                if count == 1 { "Gast" } else { "Gäste" },
                 reason.hint()
             ),
             reason_icon(reason),

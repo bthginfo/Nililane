@@ -1,27 +1,30 @@
 use crate::{
     coach::{self, Step},
+    errands::{RouteStage, Stop},
     layout::lot_row,
     model::{Favor, SERVICES, Town, distance},
-    world::{StreetCamera, lot_position},
+    world::{Hippo, StreetCamera, lot_position, route_position},
 };
 
 use super::*;
 
-const MARKERS: usize = 3;
-const WIDTH: f32 = 123.0;
+const MARKERS: usize = 4;
+const WIDTH: f32 = 145.0;
 const HEIGHT: f32 = 44.0;
 
 fn step_words(step: Step) -> (&'static str, &'static str) {
     match step {
         Step::Build(_, Kind::Bakery) => ("Backstube bauen", "bakery"),
+        Step::Build(_, Kind::Potter) => ("Töpferei bauen", "potter"),
         Step::Build(_, _) => ("Brunnen bauen", "well"),
-        Step::Price(_) => ("Brotpreis wählen", "coin"),
+        Step::Price(_) => ("Preis wählen", "coin"),
+        Step::Upgrade(_) => ("Ausbau ansehen", "hammer"),
         Step::StartDay => ("Tag starten", "sun"),
         Step::Arrivals => ("Die ersten Gäste kommen", "ferry"),
         Step::Aid(_, Favor::Jugs) => ("Wasser verteilen", "water"),
         Step::Aid(_, Favor::Shade) => ("Schattenplätze schaffen", "stoa"),
         Step::Aid(_, Favor::Cargo) => ("Vorrat auffüllen", "guest_empty"),
-        Step::Water(_) => ("Wasser zur Backstube", "water"),
+        Step::Tour(_, job) => (job.name(), job.icon()),
         Step::Evening => ("Einnahmen am Abend", "sunset"),
     }
 }
@@ -30,7 +33,7 @@ pub(super) fn strip(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: 
     let (word, art) = step_words(step);
     let shortcut = match step {
         Step::StartDay => "Y",
-        Step::Water(_) => "R3",
+        Step::Tour(..) => "R3",
         Step::Build(lot, _) | Step::Price(lot) | Step::Aid(lot, _) if lot == game.selected => "A",
         _ => "",
     };
@@ -196,58 +199,111 @@ pub(super) fn spawn(p: &mut ChildSpawnerCommands, hud: &Hud) {
 }
 
 #[derive(Clone, Copy)]
-struct AtLot {
-    lot: usize,
-    title: &'static str,
-    icon: &'static str,
-    action: Action,
+enum Point {
+    Lot(usize),
+    Stop(Stop),
+    Nili,
 }
 
-fn map_signs(town: &Town, game: &Game) -> Vec<AtLot> {
+#[derive(Clone, Copy)]
+struct MapSign {
+    point: Point,
+    title: &'static str,
+    icon: &'static str,
+    action: Option<Action>,
+}
+
+fn map_signs(town: &Town, game: &Game) -> Vec<MapSign> {
     let chapter = &CHAPTERS[town.chapter];
+    let mut signs = Vec::new();
     if let Some(job) = game.job {
+        if let Ok(route) = job.plan(town, chapter, game.selected) {
+            signs.push(MapSign {
+                point: Point::Stop(route.delivery),
+                title: "2 · Hier liefern",
+                icon: "check",
+                action: Some(Action::Dispatch),
+            });
+            if route.pickup != route.delivery {
+                signs.push(MapSign {
+                    point: Point::Stop(route.pickup),
+                    title: "1 · Abholen",
+                    icon: job.icon(),
+                    action: None,
+                });
+            }
+        }
         let mut targets: Vec<_> = chapter
             .layout
             .lots()
-            .filter(|&lot| job.plan(town, chapter, lot).is_ok())
+            .filter(|&lot| lot != game.selected && job.plan(town, chapter, lot).is_ok())
             .collect();
         targets.sort_by_key(|&lot| distance(lot, game.selected));
-        return targets
-            .into_iter()
-            .map(|lot| AtLot {
-                lot,
-                title: if lot == game.selected {
-                    "Ziel"
-                } else {
-                    "Wählen"
-                },
-                icon: if lot == game.selected {
-                    "check"
-                } else {
-                    job.icon()
-                },
-                action: Action::SelectLot(lot),
-            })
-            .collect();
+        signs.extend(targets.into_iter().map(|lot| MapSign {
+            point: Point::Lot(lot),
+            title: "Ziel wählen",
+            icon: job.icon(),
+            action: Some(Action::SelectLot(lot)),
+        }));
+        return signs;
     }
+    if let Phase::Open(day) = &town.phase
+        && let Some(route) = day.route
+    {
+        let (stage, _) = route.stage(day.seconds);
+        signs.push(MapSign {
+            point: Point::Nili,
+            title: stage.caption(route.job),
+            icon: route.job.icon(),
+            action: None,
+        });
+        if route.pickup != route.delivery
+            && matches!(stage, RouteStage::Approach | RouteStage::Collect)
+        {
+            signs.push(MapSign {
+                point: Point::Stop(route.pickup),
+                title: "Abholort",
+                icon: "storehouse",
+                action: None,
+            });
+        }
+        signs.push(MapSign {
+            point: Point::Stop(route.delivery),
+            title: "Lieferziel",
+            icon: "check",
+            action: None,
+        });
+        return signs;
+    }
+    if let Some(done) = game.delivery() {
+        let (title, icon) = done.route.reward();
+        signs.push(MapSign {
+            point: Point::Stop(done.route.delivery),
+            title,
+            icon,
+            action: None,
+        });
+    }
+
     let step = coach::next(town, chapter, game.selected, game.saw_prices);
-    let mut signs = Vec::new();
     if let Some(step) = step
         && let Some(lot) = step.lot()
     {
         let title = match step {
             Step::Build(_, Kind::Bakery) => "Hier bauen",
+            Step::Build(_, Kind::Potter) => "Töpferei",
             Step::Build(..) => "Brunnen",
             Step::Price(_) => "Preis",
-            Step::Water(_) => "Wasser",
+            Step::Upgrade(_) => "Ausbau",
+            Step::Tour(..) => "Ziel",
             Step::Aid(..) => "Nili hilft",
             _ => unreachable!("only steps with a plot get a marker"),
         };
-        signs.push(AtLot {
-            lot,
+        signs.push(MapSign {
+            point: Point::Lot(lot),
             title,
             icon: step_words(step).1,
-            action: Action::Coach(step),
+            action: Some(Action::Coach(step)),
         });
     }
 
@@ -260,15 +316,12 @@ fn map_signs(town: &Town, game: &Game) -> Vec<AtLot> {
             let Some(service) = town.lots[lot].and_then(|b| b.kind.service()) else {
                 continue;
             };
-            if day.stock[lot] == 0
-                && needs[service as usize]
-                && !signs.iter().any(|sign| sign.lot == lot)
-            {
-                signs.push(AtLot {
-                    lot,
-                    title: "Leer",
+            if day.stock[lot] == 0 && needs[service as usize] {
+                signs.push(MapSign {
+                    point: Point::Lot(lot),
+                    title: unavailable(service),
                     icon: "guest_empty",
-                    action: Action::LookAtLot(lot),
+                    action: Some(Action::LookAtLot(lot)),
                 });
             }
         }
@@ -278,7 +331,7 @@ fn map_signs(town: &Town, game: &Game) -> Vec<AtLot> {
 
 #[derive(Clone, Copy)]
 struct Projected {
-    sign: AtLot,
+    sign: MapSign,
     at: Vec2,
 }
 
@@ -290,6 +343,7 @@ type Marks<'w, 's> = Query<
         &'static mut Node,
         &'static mut Visibility,
         &'static mut ButtonAction,
+        &'static mut FocusPolicy,
     ),
 >;
 
@@ -301,6 +355,7 @@ pub fn update(
     scale: Res<UiScale>,
     window: Single<&Window, With<PrimaryWindow>>,
     camera: Query<(&Camera, &GlobalTransform), With<StreetCamera>>,
+    nili: Query<&Transform, With<Hippo>>,
     mut markers: Marks,
     mut images: Query<(&MarkerIcon, &mut ImageNode)>,
     mut labels: Query<(&MarkerText, &mut Text)>,
@@ -318,13 +373,25 @@ pub fn update(
         let chapter = &CHAPTERS[town.chapter];
         let mut filled = 0;
         for sign in map_signs(town, &game) {
-            let mut place = lot_position(sign.lot, chapter.layout.width());
-            if town.lots[sign.lot].is_some() {
-                place.y = 2.63;
-                place.z += if lot_row(sign.lot) == 0 { 0.55 } else { -0.55 };
-            } else {
-                place.y = 0.40;
-            }
+            let plot = |lot| {
+                let mut place = lot_position(lot, chapter.layout.width());
+                if town.lots[lot].is_some() {
+                    place.y = 2.63;
+                    place.z += if lot_row(lot) == 0 { 0.55 } else { -0.55 };
+                } else {
+                    place.y = 0.40;
+                }
+                place
+            };
+            let place = match sign.point {
+                Point::Lot(lot) => plot(lot),
+                Point::Stop(Stop::Parcel(i)) => plot(usize::from(i)),
+                Point::Stop(stop) => route_position(stop, chapter.layout) + Vec3::Y * 1.1,
+                Point::Nili => {
+                    let Ok(hippo) = nili.single() else { continue };
+                    hippo.translation + Vec3::Y * 1.70
+                }
+            };
             let Ok(point) = camera.world_to_viewport(transform, place) else {
                 continue;
             };
@@ -347,7 +414,7 @@ pub fn update(
             }
         }
     }
-    for (marker, mut node, mut visibility, mut button) in &mut markers {
+    for (marker, mut node, mut visibility, mut button, mut focus) in &mut markers {
         if let Some(p) = active[marker.0] {
             if *visibility == Visibility::Hidden {
                 *visibility = Visibility::Inherited;
@@ -358,11 +425,22 @@ pub fn update(
                 node.left = left;
                 node.top = top;
             }
-            if button.action != p.sign.action {
-                button.action = p.sign.action;
+            if let Some(action) = p.sign.action
+                && button.action != action
+            {
+                button.action = action;
             }
-            if button.disabled {
-                button.disabled = false;
+            let disabled = p.sign.action.is_none();
+            if button.disabled != disabled {
+                button.disabled = disabled;
+            }
+            let policy = if disabled {
+                FocusPolicy::Pass
+            } else {
+                FocusPolicy::Block
+            };
+            if *focus != policy {
+                *focus = policy;
             }
         } else if *visibility != Visibility::Hidden {
             *visibility = Visibility::Hidden;

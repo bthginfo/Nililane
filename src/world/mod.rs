@@ -4,11 +4,14 @@ mod construction;
 mod landscape;
 mod mesh;
 mod motion;
+pub(crate) use motion::stop as route_position;
+pub(crate) use work::animate as animate_work;
 mod people;
 mod roman;
 mod ships;
 mod sky;
 mod upgrades;
+mod work;
 
 use std::collections::HashMap;
 
@@ -218,6 +221,7 @@ pub fn setup(
         bevy::pbr::NotShadowCaster,
     ));
 
+    work::spawn(&mut commands, &mut meshes, &art.gold);
     commands
         .spawn((
             Hippo,
@@ -524,7 +528,7 @@ pub fn animate(
         Extras,
         Query<(&mut Transform, &Limb)>,
         Query<(&mut Transform, &mut Visibility), With<Destination>>,
-        Query<(&JobPack, &mut Visibility)>,
+        Query<(&JobPack, &mut Transform, &mut Visibility)>,
     )>,
 ) {
     let town = game.visible_town(&save);
@@ -633,13 +637,20 @@ pub fn animate(
             *visible = Visibility::Hidden;
         }
     }
-    for (pack, mut visible) in &mut rigs.p7() {
-        let show = route.is_some_and(|(seconds, route)| {
-            pack.0 == route.job
-                && seconds >= route.pickup_at + 0.45
-                && seconds < route.finish - 0.25
-        });
-        let next = if show {
+    let pose = if let Some((seconds, route)) = route {
+        let (stage, at) = route.stage(seconds);
+        work::perform(route.job, stage, at)
+    } else {
+        game.delivery()
+            .map_or_else(work::Pose::default, |done| work::celebrate(t - done.since))
+    };
+    for (pack, mut transform, mut visible) in &mut rigs.p7() {
+        let next = if route.is_some_and(|(_, route)| pack.0 == route.job) && pose.carry {
+            let tilt = pose.pack_tilt;
+            let rotation = Quat::from_euler(EulerRot::XYZ, tilt.x, tilt.y, tilt.z);
+            transform.rotation = rotation;
+            transform.translation =
+                pose.pack_shift + work::PACK_CENTER - rotation * work::PACK_CENTER;
             Visibility::Inherited
         } else {
             Visibility::Hidden
@@ -650,26 +661,21 @@ pub fn animate(
     }
     let mut gait = 0.0;
     if let Ok(mut hippo) = rigs.p3().single_mut() {
+        hippo.scale = v(
+            1.0 - 0.5 * pose.stretch,
+            1.0 + pose.stretch,
+            1.0 - 0.5 * pose.stretch,
+        ) * 0.87;
         if let Some((seconds, route)) = route {
             let motion = motion::job_walk(route, seconds, chapter.layout);
             let beat = motion.distance * 8.8;
             gait = if motion.moving { beat.sin() } else { 0.0 };
-            let working = if seconds < route.depart_at && seconds >= route.pickup_at {
-                ((seconds - route.pickup_at) / (route.depart_at - route.pickup_at)
-                    * std::f32::consts::PI)
-                    .sin()
-            } else if seconds >= route.arrival {
-                ((seconds - route.arrival) / (route.finish - route.arrival) * std::f32::consts::PI)
-                    .sin()
-            } else {
-                0.0
-            };
-            let bob = 0.047 * gait.abs() - 0.070 * working;
-            hippo.translation = motion.at + Vec3::Y * (bob - 0.033);
-            let tilt = Quat::from_rotation_x(0.21 * working) * Quat::from_rotation_z(gait * 0.045);
+            hippo.translation = motion.at + Vec3::Y * (0.047 * gait.abs() + pose.height - 0.033);
+            let tilt =
+                Quat::from_rotation_x(pose.pitch) * Quat::from_rotation_z(pose.roll + gait * 0.045);
             hippo.rotation = hippo
                 .rotation
-                .slerp(Quat::from_rotation_y(motion.yaw) * tilt, blend * 1.13);
+                .slerp(Quat::from_rotation_y(motion.yaw) * tilt, blend * 1.32);
         } else {
             let home = if playing {
                 if let Some(day) = lives {
@@ -698,15 +704,33 @@ pub fn animate(
             let moving = walk.length_squared() > 0.035;
             gait = (t * if moving { 10.4 } else { 4.1 }).sin() * if moving { 1.0 } else { 0.07 };
             let bob = gait.abs() * 0.058;
-            hippo.translation = hippo.translation.lerp(home + Vec3::Y * bob, blend * 0.62);
+            hippo.translation = hippo
+                .translation
+                .lerp(home + Vec3::Y * (bob + pose.height), blend * 0.62);
+            if pose.height > 0.02 {
+                hippo.translation.y = home.y + pose.height;
+            }
             let yaw = if moving { walk.x.atan2(walk.z) } else { 0.22 };
-            let rot = Quat::from_rotation_y(yaw) * Quat::from_rotation_z(gait * 0.038);
+            let rot = Quat::from_rotation_y(yaw)
+                * Quat::from_rotation_x(pose.pitch)
+                * Quat::from_rotation_z(pose.roll + gait * 0.038);
             hippo.rotation = hippo.rotation.slerp(rot, blend);
         }
     }
     for (mut transform, limb) in &mut rigs.p5() {
         let amount = if limb.leg { 0.40 } else { -0.34 };
-        transform.rotation = Quat::from_rotation_x(gait * limb.side * amount);
+        let arm = if limb.leg {
+            0.0
+        } else {
+            pose.arms[usize::from(limb.side > 0.0)]
+        };
+        let spread = if limb.leg {
+            0.0
+        } else {
+            pose.spread * limb.side
+        };
+        transform.rotation =
+            Quat::from_rotation_x(gait * limb.side * amount + arm) * Quat::from_rotation_z(spread);
     }
     for (mut transform, wave, boat, bird, sail, wake) in &mut rigs.p4() {
         if let Some(wave) = wave {

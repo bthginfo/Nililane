@@ -1,12 +1,18 @@
-# Spielreview und Abnahme · Nililane 2.2
+# Spielreview und Abnahme · Nililane 2.3
 
 ## Einstieg als neuer Spieler
 
-Auf Naxos markiert Nili den Bauplatz und zeigt mit drei Bildern den Weg vom
-Ofen über den Brotpreis zum Tagesstart. Die erste Hafenbitte erscheint über
-dem passenden Gebäude. Amorgos zeigt danach den Brunnen und die erste
-Wassertour. Bei der Zielwahl pausiert der Tag. Schilder auf der Insel zeigen
-geeignete Ziele, das Tourensymbol zeigt anschließend Nilis Fortschritt.
+Auf Naxos zeigt der Einstieg den Bauplatz, den Preis und den Tagesstart.
+Beim Eintreffen der Fähre und bei den ersten Gästestimmen hält die Uhr an.
+Ein heller Ausschnitt markiert den jeweiligen Ort, daneben zeigt die
+Hinweisbox die nächste Aktion. Auf Amorgos folgen der Brunnen und die
+Wasserlieferung. Auf Delos folgen Töpferei, Nachschub und Ausbau.
+
+Bei der Wahl einer Nili-Tour zeigen zwei Schilder Abholort und Ziel.
+Die Punktspur und das Schild über Nili folgen der Arbeit. Krüge, Kisten,
+Fahne, Zweige und Treibgut gehören zu unterschiedlichen Bewegungen.
+Die Lieferung wird bei ihrer Ankunft einmal abgerechnet. Gesehene
+Hinweise und laufende Touren werden gespeichert.
 
 ## Veröffentlichung
 
@@ -22,7 +28,7 @@ im Offline-Paket. Die README führt zur APK und ihrer SHA-256-Prüfsumme.
   abschließen. Die Kampagne schaltet jeden Hafen nach dem vorherigen frei.
   Ostia wird nach Korinth verfügbar.
 - Eine 1.0-Gasse behält beim Laden ihre Parzellen, Preise, Vorräte,
-  Tageszeit, Hafenbitten und Sternrekorde. Neue Bauplätze ergänzen die
+  Tageszeit, Bitten vom Kai und Sternrekorde. Neue Bauplätze ergänzen die
   bisherigen Platznummern. Laufende Touren bleiben im Autosave erhalten
   und werden nach dem Laden genau einmal abgerechnet.
 - Ein gegliederter Laufzyklus setzt die Füße der Gäste auf, abgerundete
@@ -63,9 +69,28 @@ während des Tages berücksichtigt die noch anstehenden Wünsche.
 
 [Spielbeschreibung des Minami-Lane-Teams](https://doottinygames.itch.io/minami-lane)
 
+## Kampagnenprüfung in 2.3
+
+| Reise | Häfen mit drei Sternen | Spielstand geladen |
+| --- | --- | --- |
+| Griechenland | 24 von 24 | Nach jedem Hafen |
+| Rom | 24 von 24 | Nach jedem Hafen |
+
+Die Simulation beginnt jeden Hafen mit den vorgesehenen Gebäuden und
+Münzen. Sie baut und erweitert Läden, stellt Preise ein, wählt Hafenpläne,
+schickt Nili los und wertet den Abend aus. Der nächste Hafen öffnet sich
+nach dem Abschluss. Die Prüfung umfasst die Aufträge, den Zeitbonus und
+die Bitten vom Kai.
+
+In Delos liefert die Töpferei auf Stufe 2 bei knappem Wasser zunächst
+weniger Schalen. Der Einstieg markiert dann zuerst einen Brunnenplatz.
+Die Ausbauvorschau zeigt solche Engpässe auch in den übrigen Häfen an.
+Puteoli erreicht mit zwei Gasthäusern drei Sterne bis zum 23. Tag.
+Der Hafentipp nennt die beiden Häuser und ihren Wasserbedarf.
+
 ## Prüfungen
 
-- Formatierung, Clippy mit Warnungen als Fehler und 13 Rust-Tests einschließlich der ersten Schritte auf Naxos und Amorgos.
+- Formatierung, Clippy mit Warnungen als Fehler und 15 Rust-Tests einschließlich der drei Einstiegsinseln und des erneuten Ladens während einer Bitte vom Kai.
 - Gerenderte Stichproben in Griechenland und Rom im Querformat. In Kythnos
   öffnete ein Tipp auf die Sprechblase die passende Stimme. Der Preisfilter
   führte zur Stoa und die Zurück-Taste zur ausgewählten Rückmeldung.
@@ -81,9 +106,15 @@ während des Tages berücksichtigt die noch anstehenden Wünsche.
 - Für 2.2 hat die Installation über 2.1 den Spielstand bytegenau erhalten.
   Im Android-15-Emulator im 4:3-Format führten simulierte Gamepad-Eingaben
   durch den bebilderten Einstieg, den Bau der Backstube, den günstigen
-  Brotpreis, den Tagesstart und die erste Hafenbitte. In der Desktop-Prüfung
+  Brotpreis, den Tagesstart und die erste Bitte vom Kai. In der Desktop-Prüfung
   lieferte Nili auf Amorgos einmal Wasser an die markierte Backstube.
   Die Vorratskarten von Capua blieben in der großen UI lesbar.
+- In der Desktop-Fassung hielten die neuen Hinweise den Spieltag auf Naxos
+  an. Auf Amorgos brachten die markierte Quelle und das Lieferziel Nili
+  zur Backstube. In Delos zeigte die Ausbauvorschau im 4:3-Format mit
+  großer Oberfläche zunächst 5 → 3 Schalen. Nach dem Brunnenbau zeigte
+  sie 5 → 7 Schalen und der Ausbau gelang. In Capua lieferte Nili die
+  Gästeführung, die Schattentour und das Kai-Räumen jeweils einmal ab.
 - APK-Signatur v2 und v3, 16-KiB-Ausrichtung beider Bibliotheken und
   SHA-256-Abgleich des GitHub-Downloads.
 - Der Test auf einem physischen Android-Tablet steht noch aus.

@@ -6,7 +6,7 @@ use bevy::{
 
 use crate::{
     campaign::{CHAPTERS, REGION_SIZE, Region},
-    coach::{self, Step},
+    coach::{self, Lesson, Prompt, Step},
     controls::{self, Controls, Direction},
     errands::{Job, Route},
     layout::{lot_col, lot_id, lot_row},
@@ -64,6 +64,7 @@ pub enum Action {
     LargeUi,
     Plot,
     Coach(Step),
+    Lesson(bool),
     SelectLot(usize),
     LookAtLot(usize),
     Goals,
@@ -104,6 +105,13 @@ enum Cue {
 }
 
 pub const BUILD_TIME: f32 = 1.58;
+pub const DELIVERY_TIME: f32 = 3.2;
+
+#[derive(Clone, Copy)]
+pub struct Delivery {
+    pub route: Route,
+    pub since: f32,
+}
 
 #[derive(Clone, Copy)]
 pub struct Construction {
@@ -125,6 +133,8 @@ pub struct Game {
     pub return_to_guests: bool,
     pub job: Option<Job>,
     pub saw_prices: bool,
+    pub lesson: Option<Lesson>,
+    delivered: Option<Delivery>,
     pub focus: Option<Action>,
     pub dirty: bool,
     pub world_version: u32,
@@ -196,6 +206,8 @@ impl Default for Game {
             return_to_guests: false,
             job: None,
             saw_prices: false,
+            lesson: None,
+            delivered: None,
             focus: None,
             dirty: true,
             world_version: 0,
@@ -233,6 +245,7 @@ impl Game {
     fn transition(&mut self, view: View, panel: Panel) {
         if view != self.view {
             self.world_version += 1;
+            self.delivered = None;
             self.job = None;
             self.work.fill(None);
         }
@@ -245,8 +258,34 @@ impl Game {
             self.return_to_guests = false;
         }
         self.panel = panel;
+        self.lesson = None;
         self.focus = None;
         self.dirty = true;
+    }
+
+    pub fn delivery(&self) -> Option<Delivery> {
+        self.delivered
+            .filter(|item| self.clock - item.since < DELIVERY_TIME)
+    }
+
+    fn offer_lesson(&mut self, save: &Campaign, step: Option<Step>) -> bool {
+        if self.work.iter().any(Option::is_some) {
+            return false;
+        }
+        let Some(town) = &save.town else { return false };
+        let delivered = self.delivery().map(|item| item.route);
+        let Some(lesson) = coach::lesson(town, step, delivered) else {
+            return false;
+        };
+        self.lesson = Some(lesson);
+        self.focus = None;
+        self.dirty = true;
+        self.pan = Vec2::ZERO;
+        self.zoom = 0.0;
+        if matches!(town.phase, Phase::Open(_)) {
+            self.save(save);
+        }
+        true
     }
 
     fn guest_book(&mut self, guest: Option<usize>) {
@@ -316,7 +355,7 @@ pub fn frame(
     game.note_left = (game.note_left - real_dt).max(0.0);
 
     let live = game.view == View::Street && game.panel == Panel::None;
-    if live && game.job.is_none() && window.focused {
+    if live && game.job.is_none() && game.lesson.is_none() && window.focused {
         let before = save.town.as_ref().and_then(day_feedback);
         let previous_step = save.town.as_ref().and_then(|town| {
             coach::next(
@@ -371,7 +410,16 @@ pub fn frame(
         if let Some(route) = dispatched
             && save.town.as_ref().and_then(active_route).is_none()
         {
-            game.message(route.job.delivered(), Cue::Aid);
+            game.delivered = Some(Delivery { route, since: now });
+            if route.favor {
+                let currency = Region::of(save.town.as_ref().unwrap().chapter).currency();
+                game.message(
+                    format!("Bitte vom Kai erfüllt · +6 {currency} · +2 Ansehen"),
+                    Cue::Aid,
+                );
+            } else {
+                game.message(route.job.delivered(), Cue::Aid);
+            }
             game.dirty = true;
             game.save(&save);
         }
@@ -382,11 +430,28 @@ pub fn frame(
                 game.save(&save);
             }
         }
+        if game.offer_lesson(&save, step) {
+            return;
+        }
     }
 
     let pressed = changed.iter().find_map(|(state, action)| {
         (*state == Interaction::Pressed && !action.disabled).then_some(action.action)
     });
+    if let Some(lesson) = game.lesson {
+        let accept = controls.got(controls::A)
+            || (controls.got(controls::Y) && lesson.prompt == Prompt::Action(Step::StartDay))
+            || (controls.got(controls::R3)
+                && matches!(lesson.prompt, Prompt::Action(Step::Tour(..))));
+        if let Some(Action::Lesson(accepted)) = pressed {
+            apply(Action::Lesson(accepted), &mut game, &mut save);
+        } else if controls.got(controls::B) {
+            apply(Action::Lesson(false), &mut game, &mut save);
+        } else if accept {
+            apply(Action::Lesson(true), &mut game, &mut save);
+        }
+        return;
+    }
     if let Some(action) = pressed {
         apply(action, &mut game, &mut save);
         return;
@@ -453,7 +518,7 @@ pub fn frame(
         if controls.got(controls::A) {
             let action = if game.job.is_some() {
                 Action::Dispatch
-            } else if town.can_aid(game.selected) {
+            } else if town.favor_plan(chapter, game.selected).is_some() {
                 Action::Aid
             } else {
                 Action::Plot
@@ -521,7 +586,7 @@ pub fn frame(
                 if lot == game.selected {
                     let action = if game.job.is_some() {
                         Action::Dispatch
-                    } else if town.can_aid(lot) {
+                    } else if town.favor_plan(chapter, lot).is_some() {
                         Action::Aid
                     } else {
                         Action::Plot
@@ -576,6 +641,7 @@ fn start(chapter: usize, game: &mut Game, save: &mut Campaign) {
     let rule = &CHAPTERS[chapter];
     let town = Town::new(chapter, rule);
     game.saw_prices = false;
+    game.delivered = None;
     game.selected = coach::next(&town, rule, 1, false)
         .and_then(Step::lot)
         .unwrap_or(1);
@@ -589,6 +655,26 @@ fn start(chapter: usize, game: &mut Game, save: &mut Campaign) {
     game.transition(View::Street, Panel::Brief);
     game.world_version += 1;
     game.save(save);
+}
+
+fn follow_step(step: Step, game: &mut Game, save: &mut Campaign) {
+    if let Some(lot) = step.lot() {
+        select(game, lot);
+    }
+    match step {
+        Step::Build(..) | Step::Price(_) => apply(Action::Plot, game, save),
+        Step::Upgrade(_) => {
+            apply(Action::Plot, game, save);
+            game.focus = Some(Action::Upgrade);
+        }
+        Step::StartDay => apply(Action::Open, game, save),
+        Step::Aid(..) => apply(Action::Aid, game, save),
+        Step::Tour(_, job) => {
+            apply(Action::Nili, game, save);
+            game.focus = Some(Action::ChooseJob(job));
+        }
+        Step::Arrivals | Step::Evening => {}
+    }
 }
 
 fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
@@ -770,15 +856,22 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
             let Some(town) = &save.town else { return };
             let chapter = &CHAPTERS[town.chapter];
             if coach::next(town, chapter, game.selected, game.saw_prices) == Some(step) {
-                if let Some(lot) = step.lot() {
-                    select(game, lot);
-                }
-                match step {
-                    Step::Build(_, _) | Step::Price(_) => apply(Action::Plot, game, save),
-                    Step::StartDay => apply(Action::Open, game, save),
-                    Step::Aid(_, _) => apply(Action::Aid, game, save),
-                    Step::Water(_) => apply(Action::ChooseJob(Job::Water), game, save),
-                    Step::Arrivals | Step::Evening => {}
+                follow_step(step, game, save);
+            }
+        }
+        Action::Lesson(accepted) => {
+            let (Some(lesson), Some(town)) = (game.lesson.take(), &mut save.town) else {
+                return;
+            };
+            town.lessons |= lesson.moment.bit();
+            game.focus = None;
+            game.dirty = true;
+            game.save(save);
+            if accepted {
+                match lesson.prompt {
+                    Prompt::Action(step) => follow_step(step, game, save),
+                    Prompt::Feedback(_) => apply(Action::Feedback, game, save),
+                    Prompt::Delivered(..) => {}
                 }
             }
         }
@@ -923,7 +1016,7 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                 Action::HarborPlan(plan) => town.set_harbor(chapter, plan),
                 Action::ConfirmDemolish => town.remove(game.selected),
                 Action::Open => town.open(chapter),
-                Action::Aid => town.aid(game.selected),
+                Action::Aid => town.aid(chapter, game.selected),
                 Action::NextDay => town.advance(),
                 _ => false,
             };
@@ -948,15 +1041,10 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                         game.show(Panel::None);
                         game.message("Der Bauplatz ist wieder frei.", Cue::Back);
                     }
-                    Action::Aid => game.message(
-                        format!(
-                            "Nili hat geholfen. +6 {} · +2 Ansehen",
-                            Region::of(town.chapter).currency()
-                        ),
-                        Cue::Aid,
-                    ),
+                    Action::Aid => game.message("Nili ist unterwegs.", Cue::Confirm),
                     Action::Open | Action::NextDay => {
                         game.speed = 1;
+                        game.delivered = None;
                         if edit == Action::NextDay
                             && let Some(lot) =
                                 coach::next(town, chapter, game.selected, game.saw_prices)
@@ -972,7 +1060,7 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                 game.dirty = true;
                 game.save(save);
             } else {
-                game.message("Das geht gerade noch nicht.", Cue::Blocked);
+                game.message("Das geht im Moment nicht.", Cue::Blocked);
             }
         }
     }

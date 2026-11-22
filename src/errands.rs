@@ -52,21 +52,21 @@ impl Job {
 
     pub fn purpose(self) -> &'static str {
         match self {
-            Self::Freight => "+4 Vorrat · +6 vom Speicher",
-            Self::Water => "+4 Vorrat · +2 Krüge",
-            Self::Welcome => "+2 Gäste mit normalem Budget",
-            Self::Shade => "+5 Rast- oder Badeplätze",
-            Self::Quay => "+2 Plätze Laufweite vom Kai",
+            Self::Freight => "4 Portionen Nachschub, aus dem Speicher 6",
+            Self::Water => "4 Portionen mehr und 2 Krüge Wasser",
+            Self::Welcome => "2 zusätzliche Fährgäste",
+            Self::Shade => "5 zusätzliche Rast- oder Badeplätze",
+            Self::Quay => "Fährgäste gehen zwei Plätze weiter",
         }
     }
 
     pub fn requirements(self) -> &'static str {
         match self {
             Self::Freight => "Du brauchst einen Laden.",
-            Self::Water => "Du brauchst eine Quelle und einen Laden mit Wasserbedarf.",
+            Self::Water => "Dafür brauchst du eine Quelle und einen Laden, der Wasser braucht.",
             Self::Welcome => "Du brauchst einen Laden als Ziel.",
             Self::Shade => "Du brauchst einen Hain und eine Stoa oder Therme.",
-            Self::Quay => "Geht bei Wind, Regen oder Sturm.",
+            Self::Quay => "Nur bei Wind, Regen oder Sturm.",
         }
     }
 
@@ -148,31 +148,20 @@ impl Job {
         let (pickup, delivery) = self
             .route(town, chapter, lot)
             .ok_or(Blocked::Requirements)?;
-        let from = day.nili_at;
-        let started = day.seconds;
-        let pickup_at = started + from.duration(pickup, chapter);
-        let depart_at = pickup_at + 0.9;
-        let arrival = depart_at + pickup.duration(delivery, chapter);
-        let finish = arrival + 0.65;
-        let margin = if self == Self::Welcome { 2.1 } else { 0.1 };
-        if finish + margin > chapter.day_seconds() {
-            return Err(Blocked::Late);
-        }
-        Ok(Route {
-            job: self,
-            from,
+        Route::new(
+            self,
+            false,
+            day.nili_at,
             pickup,
             delivery,
-            started,
-            pickup_at,
-            depart_at,
-            arrival,
-            finish,
-        })
+            day.seconds,
+            chapter,
+        )
+        .ok_or(Blocked::Late)
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Blocked {
     Morning,
     Busy,
@@ -197,7 +186,7 @@ impl Blocked {
             Self::Morning => "Starte zuerst den Tag.",
             Self::Busy => "Nili ist noch unterwegs.",
             Self::Done => "Für heute erledigt.",
-            Self::Limit => "Heute sind alle Touren vergeben.",
+            Self::Limit => "Nili hat seine Touren für heute erledigt.",
             Self::Requirements => job.requirements(),
             Self::Late => "Dafür ist es heute zu spät.",
         }
@@ -248,9 +237,39 @@ impl Stop {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RouteStage {
+    Approach,
+    Collect,
+    Carry,
+    Deliver,
+}
+
+impl RouteStage {
+    pub fn caption(self, job: Job) -> &'static str {
+        match (self, job) {
+            (Self::Approach, _) => "Unterwegs zum Abholort",
+            (Self::Collect, Job::Freight) => "Hebt die Kiste",
+            (Self::Collect, Job::Water) => "Füllt die Krüge",
+            (Self::Collect, Job::Welcome) => "Winkt den Gästen",
+            (Self::Collect, Job::Shade) => "Sammelt Zweige",
+            (Self::Collect, Job::Quay) => "Hebt Treibgut auf",
+            (Self::Carry, Job::Welcome) => "Zeigt den Weg",
+            (Self::Carry, _) => "Unterwegs",
+            (Self::Deliver, Job::Freight) => "Setzt die Kiste ab",
+            (Self::Deliver, Job::Water) => "Gießt Wasser ein",
+            (Self::Deliver, Job::Welcome) => "Verabschiedet sich",
+            (Self::Deliver, Job::Shade) => "Verteilt die Zweige",
+            (Self::Deliver, Job::Quay) => "Räumt den Kai frei",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Route {
     pub job: Job,
+    #[serde(default)]
+    pub favor: bool,
     pub from: Stop,
     pub pickup: Stop,
     pub delivery: Stop,
@@ -262,6 +281,71 @@ pub struct Route {
 }
 
 impl Route {
+    pub(crate) fn new(
+        job: Job,
+        favor: bool,
+        from: Stop,
+        pickup: Stop,
+        delivery: Stop,
+        started: f32,
+        chapter: &Chapter,
+    ) -> Option<Self> {
+        let pickup_at = started + from.duration(pickup, chapter);
+        let depart_at = pickup_at + 1.05;
+        let arrival = depart_at + pickup.duration(delivery, chapter);
+        let finish = arrival + 0.90;
+        let margin = if job == Job::Welcome { 2.1 } else { 0.1 };
+        (finish + margin <= chapter.day_seconds()).then_some(Self {
+            job,
+            favor,
+            from,
+            pickup,
+            delivery,
+            started,
+            pickup_at,
+            depart_at,
+            arrival,
+            finish,
+        })
+    }
+
+    pub fn stage(self, seconds: f32) -> (RouteStage, f32) {
+        use RouteStage::*;
+        let (stage, start, end) = if seconds < self.pickup_at {
+            (Approach, self.started, self.pickup_at)
+        } else if seconds < self.depart_at {
+            (Collect, self.pickup_at, self.depart_at)
+        } else if seconds < self.arrival {
+            (Carry, self.depart_at, self.arrival)
+        } else {
+            (Deliver, self.arrival, self.finish)
+        };
+        (stage, ((seconds - start) / (end - start)).clamp(0.0, 1.0))
+    }
+
+    pub fn title(self) -> &'static str {
+        if self.favor {
+            "Nili hilft"
+        } else {
+            self.job.name()
+        }
+    }
+
+    pub fn reward(self) -> (&'static str, &'static str) {
+        if self.favor {
+            return ("+6 Münzen", "coin");
+        }
+        match self.job {
+            Job::Freight if matches!(self.pickup, Stop::Parcel(_)) => {
+                ("+6 Portionen", "guest_empty")
+            }
+            Job::Freight | Job::Water => ("+4 Portionen", "guest_empty"),
+            Job::Welcome => ("+2 Gäste", "ferry"),
+            Job::Shade => ("+5 Plätze", "stoa"),
+            Job::Quay => ("Kai frei", "check"),
+        }
+    }
+
     pub fn valid(self, town: &Town, chapter: &Chapter, age: f32) -> bool {
         [self.from, self.pickup, self.delivery]
             .iter()
@@ -275,6 +359,13 @@ impl Route {
             && self.arrival < self.finish
             && self.finish <= chapter.day_seconds()
             && (matches!(self.delivery, Stop::Parcel(_)) || self.job == Job::Quay)
+            && (!self.favor
+                || matches!(
+                    (&town.phase, self.delivery),
+                    (Phase::Open(day), Stop::Parcel(lot))
+                        if day.favor_at.is_none() && day.favor.job() == self.job
+                            && town.lots[usize::from(lot)].is_some_and(|b| day.favor.allows(b.kind))
+                ))
     }
 
     pub fn progress(self, seconds: f32) -> f32 {

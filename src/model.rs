@@ -300,9 +300,17 @@ impl Favor {
 
     pub fn note(self) -> &'static str {
         match self {
-            Self::Jugs => "+2 Vorrat für Läden an der Quelle",
-            Self::Shade => "+2 Plätze je Stoa und Therme",
-            Self::Cargo => "+3 Vorrat für einen Laden",
+            Self::Jugs => "2 Portionen mehr für Läden in der Nähe",
+            Self::Shade => "2 Plätze mehr je Stoa oder Therme",
+            Self::Cargo => "3 Portionen für einen Laden",
+        }
+    }
+
+    pub(crate) fn job(self) -> Job {
+        match self {
+            Self::Jugs => Job::Water,
+            Self::Shade => Job::Shade,
+            Self::Cargo => Job::Freight,
         }
     }
 
@@ -345,8 +353,8 @@ impl Miss {
         match self {
             Self::NoShop => "Baue einen Laden mit diesem Angebot.",
             Self::Walk => "Baue näher bei den Wohnhöfen oder am Kai.",
-            Self::Price => "Stell morgen den Preis niedriger ein.",
-            Self::Empty => "Schick Nili mit Nachschub oder bau den Laden aus.",
+            Self::Price => "Senk morgen den Preis.",
+            Self::Empty => "Schick Nili mit Nachschub oder baue morgen aus.",
         }
     }
 }
@@ -546,6 +554,8 @@ pub struct Town {
     pub last_day: Option<Tally>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub last_visits: Vec<Visit>,
+    #[serde(default)]
+    pub lessons: u32,
 }
 
 #[derive(Default)]
@@ -591,6 +601,7 @@ impl Town {
             harbor: HarborPlan::Regular,
             last_day: None,
             last_visits: Vec::new(),
+            lessons: 0,
         }
     }
 
@@ -879,6 +890,24 @@ impl Town {
         plan
     }
 
+    pub fn projected_upgrade(
+        &self,
+        chapter: &Chapter,
+        lot: usize,
+    ) -> Option<(Building, Production)> {
+        let building = self.lots.get(lot).copied().flatten()?;
+        if building.level >= MAX_LEVEL {
+            return None;
+        }
+        let upgraded = Building {
+            level: building.level + 1,
+            ..building
+        };
+        let mut preview = self.clone();
+        preview.lots[lot] = Some(upgraded);
+        Some((upgraded, preview.production(chapter)))
+    }
+
     fn nearest_stock(
         &self,
         lot: usize,
@@ -998,50 +1027,49 @@ impl Town {
         Ok(route)
     }
 
-    pub fn can_aid(&self, lot: usize) -> bool {
+    pub fn favor_plan(&self, chapter: &Chapter, lot: usize) -> Option<Route> {
         let Phase::Open(day) = &self.phase else {
-            return false;
+            return None;
         };
-        day.seconds >= 8.0
-            && day.route.is_none()
-            && day.favor_at.is_none()
-            && self
-                .lots
-                .get(lot)
-                .and_then(|b| *b)
-                .is_some_and(|b| day.favor.allows(b.kind))
+        let kind = self.lots.get(lot)?.as_ref()?.kind;
+        if day.seconds < 8.0
+            || day.route.is_some()
+            || day.favor_at.is_some()
+            || !chapter.layout.contains(lot)
+            || !day.favor.allows(kind)
+        {
+            return None;
+        }
+        let target = Stop::Parcel(lot as u8);
+        let pickup = match day.favor {
+            Favor::Cargo => Stop::Quay,
+            Favor::Jugs => target,
+            Favor::Shade => chapter
+                .layout
+                .lots()
+                .filter(|&i| self.lots[i].is_some_and(|building| building.kind == Kind::Grove))
+                .min_by_key(|&i| distance(lot, i))
+                .map_or(target, |i| Stop::Parcel(i as u8)),
+        };
+        Route::new(
+            day.favor.job(),
+            true,
+            day.nili_at,
+            pickup,
+            target,
+            day.seconds,
+            chapter,
+        )
     }
 
-    pub fn aid(&mut self, lot: usize) -> bool {
-        if !self.can_aid(lot) {
+    pub fn aid(&mut self, chapter: &Chapter, lot: usize) -> bool {
+        let Some(route) = self.favor_plan(chapter, lot) else {
             return false;
-        }
+        };
         let Phase::Open(day) = &mut self.phase else {
             return false;
         };
-        match day.favor {
-            Favor::Jugs => {
-                for (neighbor, building) in self.lots.iter().enumerate() {
-                    if building.is_some_and(|b| b.kind.water_user()) && distance(lot, neighbor) <= 3
-                    {
-                        day.stock[neighbor] += 2;
-                    }
-                }
-            }
-            Favor::Shade => {
-                for (neighbor, building) in self.lots.iter().enumerate() {
-                    if building.is_some_and(|b| matches!(b.kind, Kind::Stoa | Kind::Baths)) {
-                        day.stock[neighbor] += 2;
-                    }
-                }
-            }
-            Favor::Cargo => day.stock[lot] += 3,
-        }
-        day.tally.income += 6;
-        day.tally.reputation += 2;
-        day.tally.favors += 1;
-        day.favor_at = Some(lot as u8);
-        day.nili_at = Stop::Parcel(lot as u8);
+        day.route = Some(route);
         true
     }
 
@@ -1180,6 +1208,12 @@ fn resolve_visits(lots: &[Option<Building>; LOTS], day: &mut Day, chapter: &Chap
 fn finish_route(lots: &[Option<Building>; LOTS], day: &mut Day, route: Route) {
     day.route = None;
     day.nili_at = route.delivery;
+    if route.favor {
+        if let Stop::Parcel(lot) = route.delivery {
+            finish_favor(lots, day, usize::from(lot));
+        }
+        return;
+    }
     day.tally.routes[route.job as usize] += 1;
     let lot = match route.delivery {
         Stop::Parcel(i) => usize::from(i),
@@ -1223,6 +1257,30 @@ fn finish_route(lots: &[Option<Building>; LOTS], day: &mut Day, route: Route) {
     }
     day.tally.income += 3;
     day.tally.reputation += 1 + u32::from(route.job != Job::Freight);
+}
+
+fn finish_favor(lots: &[Option<Building>; LOTS], day: &mut Day, lot: usize) {
+    match day.favor {
+        Favor::Jugs => {
+            for (neighbor, building) in lots.iter().enumerate() {
+                if building.is_some_and(|b| b.kind.water_user()) && distance(lot, neighbor) <= 3 {
+                    day.stock[neighbor] += 2;
+                }
+            }
+        }
+        Favor::Shade => {
+            for (neighbor, building) in lots.iter().enumerate() {
+                if building.is_some_and(|b| matches!(b.kind, Kind::Stoa | Kind::Baths)) {
+                    day.stock[neighbor] += 2;
+                }
+            }
+        }
+        Favor::Cargo => day.stock[lot] += 3,
+    }
+    day.tally.income += 6;
+    day.tally.reputation += 2;
+    day.tally.favors += 1;
+    day.favor_at = Some(lot as u8);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1358,7 +1416,7 @@ mod tests {
     ];
 
     #[test]
-    fn all_chapters_can_earn_three_stars_and_unlock_the_next() {
+    fn first_twelve_harbors_can_earn_three_stars_and_unlock_the_next() {
         let mut save = Campaign::default();
         for (i, (chapter, builds)) in CHAPTERS.iter().zip(PLANS).enumerate() {
             assert!(save.unlocked(i), "{}", chapter.district);
@@ -1409,17 +1467,22 @@ mod tests {
     }
 
     #[test]
-    fn save_inside_day_preserves_inventory_prices_and_completed_favor() {
+    fn saving_during_a_favor_restores_and_delivers_it_once() {
         let chapter = &CHAPTERS[0];
         let mut town = Town::new(0, chapter);
         assert!(town.build(chapter, 2, Bakery));
         assert!(town.set_price(2, Price::Fair));
         assert!(town.open(chapter));
         town.tick(chapter, 12.0);
-        assert!(town.aid(2));
+        assert!(town.aid(chapter, 2));
+        let Phase::Open(day) = &town.phase else {
+            unreachable!()
+        };
+        assert_eq!(day.tally.favors, 0);
+        assert!(day.route.is_some_and(|route| route.favor));
         let serialized = serde_json::to_vec(&town).unwrap();
         let mut restored: Town = serde_json::from_slice(&serialized).unwrap();
-        assert!(!restored.aid(2));
+        assert!(!restored.aid(chapter, 2));
         assert_eq!(restored.lots[2].unwrap().price, Price::Fair);
         town.tick(chapter, DAY_SECONDS);
         restored.tick(chapter, DAY_SECONDS);
@@ -1628,6 +1691,17 @@ mod tests {
             .filter(|(_, k)| chapter.allowed().contains(k))
             .collect();
         }
+        if chapter.district == "Puteoli" {
+            return vec![
+                (11, Inn),
+                (5, Forum),
+                (4, Aqueduct),
+                (6, Inn),
+                (10, Baths),
+                (9, Potter),
+                (8, Taverna),
+            ];
+        }
         let aqueduct = if chapter.district == "Tibur" { 1 } else { 4 };
         let mut plan = vec![
             (aqueduct, Aqueduct),
@@ -1680,8 +1754,11 @@ mod tests {
                 Some((deficit, i))
             })
             .max();
-        if let Some((_, lot)) = best {
-            assert!(town.aid(lot));
+        if let Some((_, lot)) = best
+            && let Some(route) = town.favor_plan(chapter, lot)
+        {
+            assert!(town.aid(chapter, lot));
+            town.tick(chapter, route.finish - route.started + 0.01);
         }
         let distinct_required = chapter
             .goals
@@ -1736,7 +1813,7 @@ mod tests {
     }
 
     #[test]
-    fn both_campaigns_have_reachable_objectives_and_distinct_city_plans() {
+    fn all_48_harbors_can_earn_three_stars_and_unlock_the_next() {
         use crate::campaign::REGION_SIZE;
 
         let mut save = Campaign::default();
@@ -1756,7 +1833,7 @@ mod tests {
             let mut town = Town::new(i, chapter);
             let layout = reference_layout(i, chapter);
             let mut result = None;
-            for _ in 0..chapter.par + 8 {
+            for _ in 0..chapter.par {
                 for &(lot, kind) in &layout {
                     if town.lots[lot].is_none() && !town.build(chapter, lot, kind) {
                         break;
@@ -1807,6 +1884,8 @@ mod tests {
                             unreachable!()
                         };
                         let score = progress * 2400.0
+                            + 1_000.0 * f64::from(report.stars)
+                            + 18.0 * f64::from(report.tally.favors)
                             + f64::from(report.tally.served_total())
                             + f64::from(report.tally.income) * 0.18;
                         if best.as_ref().is_none_or(|(prior, _)| score > *prior) {
@@ -1818,8 +1897,15 @@ mod tests {
                 let Phase::Report(report) = &town.phase else {
                     unreachable!()
                 };
-                if report.stars > 0 {
+                if report.stars == 3 {
                     save.record(i, town.day, report.stars);
+                    save.town = Some(town.clone());
+                    let encoded = serde_json::to_vec(&save).unwrap();
+                    save = Campaign::decode(encoded.as_slice()).unwrap_or_else(|| {
+                        panic!("Cannot resume {} after completion", chapter.district)
+                    });
+                    assert_eq!(save.records[i].stars, 3);
+                    assert_eq!(save.town.as_ref().unwrap().day, town.day);
                     result = Some((town.day, report.stars));
                     break;
                 }
@@ -1827,9 +1913,11 @@ mod tests {
             }
             let Some((days, stars)) = result else {
                 failures.push(format!(
-                    "{}: {:?}",
+                    "{}: {:?}, Hafenbitten {}/{}",
                     chapter.district,
-                    chapter.goals.map(|g| (g.label(), town.goal(g)))
+                    chapter.goals.map(|g| (g.label(), town.goal(g))),
+                    town.totals.favors,
+                    chapter.favor_goal
                 ));
                 continue;
             };

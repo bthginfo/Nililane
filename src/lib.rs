@@ -76,8 +76,10 @@ pub fn run() {
                 world::sync,
                 world::animate,
                 world::animate_people,
+                world::animate_work,
                 ui::update_reactions,
                 ui::update_prompts,
+                ui::update_lessons,
                 world::animate_construction,
                 world::animate_weather,
             )

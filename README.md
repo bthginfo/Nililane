@@ -1,4 +1,4 @@
-# Nililane 2.2
+# Nililane 2.3
 
 Nililane ist ein 3D-Straßenmanagementspiel in Rust und Bevy. Mit dem Nilpferd Nili
 reist du zuerst durch das antike Griechenland und danach durch das antike
@@ -6,7 +6,7 @@ Rom. Du planst die Gasse am Morgen, versorgst Nachbarn und Fährgäste und hilfs
 tagsüber dort, wo sich die Lieferungen stauen. Auf der Kampagnenkarte erkennst
 du die Größe des nächsten Hafens schon vor der Überfahrt.
 
-**[Nililane 2.2.0 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/6f7ec7fb58b839ed0763f5cd529a4797eb2f354b/Nililane-2.2.0.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/6f7ec7fb58b839ed0763f5cd529a4797eb2f354b/Nililane-2.2.0.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.2.0)
+**[Nililane 2.3.0 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/7cf2d9592a09abcb1eb3dd4ffab9f83b569f0075/Nililane-2.3.0.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/7cf2d9592a09abcb1eb3dd4ffab9f83b569f0075/Nililane-2.3.0.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.3.0)
 
 ![Nili mit Bewohnern und dem ausgebauten Wohnhof in Naxos](docs/bilder/naxos.jpg)
 
@@ -20,10 +20,12 @@ sie. Installiere das Update über deine bisherige Version, um deine laufende
 Gasse und die Sternrekorde mitzunehmen. Nililane läuft offline und öffnet sich im Querformat.
 
 Kopple den Xbox-Controller über die Android-Bluetooth-Einstellungen oder
-schließe ihn per USB an. Unter **Erste Reise** führt Nili dich durch den
-ersten Bau, den Brotpreis, den Tagesstart und eine Hafenbitte. Im Haupt- und Pausenmenü
-gibt es eine bebilderte **Spielhilfe**. Unter **Einstellungen** kannst du
-die Oberfläche vergrößern sowie Musik und Spielklänge separat schalten.
+schließe ihn per USB an. Unter **Erste Reise** beginnt der bebilderte
+Einstieg auf Naxos. Auf den ersten drei Inseln hält der Spieltag an wichtigen
+Stellen an. Mit **A** oder einem Tipp auf die Markierung folgst du der Hilfe.
+Mit **B** schließt du den Hinweis. Im Haupt- und Pausenmenü findest du die
+**Spielhilfe**. In den **Einstellungen** kannst du die Oberfläche vergrößern
+sowie Musik und Spielklänge separat schalten.
 
 | Xbox-Controller | Aktion |
 | --- | --- |
@@ -44,6 +46,26 @@ Pfeiltasten oder WASD die Auswahl, Enter bestätigt, Escape geht zurück.
 X, Y, P, Q und E entsprechen X, Y, Start, LB und RB. N öffnet Nilis Touren.
 F öffnet das Gästebuch.
 
+## Neu in 2.3
+
+- **Naxos** zeigt den ersten Bauplatz, die Preise, den Tagesstart, die
+  anlegende Fähre und die ersten Gästestimmen.
+- **Amorgos** führt vom Brunnen zur Backstube. **Delos** zeigt den Platz
+  für die Töpferei, die Nachschubtour und den ersten Ausbau.
+- Eine helle Markierung zeigt den passenden Ort. Daneben steht ein kurzer
+  Hinweis mit einer Aktion. Bei Ereignissen während des Tages pausiert die Uhr.
+- Schilder und eine Punktspur zeigen Nilis Abholort und Ziel. Er hebt Kisten,
+  füllt und gießt Krüge, winkt Gästen, fächert mit Zweigen und räumt Treibgut.
+  Nach der Arbeit zeigt ein Symbol, was am Ziel angekommen ist.
+- Hinweise, Aufträge, Gästestimmen und Hafengeschichten sind sprachlich
+  überarbeitet. Bei Läden heißt es „Ausverkauft“, bei Betten und Plätzen
+  „Belegt“.
+- Die Ausbauvorschau markiert knappe Wasserversorgung. Die Kampagnenprüfung
+  hat alle 48 Häfen mit drei Sternen abgeschlossen und den Fortschritt
+  nach jedem Hafen wieder geladen.
+
+![Pausierter Spieltag auf Amorgos mit hervorgehobenem Brunnen und kurzem Hinweis zu Nilis Touren](docs/bilder/amorgos-hilfe.jpg)
+
 ## Neu in 2.2
 
 - Nili markiert den nächsten Schritt auf der Insel. Auf Naxos zeigen Bilder
@@ -51,7 +73,7 @@ F öffnet das Gästebuch.
   Nili vom Brunnen zur ersten Wasserlieferung.
 - Die Baukarten zeigen Kosten und Ertrag. In der Preiswahl siehst du für jede
   Stufe, wie viele der erwarteten Gäste genug Geld haben.
-- Sprechblasen und Schilder zeigen leere Auslagen, offene Hafenbitten und
+- Sprechblasen und Schilder zeigen leere Auslagen, offene Bitten vom Kai und
   mögliche Ziele für Nilis Touren. Die Aufträge erhalten bei Fortschritt
   einen aktualisierten Balken und bei Erfüllung ein Häkchen.
 - Die Spielhilfe erklärt Steuerung und Abläufe mit Symbolen und kurzen
@@ -106,7 +128,7 @@ F öffnet das Gästebuch.
   für drei Tage. Wind, Regen und Sturm beeinflussen die See, den
   Fährverkehr und die Wasserreserven. Mit dem Hafenplan kannst du
   Wasser holen, zusätzliche Fährgäste einladen oder Nachbarn bevorzugen.
-- Am Hafen warten drei Aufträge. Ein zügiger Abschluss und Hafenbitten bringen
+- Am Hafen warten drei Aufträge. Ein zügiger Abschluss und Bitten vom Kai bringen
   Zusatzsterne. Nach dem Abschluss kannst du bleiben, weiterreisen
   oder einen Hafen für mehr Sterne erneut besuchen.
 - Bauentscheidungen, laufende Tage und Sternrekorde werden lokal gespeichert.

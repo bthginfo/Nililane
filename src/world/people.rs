@@ -748,7 +748,7 @@ pub fn animate(
     reactions.0.clear();
     if let Phase::Open(day) = &town.phase {
         if let Some(route) = day.route.filter(|route| {
-            route.job == crate::errands::Job::Welcome && day.seconds >= route.depart_at
+            route.job == crate::errands::Job::Welcome && day.seconds >= route.pickup_at + 0.16
         }) {
             let path = motion::delivery_path(route, layout);
             for n in 0..2 {

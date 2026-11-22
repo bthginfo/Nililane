@@ -86,7 +86,7 @@ pub fn pack(job: crate::errands::Job) -> Mesh {
     use crate::errands::Job;
 
     let mut b = Batch::default();
-    let point = v(0.0, 0.88, -0.48);
+    let point = super::work::PACK_CENTER;
     match job {
         Job::Freight => {
             crate_box(&mut b, point, v(0.47, 0.35, 0.33), [178, 125, 76]);

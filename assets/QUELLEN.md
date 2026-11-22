@@ -14,6 +14,7 @@ Hippogrove aus Waldwinkel. [Hippogrove-Revision](https://github.com/bthginfo/Hip
   `ships.rs` baut Rümpfe, Takelage, Segel, Ladung und Bugwellen.
   `people.rs` baut römische und griechische Figuren mit einem gemeinsamen
   Skelett. `construction.rs` steuert Gerüst, Ausbauteile und Staub.
+  `work.rs` und `actors.rs` gestalten Nilis Bewegungen, Requisiten und Punktspuren.
   `sky.rs` zeichnet Wolken, Regenschlieren und Sturmwellen.
 - Die Bildtafeln und Spielsymbole in `ui/` kommen aus `art/make_ui.py`.
   Dazu gehören die Gästehinweise, das Gästebuch, die Controller-Symbole und das Budgetsymbol.

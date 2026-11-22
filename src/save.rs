@@ -47,7 +47,7 @@ impl Campaign {
         Self::decode(file).unwrap_or_default()
     }
 
-    fn decode(input: impl io::Read) -> Option<Self> {
+    pub(crate) fn decode(input: impl io::Read) -> Option<Self> {
         let mut progress: Self = serde_json::from_reader(input).ok()?;
         if !(1..=VERSION).contains(&progress.version)
             || !progress.town.as_ref().is_none_or(valid_town)
@@ -186,6 +186,28 @@ mod tests {
     use crate::model::{Kind, Price};
 
     #[test]
+    fn a_paused_lesson_and_an_unfinished_favor_survive_a_reload() {
+        let chapter = &CHAPTERS[0];
+        let mut town = Town::new(0, chapter);
+        let seen = crate::coach::Moment::Ferry.bit();
+        town.lessons |= seen;
+        assert!(town.build(chapter, 2, Kind::Bakery));
+        assert!(town.open(chapter));
+        town.tick(chapter, 9.1);
+        assert!(town.aid(chapter, 2));
+        let progress = Campaign {
+            town: Some(town),
+            ..Campaign::default()
+        };
+        let data = serde_json::to_vec(&progress).unwrap();
+        let mut town = Campaign::decode(data.as_slice()).unwrap().town.unwrap();
+        assert_eq!(town.lessons, seen);
+        town.tick(chapter, 60.0);
+        assert_eq!(town.totals.favors, 1);
+        assert_eq!(town.totals.routes_today(), 0);
+    }
+
+    #[test]
     fn version_one_open_day_keeps_ids_inventory_and_progress() {
         let mut progress = Campaign::default();
         progress.record(0, 3, 3);
@@ -195,11 +217,14 @@ mod tests {
         assert!(town.set_price(7, Price::Fair));
         assert!(town.open(chapter));
         town.tick(chapter, 29.0);
-        assert!(town.aid(8));
+        let route = town.favor_plan(chapter, 8).unwrap();
+        assert!(town.aid(chapter, 8));
+        town.tick(chapter, route.finish - route.started + 0.02);
         progress.town = Some(town.clone());
         let mut old = serde_json::to_value(&progress).unwrap();
         old["version"] = 1.into();
         old["town"]["lots"].as_array_mut().unwrap().truncate(12);
+        old["town"].as_object_mut().unwrap().remove("lessons");
         let old_day = old["town"]["phase"]["Open"].as_object_mut().unwrap();
         old_day
             .get_mut("stock")

@@ -70,21 +70,32 @@ fn brief(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter
         chapter.name,
         region.icon(),
         |page| {
-            if town.chapter == 0 {
-                page.spawn(row(10.0)).with_children(|steps| {
-                    for (i, (art, word, pad)) in [
-                        ("bakery", "Backstube bauen", "A"),
-                        ("coin", "Brotpreis wählen", "A"),
-                        ("sun", "Tag starten", "Y"),
-                    ]
-                    .into_iter()
-                    .enumerate()
-                    {
+            let introduction = match town.chapter {
+                0 => Some([
+                    ("bakery", "Backstube bauen", "A"),
+                    ("coin", "Brotpreis wählen", "A"),
+                    ("sun", "Tag starten", "Y"),
+                ]),
+                1 => Some([
+                    ("well", "Brunnen bauen", ""),
+                    ("water", "Wasser bringen", ""),
+                    ("bread", "Brot verkaufen", ""),
+                ]),
+                2 => Some([
+                    ("potter", "Töpferei bauen", ""),
+                    ("storehouse", "Nachschub bringen", ""),
+                    ("hammer", "Töpferei ausbauen", ""),
+                ]),
+                _ => None,
+            };
+            if let Some(steps) = introduction {
+                page.spawn(row(10.0)).with_children(|row| {
+                    for (i, (art, word, pad)) in steps.into_iter().enumerate() {
                         if i > 0 {
-                            label(steps, hud, "›", 25.0, Face::Bold, GOLD);
+                            label(row, hud, "›", 25.0, Face::Bold, GOLD);
                         }
                         card(
-                            steps,
+                            row,
                             Node {
                                 flex_grow: 1.0,
                                 flex_basis: Val::Px(0.0),
@@ -99,7 +110,9 @@ fn brief(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter
                         .with_children(|tile| {
                             icon(tile, hud, art, 61.0);
                             label(tile, hud, word, 19.0, Face::Bold, SAND);
-                            key(tile, hud, pad, false);
+                            if !pad.is_empty() {
+                                key(tile, hud, pad, false);
+                            }
                         });
                     }
                 });
@@ -333,7 +346,7 @@ fn build(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, chap
                                 label(
                                     item,
                                     hud,
-                                    format!("Fehlen noch {}", kind.cost() - town.coins),
+                                    format!("Noch {} Münzen nötig", kind.cost() - town.coins),
                                     15.0,
                                     Face::Body,
                                     MUTED,
@@ -449,7 +462,7 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                     Kind::Grove => ("olive", format!("{} Oliven auf der Insel", before.olives)),
                     _ => (
                         "bread",
-                        format!("+{} Vorrat je Laden in Reichweite", b.level),
+                        format!("+{} Portionen je Laden in der Nähe", b.level),
                     ),
                 };
                 metric(page, hud, art, effect);
@@ -458,12 +471,27 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                 metric(page, hud, art, text);
             }
             if town.planning() {
-                if let Some((art, from, to, unit)) = upgrade_estimate(town, chapter, lot) {
+                if let Some(estimate) = upgrade_estimate(town, chapter, lot) {
                     let appearance = expansion(b.kind, b.level + 1, Region::of(town.chapter));
                     page.spawn(row(18.0)).with_children(|next| {
                         metric(next, hud, "hammer", appearance);
+                        let UpgradeEstimate {
+                            art,
+                            from,
+                            to,
+                            unit,
+                            ..
+                        } = estimate;
                         metric(next, hud, art, format!("{from} → {to} {unit}"));
                     });
+                    if let Some(kind) = estimate.short_water {
+                        let words = if kind == b.kind {
+                            "Beim Ausbau fehlt Wasser".to_owned()
+                        } else {
+                            format!("Wasser wird knapp · {}", kind.name())
+                        };
+                        metric(page, hud, "water", words);
+                    }
                 }
                 line(page, LINE);
                 page.spawn(Node {
@@ -605,9 +633,9 @@ fn price_cards(
                     hud,
                     "budget",
                     if budgets.is_empty() {
-                        "Heute keine Nachfrage".to_owned()
+                        "Heute kein Bedarf".to_owned()
                     } else {
-                        format!("{affordable} von {} können zahlen", budgets.len())
+                        format!("Für {affordable} von {} bezahlbar", budgets.len())
                     },
                 );
                 meter(
@@ -667,24 +695,19 @@ fn expansion(kind: Kind, tier: u8, region: Region) -> &'static str {
     names[usize::from(tier - 2)]
 }
 
-fn upgrade_estimate(
-    town: &Town,
-    chapter: &Chapter,
-    lot: usize,
-) -> Option<(&'static str, u16, u16, &'static str)> {
+struct UpgradeEstimate {
+    art: &'static str,
+    from: u16,
+    to: u16,
+    unit: &'static str,
+    short_water: Option<Kind>,
+}
+
+fn upgrade_estimate(town: &Town, chapter: &Chapter, lot: usize) -> Option<UpgradeEstimate> {
     let building = town.lots[lot]?;
-    if building.level >= MAX_LEVEL {
-        return None;
-    }
-    let mut preview = town.clone();
-    let next = crate::model::Building {
-        level: building.level + 1,
-        ..building
-    };
-    preview.lots[lot] = Some(next);
+    let (next, after) = town.projected_upgrade(chapter, lot)?;
     let before = town.production(chapter);
-    let after = preview.production(chapter);
-    Some(if building.residents() > 0 {
+    let (art, from, to, unit) = if building.residents() > 0 {
         ("house", building.residents(), next.residents(), "Nachbarn")
     } else if building.kind.water_source() {
         ("water", before.water, after.water, "Krüge")
@@ -705,6 +728,23 @@ fn upgrade_estimate(
             after.stock[lot],
             stock_unit(service, 2),
         )
+    };
+    let short_water = if building.kind.water_user() && to <= from {
+        Some(building.kind)
+    } else if building.kind.water_user() {
+        town.lots.iter().enumerate().find_map(|(i, &b)| {
+            b.filter(|b| b.kind.water_user() && after.stock[i] < before.stock[i])
+                .map(|b| b.kind)
+        })
+    } else {
+        None
+    };
+    Some(UpgradeEstimate {
+        art,
+        from,
+        to,
+        unit,
+        short_water,
     })
 }
 
@@ -729,7 +769,7 @@ fn goals(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter
                 label(
                     page,
                     hud,
-                    "Die Wertung zählt ab 12 Gästestimmen.",
+                    "Die Zufriedenheit zählt ab 12 Rückmeldungen.",
                     16.0,
                     Face::Body,
                     MUTED,
@@ -746,7 +786,7 @@ fn goals(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter
                     stars,
                     hud,
                     "nili",
-                    format!("{} Hafenbitten", chapter.favor_goal),
+                    format!("{} Bitten vom Kai", chapter.favor_goal),
                 );
             });
             button(
@@ -862,7 +902,7 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
             "house",
             &home.to_string(),
             if live {
-                "Nachbarn unterwegs"
+                "Erwartete Nachbarn"
             } else {
                 "Nachbarn"
             },
@@ -873,7 +913,7 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
             "ferry",
             &ferry.to_string(),
             if live {
-                "Fährgäste unterwegs"
+                "Erwartete Fährgäste"
             } else {
                 "Fährgäste"
             },
@@ -883,7 +923,7 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
             hud,
             "water",
             &format!("{}/{}", production.used_water, production.water),
-            "Wasser gebraucht",
+            "Wasser verbraucht",
         );
         if chapter.allowed().contains(&Kind::Grove) {
             super::screens::stat(
@@ -891,7 +931,7 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
                 hud,
                 "olive",
                 &format!("{}/{}", production.used_olives, production.olives),
-                "Oliven gebraucht",
+                "Oliven verbraucht",
             );
         }
     });
@@ -1034,7 +1074,7 @@ fn day_plan(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
     let favor = town.next_favor(chapter);
     let done = matches!(&town.phase, Phase::Open(day) if day.favor_at.is_some());
     if done {
-        metric(page, hud, "check", "Hafenbitte erfüllt");
+        metric(page, hud, "check", "Bitte vom Kai erfüllt");
     } else {
         page.spawn(row(16.0)).with_children(|r| {
             metric(r, hud, "nili", favor.name());
@@ -1156,7 +1196,7 @@ fn evening(
                         "Touren",
                     );
                 } else if report.tally.favors > 0 {
-                    super::screens::stat(figures, hud, "nili", "1", "Hafenbitte");
+                    super::screens::stat(figures, hud, "nili", "1", "Bitte vom Kai");
                 }
             });
             if clear {
@@ -1173,6 +1213,29 @@ fn evening(
                         GOLD,
                     );
                 });
+                if report.stars < 3 {
+                    page.spawn(row(13.0)).with_children(|remaining| {
+                        if town.totals.favors < chapter.favor_goal {
+                            metric(
+                                remaining,
+                                hud,
+                                "nili",
+                                format!(
+                                    "{} / {} Bitten vom Kai",
+                                    town.totals.favors, chapter.favor_goal
+                                ),
+                            );
+                        }
+                        if town.day > chapter.par {
+                            metric(
+                                remaining,
+                                hud,
+                                "sunset",
+                                format!("Zeitbonus bis Tag {}", chapter.par),
+                            );
+                        }
+                    });
+                }
                 label(
                     page,
                     hud,
@@ -1516,40 +1579,40 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                     (
                         "well",
                         "bakery",
-                        "Wasser füllt die Regale",
+                        "Mit Wasser gibt es mehr Vorrat",
                         "Läden in der Nähe bekommen zuerst Wasser. Bei Hitze brauchen sie mehr.",
                     ),
                     (
                         "olive",
                         "meze",
-                        "2 Laibe + 2 Olivenportionen für die Taverne",
-                        "Ein Ofen direkt nebenan bringt eine Portion Meze extra.",
+                        "2 Laibe und 2 Portionen Oliven für die Taverne",
+                        "Mit einem Ofen nebenan gibt es eine Portion Meze mehr.",
                     ),
                     (
                         "storehouse",
                         "bread",
                         "Speicher helfen Läden in der Nähe",
-                        "Der Bonus reicht bis zu zwei Bauplätze weit.",
+                        "Der Speicher versorgt Läden bis zu zwei Bauplätze entfernt.",
                     ),
                     (
                         "house",
                         "budget",
                         "Weg und Budget zählen",
-                        "Nachbarn laufen bis zu vier Plätze. Fährgäste laufen je nach Insel weiter.",
+                        "Nachbarn laufen bis zu vier Plätze. Bei Fährgästen hängt die Strecke vom Hafen ab.",
                     ),
                 ],
                 3 => &[
                     (
                         "nili",
                         "star",
-                        "Hafenbitte erfüllen",
-                        "Wähle den markierten Ort. Du bekommst 6 Münzen und 2 Ansehen.",
+                        "Bitte vom Kai erfüllen",
+                        "Schick Nili zum markierten Ort. Dafür bekommst du 6 Münzen und gewinnst Ansehen.",
                     ),
                     (
                         "water",
                         "bakery",
                         "Tour wählen und Ziel markieren",
-                        "Für Wasser und Schatten braucht Nili eine Quelle oder einen Hain.",
+                        "Wasser holt Nili an der Quelle, Zweige im Olivenhain.",
                     ),
                     (
                         "wind",
@@ -1569,7 +1632,7 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                         "sunset",
                         "star",
                         "Bis zu drei Sterne je Hafen",
-                        "Je ein Stern für Abschluss, Tempo und Hafenbitten.",
+                        "Sterne gibt es für die Aufträge, den Abschluss in der Zeit und die Bitten vom Kai.",
                     ),
                     (
                         "check",
@@ -1589,13 +1652,13 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                         "forum",
                         "ferry",
                         "Das Forum hilft Fährgästen",
-                        "Läden in der Nähe sind vom Kai einen Platz weiter erreichbar.",
+                        "In der Nähe des Forums laufen Fährgäste einen Platz weiter.",
                     ),
                     (
                         "villa",
                         "budget",
-                        "Villen bringen mehr Nachbarn",
-                        "Viele kommen mit größerem Budget.",
+                        "In Villen wohnen mehr Menschen",
+                        "Viele von ihnen können mehr ausgeben.",
                     ),
                 ],
             };
@@ -1654,7 +1717,11 @@ fn controls_guide(p: &mut ChildSpawnerCommands, hud: &Hud) {
         ("X", "book", "Aufträge"),
         ("View", "guest_book", "Gästebuch"),
         ("RB", "cloud", "Wetter und Vorräte"),
-        ("R3", "nili", "Rechten Stick drücken · Nilis Touren"),
+        (
+            "R3",
+            "nili",
+            "Rechten Stick drücken, um Nilis Touren zu öffnen",
+        ),
         ("R-Stick", "chart", "Kamera bewegen"),
         ("LT / RT", "", "Rein- und rauszoomen"),
         ("LB", "", "Kamera zurücksetzen"),

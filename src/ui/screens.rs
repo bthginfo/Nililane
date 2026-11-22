@@ -152,7 +152,7 @@ und viele kleine Geschichten.",
     ))
     .with_children(|row| {
         icon(row, hud, "nili", 33.0);
-        label(row, hud, "Nili · Hafenhelfer", 18.0, Face::Serif, SAND);
+        label(row, hud, "Nili hilft am Kai", 18.0, Face::Serif, SAND);
     });
 }
 
@@ -426,7 +426,7 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town)
                         if town.planning() {
                             "Planen"
                         } else {
-                            "Gäste unterwegs"
+                            "Der Tag läuft"
                         }
                     ),
                     15.0,
@@ -571,14 +571,14 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town)
     let step = coach::next(town, ch, game.selected, game.saw_prices);
     let (primary, hot, ico, action) = if plan.is_some() {
         ("Nili losschicken", "A", "nili", Action::Dispatch)
-    } else if town.can_aid(game.selected) {
+    } else if town.favor_plan(ch, game.selected).is_some() {
         ("Nili losschicken", "A", "nili", Action::Aid)
     } else if town.planning() && town.lots[game.selected].is_none() {
         ("Bauen", "A", "hammer", Action::Plot)
     } else if town.planning()
         && town.lots[game.selected].is_some_and(|b| b.kind.service().is_some())
     {
-        ("Preis & Ausbau", "A", "coin", Action::Plot)
+        ("Preis und Ausbau", "A", "coin", Action::Plot)
     } else {
         ("Details", "A", tile, Action::Plot)
     };
@@ -597,16 +597,11 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town)
                     label(r, hud, job.name(), 20.0, Face::Bold, GOLD);
                 });
                 let ready = status.is_ok();
-                let note = match status {
-                    Ok(route) => format!(
-                        "{} → {}  ·  {:.0} s",
-                        route.pickup.label(town),
-                        route.delivery.label(town),
-                        route.finish - route.started
-                    ),
-                    Err(reason) => reason.label(job).to_string(),
-                };
-                label(help, hud, note, 16.0, Face::Body, SAND);
+                if let Ok(route) = status {
+                    route_stops(help, hud, town, route);
+                } else if let Err(reason) = status {
+                    label(help, hud, reason.label(job), 16.0, Face::Body, SAND);
+                }
                 help.spawn(row(5.0)).with_children(|r| {
                     icon(r, hud, "pad_dpad", 26.0);
                     label(
@@ -627,17 +622,10 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town)
         } else if let Phase::Open(day) = &town.phase
             && let Some(route) = day.route
         {
-            card(foot, frame_node(Val::Px(420.0), 6.0, 9.0), DEEP).with_children(|info| {
+            card(foot, frame_node(Val::Px(513.0), 5.0, 9.0), DEEP).with_children(|info| {
                 info.spawn(row(7.0)).with_children(|r| {
                     icon(r, hud, route.job.icon(), 30.0);
-                    label(
-                        r,
-                        hud,
-                        format!("{} · {}", route.job.name(), route.delivery.label(town)),
-                        18.0,
-                        Face::Bold,
-                        GOLD,
-                    );
+                    label(r, hud, route.title(), 18.0, Face::Bold, GOLD);
                     r.spawn((
                         Dynamic::Route,
                         Text::new(""),
@@ -649,6 +637,7 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town)
                         },
                     ));
                 });
+                route_stops(info, hud, town, route);
                 info.spawn((
                     Node {
                         width: Val::Percent(100.0),
@@ -794,6 +783,30 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town)
             Style::Quiet,
             false,
         );
+    });
+}
+
+fn route_stops(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, route: crate::errands::Route) {
+    use crate::errands::Stop;
+    let symbol = |stop| match stop {
+        Stop::Parcel(i) => town.lots[usize::from(i)].map_or("hammer", |b| kind_icon(b.kind)),
+        _ => "ferry",
+    };
+    p.spawn(row(7.0)).with_children(|path| {
+        icon(path, hud, symbol(route.pickup), 26.0);
+        label(path, hud, route.pickup.label(town), 16.0, Face::Body, SAND);
+        if route.pickup != route.delivery {
+            label(path, hud, "›", 22.0, Face::Bold, GOLD);
+            icon(path, hud, symbol(route.delivery), 26.0);
+            label(
+                path,
+                hud,
+                route.delivery.label(town),
+                16.0,
+                Face::Body,
+                SAND,
+            );
+        }
     });
 }
 

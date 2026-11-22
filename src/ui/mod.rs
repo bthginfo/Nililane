@@ -1,5 +1,6 @@
 mod bubbles;
 mod guests;
+mod lessons;
 mod panels;
 mod prompts;
 mod screens;
@@ -51,6 +52,7 @@ enum Style {
     Selected,
     Danger,
     Speech,
+    Spotlight,
 }
 
 #[derive(Clone, Copy)]
@@ -141,6 +143,9 @@ pub fn draw(
                         }
                         prompts::spawn(base, &hud);
                         screens::street(base, &hud, &game, town);
+                        if let Some(lesson) = game.lesson {
+                            lessons::spawn(base, &hud, lesson, town);
+                        }
                     } else {
                         panels::street_panel(base, &hud, &game, town);
                         if matches!(town.phase, Phase::Open(_)) {
@@ -199,6 +204,9 @@ fn job_preview(
 }
 
 fn first(game: &Game, save: &Campaign) -> Option<Action> {
+    if game.lesson.is_some() {
+        return Some(Action::Lesson(true));
+    }
     let action = match (game.view, game.panel) {
         (_, Panel::Options) => Action::LargeUi,
         (_, Panel::Guide) => Action::GuideTab(game.guide),
@@ -217,8 +225,8 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
             let town = save.town.as_ref()?;
             let chapter = &CHAPTERS[town.chapter];
             let guide = crate::coach::next(town, chapter, game.selected, game.saw_prices);
-            if matches!(guide, Some(crate::coach::Step::Water(_))) {
-                return Some(Action::ChooseJob(crate::errands::Job::Water));
+            if let Some(job) = guide.and_then(crate::coach::Step::tour) {
+                return Some(Action::ChooseJob(job));
             }
             crate::errands::Job::ALL
                 .into_iter()
@@ -271,6 +279,7 @@ pub(crate) struct Root;
 
 pub use bubbles::update as update_reactions;
 pub use guests::refresh as refresh_guest_summary;
+pub use lessons::update as update_lessons;
 pub use prompts::update as update_prompts;
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -337,7 +346,9 @@ pub fn refresh(
         let focused = game.focus.or(hud.first) == Some(button.action) && !button.disabled;
         let hovered = *input != Interaction::None && !button.disabled;
         outline.color = if focused { GOLD } else { Color::NONE };
-        (fill.0, border.0) = if matches!(button.style, Style::Speech) {
+        (fill.0, border.0) = if matches!(button.style, Style::Spotlight) {
+            (Color::NONE, if hovered { SAND } else { GOLD })
+        } else if matches!(button.style, Style::Speech) {
             (if hovered { PAPER } else { SAND }, PAPER)
         } else if button.disabled {
             (DEEP, CARD)
@@ -373,7 +384,7 @@ pub fn refresh(
                 Style::Primary => (GOLD, PAPER),
                 Style::Quiet => (CARD, LINE),
                 Style::Selected => (JADE, LINE),
-                Style::Danger | Style::Speech => unreachable!(),
+                Style::Danger | Style::Speech | Style::Spotlight => unreachable!(),
             }
         };
     }
@@ -389,7 +400,7 @@ pub fn refresh(
         }
     });
     if let Ok(mut visible) = toast.single_mut() {
-        let state = if game.note_left > 0.0 {
+        let state = if game.note_left > 0.0 && game.lesson.is_none() {
             Visibility::Inherited
         } else {
             Visibility::Hidden
@@ -430,23 +441,10 @@ pub fn refresh(
                 if let Some(day) = day
                     && let Some(route) = day.route
                 {
-                    let stage = if day.seconds < route.pickup_at {
-                        format!(
-                            "Zum Abholen · {}",
-                            route.pickup.label(town.expect("a day has a town"))
-                        )
-                    } else if day.seconds < route.depart_at {
-                        "Nili lädt auf …".into()
-                    } else if day.seconds >= route.arrival {
-                        "Am Ziel".into()
-                    } else {
-                        format!(
-                            "Unterwegs · {} s",
-                            (route.finish - day.seconds).ceil() as u32
-                        )
-                    };
+                    let (stage, _) = route.stage(day.seconds);
+                    let stage = stage.caption(route.job);
                     if text.0 != stage {
-                        text.0 = stage;
+                        text.0 = stage.to_owned();
                     }
                 }
             }
@@ -764,9 +762,24 @@ fn kind_icon(kind: Kind) -> &'static str {
     }
 }
 
+fn has_places(service: Service) -> bool {
+    matches!(
+        service,
+        Service::Shade | Service::Bed | Service::Bath | Service::Trade
+    )
+}
+
+fn unavailable(service: Service) -> &'static str {
+    if has_places(service) {
+        "Belegt"
+    } else {
+        "Ausverkauft"
+    }
+}
+
 fn stock_text(service: Service, stock: u16) -> String {
     if stock == 0 {
-        "Leer".into()
+        unavailable(service).into()
     } else {
         format!("{stock} {}", stock_unit(service, stock))
     }
