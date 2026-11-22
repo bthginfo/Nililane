@@ -1443,7 +1443,7 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
             "house",
             &home.to_string(),
             if live {
-                "Erwartete Nachbarn"
+                "Noch aus der Gasse"
             } else {
                 "Nachbarn"
             },
@@ -1454,7 +1454,7 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
             "ferry",
             &ferry.to_string(),
             if live {
-                "Erwartete Fährgäste"
+                "Noch von der Fähre"
             } else {
                 "Fährgäste"
             },
@@ -1466,7 +1466,7 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
             &format!("{}/{}", production.used_water, production.water),
             "Wasser verbraucht",
         );
-        if chapter.allowed().contains(&Kind::Grove) {
+        if production.olives > 0 || production.used_olives > 0 {
             super::screens::stat(
                 figures,
                 hud,

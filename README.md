@@ -1,4 +1,4 @@
-# Nililane 2.5.0
+# Nililane 2.5.1
 
 Nililane ist ein 3D-Straßenmanagementspiel in Rust und Bevy. Mit dem Nilpferd Nili
 reist du zuerst durch das antike Griechenland und danach durch das antike
@@ -6,7 +6,7 @@ Rom. Du planst die Gasse am Morgen, versorgst Nachbarn und Fährgäste und hilfs
 tagsüber dort, wo sich die Lieferungen stauen. Auf der Kampagnenkarte erkennst
 du die Größe des nächsten Hafens schon vor der Überfahrt.
 
-**[Nililane 2.5.0 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/e0c4584ef11567cfd477c95e90ff77612d6d1bdc/Nililane-2.5.0.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/e0c4584ef11567cfd477c95e90ff77612d6d1bdc/Nililane-2.5.0.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.5.0)
+**[Nililane 2.5.1 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/e7147de0fb2177c6a2363398b39eed9d8d404000/Nililane-2.5.1.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/e7147de0fb2177c6a2363398b39eed9d8d404000/Nililane-2.5.1.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.5.1)
 
 ![Nili mit Bewohnern und dem ausgebauten Wohnhof in Naxos](docs/bilder/naxos.jpg)
 
@@ -48,6 +48,11 @@ Für Bauplätze, Preise und Angebote nutzt du morgens die Planung.
 Mit der Tastatur bewegst du Nili mit WASD oder den Pfeiltasten. Enter
 entspricht A, Escape entspricht B. X, Y, P, Q und E entsprechen X, Y,
 Start, LB und RB. N öffnet Nilis Touren. F öffnet das Gästebuch.
+
+## Neu in 2.5.1
+
+Im geöffneten Tagesplan stehen oben die Altersgruppen für den ganzen Tag.
+Darunter siehst du, wie viele Gäste aus der Gasse und von der Fähre noch kommen.
 
 ## Neu in 2.5.0
 
