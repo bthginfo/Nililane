@@ -175,11 +175,16 @@ impl Job {
             Self::Shade
                 if matches!(
                     kind,
-                    Kind::Stoa | Kind::Baths | Kind::TeaHouse | Kind::Temple
+                    Kind::Stoa
+                        | Kind::Baths
+                        | Kind::TeaHouse
+                        | Kind::Temple
+                        | Kind::MoonGarden
+                        | Kind::Caravanserai
                 ) =>
             {
                 Some((
-                    nearest(|k| matches!(k, Kind::Grove | Kind::TeaGarden))?,
+                    nearest(|k| matches!(k, Kind::Grove | Kind::TeaGarden | Kind::DateGarden))?,
                     target,
                 ))
             }
@@ -206,7 +211,7 @@ impl Job {
         Route::new(
             self,
             false,
-            day.nili_at,
+            (day.nili_at, day.nili),
             pickup,
             delivery,
             day.seconds,
@@ -401,17 +406,38 @@ impl Route {
     pub(crate) fn new(
         job: Job,
         favor: bool,
-        from: Stop,
+        origin: (Stop, Option<NiliControl>),
         pickup: Stop,
         delivery: Stop,
         started: f32,
         chapter: &Chapter,
     ) -> Option<Self> {
-        let pickup_at = started + from.duration(pickup, chapter);
-        let depart_at = pickup_at + 1.05;
-        let arrival = depart_at + pickup.duration(delivery, chapter);
-        let finish = arrival + 0.90;
-        let margin = if job == Job::Welcome { 2.1 } else { 0.1 };
+        let (from, controlled) = origin;
+        let (approach, collect, carry, unload, margin) = if let Some(nili) = controlled {
+            let pickup = crate::world::route_position(pickup, chapter.layout);
+            let delivery = crate::world::route_position(delivery, chapter.layout);
+            let [x, z] = nili.position;
+            let walk = |dx: f32, dz: f32| ((dx.abs() + dz.abs() - 0.68) / 4.55).max(0.06);
+            (
+                walk(x - pickup.x, z - pickup.z),
+                0.84,
+                walk(pickup.x - delivery.x, pickup.z - delivery.z),
+                0.84,
+                0.08,
+            )
+        } else {
+            (
+                from.duration(pickup, chapter),
+                1.05,
+                pickup.duration(delivery, chapter),
+                0.90,
+                if job == Job::Welcome { 2.1 } else { 0.1 },
+            )
+        };
+        let pickup_at = started + approach;
+        let depart_at = pickup_at + collect;
+        let arrival = depart_at + carry;
+        let finish = arrival + unload;
         (finish + margin <= chapter.day_seconds()).then_some(Self {
             job,
             favor,

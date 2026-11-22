@@ -12,12 +12,12 @@ Hippogrove aus Waldwinkel. [Hippogrove-Revision](https://github.com/bthginfo/Hip
   Gasthaus, Figuren, Boote und Ufer entstehen in `src/world/`.
   `roman.rs` enthält die römische Architektur und das andere Tiberufer.
   `ships.rs` baut Rümpfe, Takelage, Segel, Ladung und Bugwellen.
-  `people.rs` baut die Figuren aller vier Regionen mit einem gemeinsamen
+  `people.rs` baut die Figuren aller fünf Regionen mit einem gemeinsamen
   Skelett. `construction.rs` steuert Gerüst, Ausbauteile und Staub.
   `work.rs` und `actors.rs` gestalten Nilis Bewegungen, Requisiten und Punktspuren.
   `clothes.rs` erzeugt Nilis Gewänder, Hüte und Accessoires.
   `pets.rs` enthält die Modelle und Bewegungen der Katzen und Hunde.
-  `late_upgrades.rs` ergänzt die Ausbauten auf Stufe 5 und 6.
+  Die jeweiligen Gebäudemodule enthalten alle sechs Ausbaustufen. `lanterns.rs` baut die Lichtquellen der Nachtinseln.
   `sky.rs` zeichnet Wolken, Regenschlieren und Sturmwellen.
 - Die Bildtafeln und die meisten Spielsymbole in `ui/` kommen aus `art/make_ui.py`.
   Dazu gehören die Gästehinweise, das Gästebuch, die Controller-Symbole und das Budgetsymbol.
@@ -25,7 +25,7 @@ Hippogrove aus Waldwinkel. [Hippogrove-Revision](https://github.com/bthginfo/Hip
   `art/make_audio.py` erzeugt das Meeresrauschen und die Klangmotive
   für Bau, Ausbau, Verkauf, Hafenglocke und Nilis Hilfe sowie das Regenbett und
   die römische Musik mit Leier, Flöte und Rahmentrommel.
-- Die 96 Hafenstücke und ihre Abendfassungen sind in `art/harbor_scores.py`
+- Die 120 Hafenstücke und ihre Abendfassungen sind in `art/harbor_scores.py`
   ausgeschrieben. `art/make_harbor_music.py` spielt die Partituren mit FluidSynth
   und dem SoundFont GeneralUser GS 2.0.3 von S. Christian Collins ein.
   Im Spiel liegen die fertigen Vorbis-Aufnahmen. [SoundFont und Lizenz](https://schristiancollins.com/generaluser.php)
@@ -50,3 +50,11 @@ auf. Die Gäste tragen auch wollene Mäntel und Fibeln. [Lofotr Viking Museum](h
 Hafenkarten, Waren- und Kleidungsbilder und erzeugen den Glockenklang
 und das Signal zur Abfahrt. Die neuen Hafenstücke verwenden für Japan
 Zither und Bambusflöte, für die nordischen Häfen Fidel, Blockflöte und Hackbrett.
+
+
+## Oasenreiche
+
+Fiktive Häfen und Karawanenorte mit Lehmhöfen, Gewölben, Palmen und
+Wasserstollen. `src/world/oasis.rs` gestaltet Gelände und Gebäude,
+`art/make_oasis_art.py` zeichnet Kartenbilder, Symbole und Nilis
+Kleidungsbilder. `art/harbor_scores.py` enthält die neuen Partituren.

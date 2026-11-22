@@ -55,6 +55,41 @@ fn model(item: Cosmetic) -> Mesh {
         Cosmetic::IndigoKosode => kosode(&mut fabric, [64, 93, 153], [177, 212, 222], false),
         Cosmetic::AutumnKosode => kosode(&mut fabric, [184, 87, 59], [235, 170, 96], false),
         Cosmetic::Haori => kosode(&mut fabric, [104, 67, 134], [249, 182, 112], true),
+        Cosmetic::LapisRobe => {
+            garment(&mut fabric, [52, 127, 145], [226, 171, 88], true);
+            fabric_pin(
+                &mut fabric,
+                v(0.18, 0.98, 0.445),
+                [223, 173, 86],
+                [133, 67, 102],
+            );
+        }
+        Cosmetic::DuneWrap => {
+            let at = v(0.0, 1.55, -0.099);
+            fabric.gem(
+                at + Vec3::Y * 0.10,
+                0.425,
+                0.205,
+                0.367,
+                0.07,
+                [232, 208, 165],
+            );
+            fabric.frustum(at + Vec3::Y * 0.02, 0.431, 0.416, 0.055, 16, [53, 103, 119]);
+            for side in [-1.0, 1.0] {
+                fabric.beam(
+                    at + v(side * 0.365, 0.042, 0.15),
+                    at + v(side * 0.365, -0.24, 0.049),
+                    0.100,
+                    [216, 184, 138],
+                );
+                fabric.beam(
+                    at + v(side * 0.365, -0.22, 0.049),
+                    at + v(side * 0.282, -0.40, 0.017),
+                    0.073,
+                    [236, 203, 154],
+                );
+            }
+        }
         Cosmetic::FjordTunic => wool_coat(&mut fabric, [70, 118, 142], [195, 177, 127], false),
         Cosmetic::DyedCloak => wool_coat(&mut fabric, [162, 83, 62], [239, 172, 101], true),
         Cosmetic::WinterCoat => wool_coat(&mut fabric, [86, 116, 100], [221, 211, 179], true),
@@ -467,6 +502,28 @@ fn accessory(b: &mut Batch, item: Cosmetic) {
                 0.019,
                 0.3,
                 [234, 173, 84],
+            );
+        }
+        Cosmetic::GlassPendant => {
+            let at = v(0.0, 0.94, 0.447);
+            for side in [-1.0, 1.0] {
+                b.beam(v(side * 0.34, 1.21, 0.26), at, 0.028, [172, 122, 71]);
+            }
+            b.gem(
+                at + v(0.0, -0.081, 0.030),
+                0.113,
+                0.132,
+                0.052,
+                0.22,
+                [218, 167, 78],
+            );
+            b.gem(
+                at + v(0.0, -0.081, 0.074),
+                0.082,
+                0.101,
+                0.038,
+                0.45,
+                [74, 164, 164],
             );
         }
         Cosmetic::AmberBrooch => {

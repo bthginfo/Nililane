@@ -2,7 +2,10 @@ use bevy::prelude::*;
 
 use crate::{campaign::JAPAN_START, model::Kind};
 
-use super::mesh::{Batch, Grain, Tint, shift, v};
+use super::{
+    architecture::{plinth, tank},
+    mesh::{Batch, Grain, Tint, shift, v},
+};
 
 const TILE: Tint = [58, 72, 84];
 const TIMBER: Tint = [98, 64, 48];
@@ -21,14 +24,18 @@ pub fn model(kind: Kind, level: u8) -> Mesh {
     let mut b = Batch::default();
     use Kind::*;
     match kind {
-        Machiya => townhouse(&mut b, false),
-        Inn => townhouse(&mut b, true),
-        RicePaddy => paddy(&mut b),
-        TeaGarden => tea_garden(&mut b),
-        RiceKitchen | TeaHouse | PaperWorkshop => storefront(&mut b, kind),
-        Well => well(&mut b),
-        Temple => temple(&mut b),
-        Storehouse => kura(&mut b),
+        MarketGarden | CeramicStudio | SilkShop => {
+            super::market_buildings::japan(&mut b, kind, level);
+            return b.mesh();
+        }
+        Machiya => townhouse(&mut b, false, level),
+        Inn => townhouse(&mut b, true, level),
+        RicePaddy => paddy(&mut b, level),
+        TeaGarden => tea_garden(&mut b, level),
+        RiceKitchen | TeaHouse | PaperWorkshop => storefront(&mut b, kind, level),
+        Well => well(&mut b, level),
+        Temple => temple(&mut b, level),
+        Storehouse => kura(&mut b, level),
         _ => unreachable!("building unavailable in Japan"),
     }
     for tier in 2..=level {
@@ -119,7 +126,7 @@ pub(super) fn roof(b: &mut Batch, center: Vec3, width: f32, depth: f32, rise: f3
     }
 }
 
-fn lattice(b: &mut Batch, at: Vec3, width: f32, height: f32, panel: Tint) {
+pub(super) fn lattice(b: &mut Batch, at: Vec3, width: f32, height: f32, panel: Tint) {
     b.slab(at, v(width, height, 0.06), panel);
     for i in 0..=4 {
         let x = (i as f32 / 4.0 - 0.5) * width;
@@ -138,7 +145,7 @@ fn lattice(b: &mut Batch, at: Vec3, width: f32, height: f32, panel: Tint) {
     }
 }
 
-fn lantern(b: &mut Batch, at: Vec3, color: Tint, scale: f32) {
+pub(super) fn lantern(b: &mut Batch, at: Vec3, color: Tint, scale: f32) {
     let size = scale * 0.106;
     b.gem(at, size, size * 1.35, size, 0.5, color);
     for y in [-0.11, 0.11] {
@@ -172,16 +179,25 @@ fn foundation(b: &mut Batch, width: f32, depth: f32) {
     }
 }
 
-fn townhouse(b: &mut Batch, inn: bool) {
-    let scale = if inn { 1.12 } else { 0.91 };
-    let upper = if inn { 1.98 } else { 1.8 };
+fn townhouse(b: &mut Batch, inn: bool, level: u8) {
+    let scale = if inn { 1.06 } else { 0.91 };
+    let increase = f32::from(level.saturating_sub(4)) * 0.25;
+    let upper = 1.79 + increase;
     let width = 2.23 * scale;
     foundation(b, width, 1.66);
-    b.slab(v(0.0, 0.95, 0.0), v(width - 0.1, 1.54, 1.50), PLASTER);
+    b.slab(
+        v(0.0, 0.95 + increase * 0.5, 0.0),
+        v(width - 0.1, 1.54 + increase, 1.50),
+        PLASTER,
+    );
     for x in [-1.0, -0.38, 0.38, 1.0] {
-        b.slab(v(x * scale, 0.97, 0.757), v(0.091, 1.54, 0.114), TIMBER);
+        b.slab(
+            v(x * scale, 0.97 + increase * 0.5, 0.757),
+            v(0.091, 1.54 + increase, 0.114),
+            TIMBER,
+        );
     }
-    for y in [0.33, 1.04, 1.65] {
+    for y in [0.33, 1.04, 1.65 + increase] {
         b.slab(v(0.0, y, 0.79), v(width, 0.091, 0.114), TIMBER);
     }
     for side in [-1.0, 1.0] {
@@ -194,14 +210,32 @@ fn townhouse(b: &mut Batch, inn: bool) {
         );
         lattice(
             b,
-            v(side * 0.52 * scale, 1.38, 0.77),
+            v(side * 0.52 * scale, 1.36 + increase * 0.78, 0.77),
             0.63 * scale,
             0.41,
             [235, 193, 132],
         );
     }
     lattice(b, v(0.0, 0.64, 0.779), 0.67, 0.80, shift(CEDAR, -14));
-    roof(b, v(0.0, upper, -0.02), 1.39 * scale, 1.08, 0.63, TILE);
+    roof(
+        b,
+        v(0.0, upper, -0.02),
+        1.38 * scale,
+        1.08,
+        if inn { 0.62 } else { 0.48 },
+        TILE,
+    );
+    if level >= 5 {
+        b.slab(
+            v(0.0, 1.10 + increase * 0.12, 0.86),
+            v(width, 0.14, 0.34),
+            CEDAR,
+        );
+    }
+    if level >= 6 {
+        let at = v(0.0, 1.34 + increase * 0.80, 0.779);
+        lattice(b, at, 0.41, 0.46, if inn { PAPER } else { JADE });
+    }
     b.beam(
         v(-1.08 * scale, 1.15, 1.05),
         v(1.08 * scale, 1.15, 1.05),
@@ -227,14 +261,17 @@ fn townhouse(b: &mut Batch, inn: bool) {
     }
 }
 
-fn storefront(b: &mut Batch, kind: Kind) {
+fn storefront(b: &mut Batch, kind: Kind, level: u8) {
     let (fabric, walls, y) = match kind {
         Kind::RiceKitchen => (INDIGO, [222, 189, 142], 1.24),
         Kind::TeaHouse => (JADE, [205, 157, 97], 1.11),
         Kind::PaperWorkshop => (RED, [166, 104, 72], 1.47),
         _ => unreachable!(),
     };
-    foundation(b, 2.44, 1.74);
+    let y =
+        y + f32::from(level.saturating_sub(4)) * (if kind == Kind::TeaHouse { 0.21 } else { 0.26 });
+    let depth = if level >= 3 { 2.14 } else { 1.88 };
+    foundation(b, 2.49, depth);
     b.slab(v(0.0, 0.22 + y * 0.5, -0.23), v(2.11, y, 1.11), walls);
     for x in [-1.01, -0.36, 0.36, 1.01] {
         b.slab(v(x, 0.20 + y * 0.5, 0.70), v(0.089, y, 0.096), TIMBER);
@@ -257,6 +294,9 @@ fn storefront(b: &mut Batch, kind: Kind) {
         },
     );
     lattice(b, v(0.57, 0.75, 0.35), 0.68, 0.62, shift(walls, 29));
+    if level >= 5 {
+        lattice(b, v(0.0, y - 0.038, 0.353), 1.54, 0.24, fabric);
+    }
     b.slab(v(0.0, 0.62, 0.74), v(1.72, 0.108, 0.54), TIMBER);
     for (i, x) in [-0.83, -0.42, -0.01, 0.40, 0.81].into_iter().enumerate() {
         let hem = 0.91 + f32::from(kind == Kind::PaperWorkshop) * 0.16;
@@ -270,15 +310,24 @@ fn storefront(b: &mut Batch, kind: Kind) {
     }
     match kind {
         Kind::RiceKitchen => {
-            for i in 0..3 {
-                let p = v(-0.56 + i as f32 * 0.44, 0.685, 0.87);
+            for i in 0..if level >= 2 { 5 } else { 3 } {
+                let p = v(
+                    -0.59 + (i % 4) as f32 * 0.36,
+                    0.685,
+                    0.83 + (i / 4) as f32 * 0.19,
+                );
                 b.frustum(p, 0.065, 0.139, 0.083, 9, shift(INDIGO, i as i16 * 8));
                 b.gem(p + v(0.0, 0.087, 0.0), 0.108, 0.03, 0.092, 0.2, PLASTER);
             }
         }
         Kind::TeaHouse => {
-            b.slab(v(-0.49, 0.31, 1.04), v(0.87, 0.117, 0.42), CEDAR);
-            b.slab(v(-0.49, 0.38, 1.04), v(0.72, 0.037, 0.35), [168, 155, 86]);
+            let seat = if level >= 4 { 1.49 } else { 0.87 };
+            b.slab(v(-0.49, 0.31, 1.04), v(seat, 0.117, 0.42), CEDAR);
+            b.slab(
+                v(-0.49, 0.38, 1.04),
+                v(seat - 0.14, 0.037, 0.35),
+                [168, 155, 86],
+            );
             for x in [-0.59, -0.32, 0.47] {
                 b.frustum(v(x, 0.68, 0.85), 0.046, 0.066, 0.080, 8, shift(JADE, 28));
             }
@@ -299,9 +348,9 @@ fn storefront(b: &mut Batch, kind: Kind) {
     }
 }
 
-fn paddy(b: &mut Batch) {
+fn paddy(b: &mut Batch, level: u8) {
     for (row, z) in [-0.57, 0.49].into_iter().enumerate() {
-        let y = 0.12 + (1 - row) as f32 * 0.10;
+        let y = 0.12 + (1 - row) as f32 * (0.10 + f32::from(level.saturating_sub(2)) * 0.013);
         b.slab(v(0.0, y, z), v(2.47, 0.13, 0.98), [127, 124, 79]);
         b.slab(v(0.0, y + 0.070, z), v(2.21, 0.006, 0.73), [99, 150, 150]);
         for x in [-1.18, 1.18] {
@@ -317,7 +366,16 @@ fn paddy(b: &mut Batch) {
         for x in -4i32..=4 {
             for n in [-1.0, 1.0] {
                 let p = v(x as f32 * 0.23, y + 0.072, z + n * 0.20);
-                rice_shoot(b, p, 0.13 + (x + 7).rem_euclid(3) as f32 * 0.043, JADE);
+                rice_shoot(
+                    b,
+                    p,
+                    0.13 + (x + 7).rem_euclid(3) as f32 * 0.043 + f32::from(level) * 0.014,
+                    if level >= 5 && x % 3 == 0 {
+                        [158, 158, 72]
+                    } else {
+                        JADE
+                    },
+                );
             }
         }
     }
@@ -338,17 +396,22 @@ fn rice_shoot(b: &mut Batch, at: Vec3, size: f32, color: Tint) {
     }
 }
 
-fn tea_garden(b: &mut Batch) {
+fn tea_garden(b: &mut Batch, level: u8) {
     b.slab(v(0.0, 0.13, 0.0), v(2.41, 0.21, 2.08), [123, 129, 83]);
     for row in 0..3 {
         let z = -0.66 + row as f32 * 0.62;
-        b.slab(v(0.0, 0.25, z), v(2.31, 0.10, 0.42), CEDAR);
+        let raise = (row as f32 + 1.0) * f32::from(level.saturating_sub(2)) * 0.015;
+        b.slab(
+            v(0.0, 0.25 + raise * 0.5, z),
+            v(2.31, 0.10 + raise, 0.42),
+            CEDAR,
+        );
         for i in 0..7 {
             let x = -0.93 + i as f32 * 0.31;
             b.gem(
-                v(x, 0.40, z),
+                v(x, 0.40 + raise, z),
                 0.237,
-                0.19,
+                0.19 + f32::from(level) * 0.011,
                 0.23,
                 i as f32,
                 shift(JADE, (i * 9 % 24) as i16),
@@ -358,22 +421,48 @@ fn tea_garden(b: &mut Batch) {
     stone_lantern(b, v(0.91, 0.24, 0.79), 0.50);
 }
 
-fn well(b: &mut Batch) {
-    foundation(b, 1.77, 1.53);
+fn well(b: &mut Batch, level: u8) {
+    foundation(
+        b,
+        if level >= 5 { 2.61 } else { 1.93 },
+        if level >= 3 { 2.01 } else { 1.53 },
+    );
+    let crossbeam = if level >= 5 { 1.57 } else { 1.44 };
     b.frustum(v(0.0, 0.22, 0.07), 0.57, 0.53, 0.36, 10, STONE);
     b.frustum(v(0.0, 0.57, 0.07), 0.57, 0.55, 0.075, 10, PLASTER);
     b.frustum(v(0.0, 0.652, 0.07), 0.41, 0.425, 0.006, 10, [75, 129, 128]);
     for x in [-0.66, 0.66] {
-        b.slab(v(x, 0.83, -0.12), v(0.132, 1.29, 0.126), TIMBER);
+        b.slab(
+            v(x, (0.18 + crossbeam) * 0.5, -0.12),
+            v(0.132, crossbeam - 0.18, 0.126),
+            TIMBER,
+        );
     }
-    roof(b, v(0.0, 1.44, -0.11), 0.96, 0.67, 0.34, TILE);
+    roof(
+        b,
+        v(0.0, crossbeam, -0.11),
+        if level >= 5 { 1.20 } else { 0.96 },
+        if level >= 5 { 0.79 } else { 0.67 },
+        0.34,
+        TILE,
+    );
+    if level >= 5 {
+        for x in [-1.01, 1.01] {
+            b.beam(
+                v(x, 0.22, -0.62),
+                v(x, crossbeam + 0.025, -0.62),
+                0.09,
+                TIMBER,
+            );
+        }
+    }
     b.beam(v(-0.64, 1.02, -0.12), v(0.72, 1.02, -0.12), 0.079, CEDAR);
     b.beam(v(0.15, 1.01, -0.12), v(0.15, 0.68, -0.12), 0.019, GOLD);
     b.frustum(v(0.15, 0.62, -0.12), 0.10, 0.118, 0.144, 8, CEDAR);
     b.frustum(v(-0.66, 0.24, 0.59), 0.15, 0.17, 0.22, 9, TIMBER);
 }
 
-fn temple(b: &mut Batch) {
+fn temple(b: &mut Batch, level: u8) {
     foundation(b, 2.57, 1.96);
     b.slab(v(0.0, 0.28, 0.03), v(2.37, 0.15, 1.79), CEDAR);
     for (z, y) in [(1.16, 0.12), (1.02, 0.20), (0.88, 0.29)] {
@@ -394,7 +483,25 @@ fn temple(b: &mut Batch) {
     b.slab(v(0.0, 1.57, 0.71), v(2.37, 0.13, 0.22), RED);
     roof(b, v(0.0, 1.69, -0.03), 1.52, 1.15, 0.59, TILE);
     b.slab(v(0.0, 2.19, -0.07), v(1.15, 0.24, 0.42), RED);
-    roof(b, v(0.0, 2.31, -0.07), 0.70, 0.49, 0.31, shift(TILE, 10));
+    roof(
+        b,
+        v(0.0, 2.31, -0.07),
+        if level >= 3 { 0.85 } else { 0.70 },
+        0.49,
+        0.31,
+        shift(TILE, 10),
+    );
+    if level >= 3 {
+        for x in [-0.90, 0.90] {
+            b.block(
+                v(x, 1.58, 0.865),
+                v(0.16, 0.11, 0.068),
+                Quat::from_rotation_z(0.20),
+                GOLD,
+            );
+        }
+        b.slab(v(0.0, 1.615, 0.844), v(2.14, 0.047, 0.033), GOLD);
+    }
     for x in [-0.83, 0.83] {
         lantern(b, v(x, 1.23, 0.73), GOLD, 0.85);
     }
@@ -427,7 +534,15 @@ pub fn bell() -> Mesh {
     b.mesh()
 }
 
-fn kura(b: &mut Batch) {
+fn kura(b: &mut Batch, level: u8) {
+    let extra = f32::from(level.saturating_sub(4)) * 0.23;
+    if level >= 5 {
+        b.slab(
+            v(0.0, 1.57 + extra * 0.75, -0.07),
+            v(2.25, 0.25 + extra * 0.48, 1.53),
+            PLASTER,
+        );
+    }
     foundation(b, 2.08, 1.72);
     b.slab(v(0.0, 0.97, -0.02), v(1.91, 1.60, 1.52), PLASTER);
     b.slab(v(0.0, 0.50, 0.77), v(1.92, 0.54, 0.062), TILE);
@@ -449,7 +564,7 @@ fn kura(b: &mut Batch) {
     for x in [-0.13, 0.0, 0.13] {
         b.slab(v(x, 1.42, 0.80), v(0.026, 0.19, 0.028), STONE);
     }
-    roof(b, v(0.0, 1.72, -0.06), 1.33, 0.99, 0.55, TILE);
+    roof(b, v(0.0, 1.72 + extra, -0.06), 1.33, 0.99, 0.55, TILE);
     crates(b, v(0.90, 0.13, 0.94), 0.35);
 }
 
@@ -507,12 +622,7 @@ pub fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8) {
                     stone_lantern(b, v(x, 0.10, 1.03), 0.69);
                 }
             }
-            3 => {
-                for x in [-0.84, 0.84] {
-                    b.slab(v(x, 1.78, -0.24), v(0.34, 0.41, 0.37), RED);
-                    roof(b, v(x, 2.0, -0.25), 0.32, 0.32, 0.22, shift(TILE, -5));
-                }
-            }
+            3 => {}
             4 => {
                 b.slab(v(0.0, 2.57, -0.07), v(0.52, 0.37, 0.49), RED);
                 roof(b, v(0.0, 2.77, -0.07), 0.52, 0.42, 0.26, TILE);
@@ -534,31 +644,16 @@ pub fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8) {
         },
         Machiya | Inn => match tier {
             2 => {
-                b.slab(v(0.0, 0.28, 1.06), v(1.37, 0.13, 0.42), CEDAR);
-                for x in [-0.68, 0.68] {
-                    lantern(b, v(x, 1.0, 1.13), PAPER, 0.80);
+                b.slab(v(0.0, 0.27, 0.98), v(1.60, 0.13, 0.44), CEDAR);
+                for x in [-0.67, 0.67] {
+                    b.beam(v(x, 1.16, 1.03), v(x, 1.02, 1.03), 0.020, TIMBER);
+                    lantern(b, v(x, 0.99, 1.05), PAPER, 0.76);
                 }
             }
-            3 => {
-                // A small gabled dormer follows the main roof's silhouette.
-                let y = if kind == Inn { 2.17 } else { 1.99 };
-                b.slab(v(0.0, y + 0.10, 0.61), v(0.87, 0.49, 0.43), PLASTER);
-                lattice(b, v(0.0, y + 0.11, 0.84), 0.57, 0.30, CEDAR);
-                roof(b, v(0.0, y + 0.32, 0.59), 0.55, 0.35, 0.29, TILE);
-            }
-            4 => veranda(b, 1.12, if kind == Inn { INDIGO } else { CEDAR }),
-            5 => {
-                for x in [-0.91, 0.91] {
-                    lattice(b, v(x, 1.39, 0.854), 0.27, 0.46, PAPER);
-                }
-                b.slab(v(0.0, 1.10, 1.09), v(1.74, 0.12, 0.31), CEDAR);
-            }
-            _ => {
-                let y = if kind == Inn { 2.59 } else { 2.41 };
-                b.slab(v(0.0, y - 0.02, -0.13), v(0.83, 0.37, 0.45), CEDAR);
-                lattice(b, v(0.0, y, 0.12), 0.55, 0.24, PAPER);
-                roof(b, v(0.0, y + 0.17, -0.13), 0.59, 0.42, 0.29, TILE);
-            }
+            3 => plinth(b, v(0.0, 0.15, 0.82), 2.37, 0.76, 0.125, CEDAR),
+            4 => veranda(b, 1.13, if kind == Inn { INDIGO } else { CEDAR }),
+            5 | 6 => {}
+            _ => unreachable!(),
         },
         RiceKitchen | TeaHouse | PaperWorkshop => {
             let color = match kind {
@@ -567,59 +662,88 @@ pub fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8) {
                 _ => RED,
             };
             match tier {
-                2 => {
-                    for x in [-0.81, 0.81] {
-                        crates(b, v(x, 0.18, 1.01), 0.26);
+                2 if kind == PaperWorkshop => {
+                    for i in 0..3 {
+                        let x = -0.92 + i as f32 * 0.33;
+                        b.slab(v(x, 0.24, 1.03), v(0.20, 0.12, 0.28), CEDAR);
+                        b.slab(v(x, 0.314, 1.04), v(0.18, 0.026, 0.22), PAPER);
                     }
                 }
-                3 => {
-                    let y = if kind == PaperWorkshop { 1.48 } else { 1.22 };
-                    veranda(b, y, color);
+                2 if kind == TeaHouse => {
+                    b.frustum(v(0.56, 0.68, 0.91), 0.10, 0.105, 0.16, 10, JADE);
+                    b.beam(v(0.62, 0.75, 0.97), v(0.73, 0.80, 1.03), 0.044, JADE);
+                }
+                2 => {}
+                3 => veranda(b, if kind == PaperWorkshop { 1.47 } else { 1.20 }, color),
+                4 if kind == RiceKitchen => {
+                    let stove = v(0.88, 0.18, 0.87);
+                    b.frustum(stove, 0.18, 0.19, 0.27, 10, TIMBER);
+                    b.frustum(stove + Vec3::Y * 0.27, 0.21, 0.16, 0.14, 10, STONE);
+                    b.frustum(stove + Vec3::Y * 0.41, 0.17, 0.081, 0.064, 10, GOLD);
+                }
+                4 if kind == TeaHouse => {
+                    lantern(b, v(-0.74, 0.91, 1.18), PAPER, 0.96);
+                    bamboo(b, v(-1.15, 0.16, 0.78), 0.56);
                 }
                 4 => {
-                    for (x, s) in [(-0.75, 0.88), (0.05, 1.10), (0.72, 0.80)] {
-                        lantern(
-                            b,
-                            v(x, 0.86 + f32::from(kind == PaperWorkshop) * 0.21, 1.25),
-                            shift(color, 46),
-                            s,
-                        );
+                    for (x, shade) in [(-0.75, PAPER), (0.0, CEDAR), (0.68, RED)] {
+                        b.beam(v(x, 1.46, 1.14), v(x, 1.29, 1.14), 0.020, TIMBER);
+                        lantern(b, v(x, 1.22, 1.17), shade, 1.05);
                     }
                 }
-                5 => {
-                    let y = if kind == PaperWorkshop { 1.95 } else { 1.59 };
-                    b.slab(v(0.0, y, -0.43), v(1.15, 0.76, 0.64), PLASTER);
-                    lattice(b, v(0.0, y + 0.10, -0.10), 0.74, 0.35, color);
-                    roof(b, v(0.0, y + 0.41, -0.36), 0.78, 0.48, 0.34, TILE);
-                }
+                5 => {}
                 _ => {
-                    for x in [-0.93, 0.93] {
-                        b.beam(v(x, 0.11, 1.19), v(x, 0.70, 1.19), 0.063, CEDAR);
-                        let y = if kind == PaperWorkshop { 1.75 } else { 1.49 };
-                        b.slab(v(x, y, 0.85), v(0.34, 0.26, 0.085), color);
-                        b.slab(v(x, y, 0.90), v(0.21, 0.037, 0.021), GOLD);
+                    for x in [-0.91, 0.91] {
+                        b.slab(
+                            v(x, 1.56 + f32::from(kind == PaperWorkshop) * 0.24, 0.765),
+                            v(0.32, 0.14, 0.073),
+                            color,
+                        );
+                        b.slab(
+                            v(x, 1.57 + f32::from(kind == PaperWorkshop) * 0.24, 0.815),
+                            v(0.21, 0.022, 0.035),
+                            GOLD,
+                        );
                     }
                 }
             }
         }
-        Well | Storehouse => match tier {
+        Well => match tier {
+            2 => crates(b, v(0.77, 0.20, 0.63), 0.34),
+            3 => {
+                tank(
+                    b,
+                    v(0.0, 0.19, 0.81),
+                    1.23,
+                    0.52,
+                    0.22,
+                    STONE,
+                    [83, 147, 153],
+                );
+                b.beam(v(0.0, 0.75, 0.46), v(0.0, 0.68, 0.78), 0.051, CEDAR);
+                b.beam(v(0.0, 0.64, 0.78), v(0.0, 0.38, 0.78), 0.036, INDIGO);
+            }
+            4 => lantern(b, v(0.60, 0.87, 0.31), PAPER, 0.74),
+            5 => {}
+            _ => {
+                for x in [-1.04, 1.04] {
+                    stone_lantern(b, v(x, 0.18, 0.76), 0.58);
+                }
+            }
+        },
+        Storehouse => match tier {
             2 => {
                 for x in [-0.83, 0.83] {
                     crates(b, v(x, 0.17, 0.94), 0.31);
                 }
             }
-            3 => veranda(b, if kind == Well { 1.07 } else { 1.52 }, INDIGO),
+            3 => veranda(b, 1.49, INDIGO),
             4 => {
                 for x in [-0.89, 0.89] {
-                    lantern(b, v(x, 0.87, 1.28), PAPER, 0.81);
+                    lantern(b, v(x, 0.95, 1.26), PAPER, 0.81);
                 }
             }
-            5 => {
-                let y = if kind == Well { 1.63 } else { 1.97 };
-                b.slab(v(0.0, y, -0.33), v(0.94, 0.62, 0.51), PLASTER);
-                lattice(b, v(0.0, y + 0.05, -0.066), 0.48, 0.24, CEDAR);
-                roof(b, v(0.0, y + 0.34, -0.28), 0.67, 0.42, 0.31, TILE);
-            }
+            5 => lattice(b, v(0.0, 1.59, 0.715), 0.63, 0.21, CEDAR),
             _ => {
                 for x in [-0.98, 0.98] {
                     stone_lantern(b, v(x, 0.11, 1.17), 0.63);
@@ -651,7 +775,7 @@ fn veranda(b: &mut Batch, y: f32, color: Tint) {
     );
 }
 
-fn bamboo(b: &mut Batch, at: Vec3, scale: f32) {
+pub(super) fn bamboo(b: &mut Batch, at: Vec3, scale: f32) {
     for (n, x) in [-0.14, 0.03, 0.16].into_iter().enumerate() {
         let foot = at + v(x * scale, 0.0, 0.0);
         let top = foot + v(x * scale * 0.47, scale * (0.93 + n as f32 * 0.18), 0.04);
@@ -726,7 +850,7 @@ fn cedar(b: &mut Batch, at: Vec3, size: f32, color: Tint) {
     }
 }
 
-fn stone_lantern(b: &mut Batch, at: Vec3, scale: f32) {
+pub(super) fn stone_lantern(b: &mut Batch, at: Vec3, scale: f32) {
     b.frustum(at, 0.23 * scale, 0.18 * scale, 0.13 * scale, 6, STONE);
     b.frustum(
         at + Vec3::Y * 0.13 * scale,

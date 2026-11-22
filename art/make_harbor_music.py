@@ -25,6 +25,7 @@ MODES = {
     "dorian": (0, 2, 3, 5, 7, 9, 10),
     "mixolydian": (0, 2, 4, 5, 7, 9, 10),
     "lydian": (0, 2, 4, 6, 7, 9, 11),
+    "hijaz": (0, 1, 4, 5, 7, 8, 10),
 }
 DEGREES = {symbol: degree for degree, symbol in enumerate("def123456789", start=-3)}
 
@@ -74,6 +75,9 @@ ENSEMBLES = {
     "fjord": (FIDDLE, RECORDER, DULCIMER_BACK),
     "hearth": (RECORDER, DULCIMER, HARP_BACK),
     "sail": (FIDDLE, DULCIMER, DULCIMER_BACK),
+    "lute": (NYLON, SHAKUHACHI, DULCIMER_BACK),
+    "caravan": (DULCIMER, NYLON, HARP_BACK),
+    "oasis": (SHAKUHACHI, DULCIMER, NYLON_BACK),
 }
 METERS = {
     "4/4": (8, (0, 2, 4, 6)),

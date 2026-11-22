@@ -86,6 +86,7 @@ fn paint(region: Region, class: usize) -> Tint {
         Region::Rome => [WINE, [63, 112, 99], [172, 127, 68]][class],
         Region::Japan => [[76, 103, 130], [180, 88, 66], [110, 143, 99]][class],
         Region::Nordic => [[155, 73, 53], [69, 112, 131], [156, 118, 67]][class],
+        Region::Oasis => [[80, 138, 124], [140, 71, 102], [183, 125, 68]][class],
     }
 }
 
@@ -104,6 +105,7 @@ pub fn hull(region: Region, class: usize) -> Mesh {
     let planks = match region {
         Region::Japan => [126, 85, 56],
         Region::Nordic => [105, 76, 55],
+        Region::Oasis => [148, 101, 70],
         _ => OCHRE,
     };
     let sections = [
@@ -428,6 +430,9 @@ pub fn hull(region: Region, class: usize) -> Mesh {
 const TRAVELLER_CABIN: Tint = [177, 130, 83];
 
 pub fn sail(region: Region, class: usize) -> Mesh {
+    if region == Region::Oasis {
+        return lateen(class);
+    }
     let mut b = Batch::default();
     let large = class == 0;
     let width = if large { 1.84 } else { 1.34 };
@@ -522,6 +527,54 @@ pub fn sail(region: Region, class: usize) -> Mesh {
         ],
         tint,
     );
+    b.mesh()
+}
+
+fn lateen(class: usize) -> Mesh {
+    let mut b = Batch::default();
+    let y = if class == 0 { 2.46 } else { 1.75 };
+    let width = if class == 0 { 2.68 } else { 1.84 };
+    let top = v(-width * 0.46, y + 0.29, 0.065);
+    let aft = v(width * 0.54, y - width * 0.46, 0.08);
+    let foot = v(-width * 0.43, y - width * 0.65, 0.19);
+    let at = |u: f32, t: f32| {
+        let mut p = top.lerp(aft, u).lerp(foot.lerp(aft, u), t);
+        p.z += 0.25 * (std::f32::consts::PI * u).sin() * (std::f32::consts::PI * t).sin();
+        p
+    };
+    let color = paint(Region::Oasis, class);
+    for row in 0..6 {
+        for col in 0..10 {
+            let t = row as f32 / 6.0;
+            let u = col as f32 / 10.0;
+            let face = [
+                at(u, t),
+                at(u, t + 1.0 / 6.0),
+                at(u + 0.10, t + 1.0 / 6.0),
+                at(u + 0.10, t),
+            ];
+            let tan = if row == 4 || col == 1 {
+                color
+            } else {
+                [234, 214, 172]
+            };
+            if col == 9 {
+                b.face(&face[..3], shift(tan, col as i16 - 4));
+                b.face(&[face[2], face[1], face[0]], shift(tan, -12));
+            } else {
+                b.face(&face, shift(tan, col as i16 - 4));
+                b.face(&[face[3], face[2], face[1], face[0]], shift(tan, -12));
+            }
+        }
+    }
+    b.beam(
+        top + v(-0.068, 0.049, -0.028),
+        aft + v(0.08, 0.020, -0.028),
+        0.064,
+        OAK,
+    );
+    b.beam(foot, v(-width * 0.50, 0.52, 0.1), 0.023, CREAM);
+    b.beam(aft, v(width * 0.60, 0.55, 0.0), 0.023, CREAM);
     b.mesh()
 }
 

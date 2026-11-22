@@ -1,26 +1,20 @@
 use bevy::{pbr::NotShadowCaster, prelude::*};
 
-use crate::{
-    campaign::Region,
-    game::{BUILD_TIME, Construction, Game},
-    model::Kind,
-};
+use crate::game::{BUILD_TIME, Construction, Game};
 
-use super::{
-    buildings, japan,
-    mesh::{Batch, v},
-    nordic, roman, upgrades,
-};
+use super::{mesh::v, upgrades};
+
+const REPLACE_AT: f32 = 0.44;
 
 #[derive(Component)]
 pub struct Assembly {
     pub work: Construction,
     pub at: Vec3,
-    pub rest: f32,
     pub part: Part,
 }
 
 pub enum Part {
+    Prior,
     Structure,
     Scaffold,
     Dust(usize),
@@ -61,7 +55,6 @@ impl Parts {
                 at,
                 work,
                 part: Part::Scaffold,
-                rest: 1.0,
             },
             NotShadowCaster,
         ));
@@ -74,7 +67,6 @@ impl Parts {
                     at,
                     work,
                     part: Part::Dust(i),
-                    rest: 1.0,
                 },
                 NotShadowCaster,
             ));
@@ -82,29 +74,37 @@ impl Parts {
     }
 }
 
-pub fn addition(region: Region, kind: Kind, from: u8, to: u8) -> Mesh {
-    let mut batch = Batch::default();
-    for tier in (from + 1)..=to {
-        match region {
-            Region::Greece => buildings::append_upgrade(&mut batch, kind, tier),
-            Region::Rome => roman::append_upgrade(&mut batch, kind, tier),
-            Region::Japan => japan::append_upgrade(&mut batch, kind, tier),
-            Region::Nordic => nordic::append_upgrade(&mut batch, kind, tier),
-        }
-    }
-    batch.mesh()
-}
-
 pub fn animate(game: Res<Game>, mut sites: Query<(&Assembly, &mut Transform, &mut Visibility)>) {
     for (site, mut at, mut visibility) in &mut sites {
         let age = game.clock - site.work.since;
         match site.part {
+            Part::Prior => {
+                let lower = ((age - 0.31) / (REPLACE_AT - 0.31)).clamp(0.0, 1.0);
+                at.translation.y = site.at.y - 0.05 * lower;
+                at.scale.y = 1.0 - 0.12 * lower;
+                *visibility = if age < REPLACE_AT {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                };
+            }
             Part::Structure => {
-                let t = ((age - 0.21) / 0.93).clamp(0.0, 1.0);
+                let building = site.work.from == 0;
+                let (start, initial_scale) = if building {
+                    (0.14, 0.02)
+                } else {
+                    (REPLACE_AT, 0.76)
+                };
+                let t = ((age - start) / 0.73).clamp(0.0, 1.0);
                 let eased = 1.0 - (1.0 - t).powi(3);
-                let settle = (t * std::f32::consts::PI).sin() * t * 0.078;
-                at.scale = v(1.0, 0.018 + 0.982 * eased + settle, 1.0) * site.rest;
+                let settle = (t * std::f32::consts::PI).sin() * t * 0.041;
+                at.scale.y = initial_scale + (1.0 - initial_scale) * eased + settle;
                 at.translation.y = site.at.y - 0.057 * (1.0 - eased);
+                *visibility = if age < start {
+                    Visibility::Hidden
+                } else {
+                    Visibility::Inherited
+                };
             }
             Part::Scaffold => {
                 let lift = (age * 6.5).clamp(0.02, 1.0);

@@ -1,12 +1,13 @@
 use bevy::prelude::*;
 
 use super::{
+    architecture::{gable, panel_roof, stoop, tank},
     buildings::{
-        BLUE, GOLD, MARBLE, OAK, TEAL, amphora, awning, bake_shelf, cypress, flowerpot, olive,
-        oven, roof, shelf,
+        BLUE, GOLD, MARBLE, OAK, TEAL, amphora, awning, cypress, flowerpot, olive, oven, roof,
+        shelf,
     },
     mesh::{Batch, Grain, Tint, shift, v},
-    upgrades::{bench, canopy, crane, crate_box, rail},
+    upgrades::{bench, crane, crate_box, rail},
 };
 use crate::model::Kind;
 
@@ -22,294 +23,42 @@ const POOL: Tint = [74, 152, 167];
 pub fn model(kind: Kind, level: u8) -> Mesh {
     let mut b = Batch::default();
     match kind {
-        Kind::House => insula(&mut b, false),
-        Kind::Villa => insula(&mut b, true),
-        Kind::Well => cistern(&mut b),
-        Kind::Grove => garden(&mut b),
-        Kind::Stoa => portico(&mut b),
-        Kind::Storehouse => horreum(&mut b),
-        Kind::Aqueduct => pipes(&mut b),
-        Kind::Baths => baths(&mut b),
-        Kind::Forum => forum(&mut b),
-        Kind::Bakery => super::buildings::bakehouse(&mut b, true),
-        Kind::Taverna => super::buildings::tavern(&mut b, true),
-        Kind::Potter | Kind::Inn => shop(&mut b, kind),
-        Kind::HerbGarden => super::buildings::herb_garden(&mut b, true),
-        Kind::Press | Kind::Shrine => unreachable!("Roman districts use separate amenities"),
-        Kind::RicePaddy
-        | Kind::RiceKitchen
-        | Kind::TeaGarden
-        | Kind::TeaHouse
-        | Kind::PaperWorkshop
-        | Kind::Temple
-        | Kind::Machiya
-        | Kind::Longhouse
-        | Kind::Fishery
-        | Kind::Smokehouse
-        | Kind::Woodlot
-        | Kind::Boatyard
-        | Kind::Weaver
-        | Kind::FeastHall => unreachable!("buildings from other regions have their own meshes"),
-    }
-    for tier in 2..=level {
-        append_upgrade(&mut b, kind, tier);
+        Kind::House => insula(&mut b, false, level),
+        Kind::Villa => insula(&mut b, true, level),
+        Kind::Well => cistern(&mut b, level),
+        Kind::Grove => garden(&mut b, level),
+        Kind::Stoa => portico(&mut b, level),
+        Kind::Storehouse => horreum(&mut b, level),
+        Kind::Aqueduct => pipes(&mut b, level),
+        Kind::Baths => baths(&mut b, level),
+        Kind::Forum => forum(&mut b, level),
+        Kind::Bakery => super::buildings::bakehouse(&mut b, true, level),
+        Kind::Taverna => super::buildings::tavern(&mut b, true, level),
+        Kind::Potter | Kind::Inn => shop(&mut b, kind, level),
+        Kind::HerbGarden => super::buildings::herb_garden(&mut b, true, level),
+        Kind::Mill | Kind::Scribe | Kind::GardenCourt => {
+            super::market_buildings::roman(&mut b, kind, level)
+        }
+        _ => unreachable!("building unavailable in Rome"),
     }
     b.mesh()
 }
 
-pub fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8) {
-    if tier >= 5 {
-        super::late_upgrades::add(b, kind, tier, true);
-        return;
+fn arcade(b: &mut Batch, p: Vec3, spring: f32, depth: f32, color: Tint) {
+    for x in [-0.68, 0.68] {
+        arch(b, p + v(x, 0.0, 0.0), 0.88, spring, 0.145, depth, color);
     }
-
-    match (kind, tier) {
-        (Kind::HerbGarden, _) => super::buildings::garden_upgrade(b, tier, true),
-        (Kind::House, 2) | (Kind::Inn, 2) => {
-            b.slab(v(0.0, 1.41, 0.67), v(2.44, 0.13, 0.58), TRAVERTINE);
-            rail(b, v(0.0, 1.46, 0.94), 2.26, WINE);
-            for x in [-0.83, 0.83] {
-                flowerpot(b, v(x, 1.48, 0.85), 0.59, [209, 108, 120]);
-            }
-        }
-        (Kind::House, 3) => {
-            b.slab(v(0.91, 0.56, -0.51), v(0.65, 1.07, 0.88), TRAVERTINE);
-            b.slab(v(0.91, 1.11, -0.51), v(0.79, 0.12, 1.00), TILE);
-            b.slab(v(0.94, 0.74, -0.051), v(0.25, 0.32, 0.060), [61, 78, 78]);
-            b.slab(v(0.94, 0.553, 0.001), v(0.32, 0.063, 0.15), TRAVERTINE);
-            for n in 0..5 {
-                let height = 0.065 + n as f32 * 0.116;
-                b.slab(
-                    v(0.94, height * 0.5, 0.83 - n as f32 * 0.153),
-                    v(0.39, height, 0.19),
-                    TRAVERTINE,
-                );
-            }
-            flowerpot(b, v(1.18, 0.07, 0.77), 0.51, [218, 122, 141]);
-        }
-        (Kind::House, 4) => {
-            for x in [-0.70, 0.70] {
-                arch(b, v(x, 0.13, 0.72), 0.75, 0.69, 0.14, 0.17, BRICK);
-            }
-            b.slab(v(0.0, 1.31, 0.72), v(2.69, 0.13, 0.42), TRAVERTINE);
-            b.slab(v(0.0, 0.067, 1.07), v(2.43, 0.13, 0.31), BASALT);
-        }
-        (Kind::Villa, 2) => {
-            mosaic(b, v(0.0, 0.184, 0.79), 16, 4, 0.15);
-            for x in [-0.88, 0.88] {
-                b.frustum(v(x, 0.19, 0.60), 0.23, 0.16, 0.13, 10, TRAVERTINE);
-                cypress(b, v(x, 0.30, 0.75), 0.60);
-            }
-        }
-        (Kind::Villa, 3) => {
-            b.slab(v(0.0, 1.49, 0.65), v(2.40, 0.15, 0.88), TRAVERTINE);
-            rail(b, v(0.0, 1.56, 1.06), 2.25, BRICK);
-            canopy(b, v(0.0, 1.55, 0.62), 2.32, 0.73, 0.92, WINE, false);
-        }
-        (Kind::Villa, 4) => tower(b, v(-0.49, 1.84, -0.50), 1.24, 0.96, PLASTER),
-        (Kind::Well, 2) => {
-            for x in [-0.77, 0.77] {
-                arch(b, v(x, 0.15, -0.38), 0.52, 0.62, 0.137, 0.24, TRAVERTINE);
-            }
-            b.slab(v(0.0, 1.43, -0.39), v(2.40, 0.14, 0.54), TRAVERTINE);
-            b.slab(v(0.0, 1.54, -0.36), v(2.48, 0.10, 0.61), TILE);
-        }
-        (Kind::Well, 3) => {
-            pool(b, v(0.0, 0.146, 0.82), 2.28, 0.52);
-            for x in [-0.52, 0.52] {
-                b.frustum(v(x, 0.17, 0.58), 0.094, 0.094, 0.58, 9, TRAVERTINE);
-                b.beam(v(x, 0.70, 0.58), v(x, 0.70, 0.80), 0.082, GOLD);
-                b.slab(v(x, 0.47, 0.81), v(0.038, 0.39, 0.037), POOL);
-            }
-        }
-        (Kind::Well, 4) => tower(b, v(0.0, 1.56, -0.39), 1.56, 0.75, TRAVERTINE),
-        (Kind::Grove, 2) => {
-            olive(b, v(0.0, 0.153, -0.52), 1.16);
-            mosaic(b, v(0.0, 0.18, 0.08), 14, 3, 0.16);
-        }
-        (Kind::Grove, 3) => {
-            canal_gallery(b, v(0.0, 0.12, 0.74), 1.12, 0.53);
-            bench(b, v(0.0, 0.15, 0.51), 1.36);
-        }
-        (Kind::Grove, 4) => {
-            for i in 0..9 {
-                let x = i as f32 * 0.26 - 1.04;
-                b.gem(
-                    v(x, 1.79 + (x * 4.0).cos() * 0.071, 0.86),
-                    0.24,
-                    0.16,
-                    0.26,
-                    x,
-                    shift([94, 128, 79], (i * 7 % 17) as i16),
-                );
-                b.gem(v(x, 1.61, 0.96), 0.061, 0.065, 0.069, x, [146, 74, 119]);
-            }
-            for x in [-1.16, 1.16] {
-                flowerpot(b, v(x, 0.14, 1.00), 0.98, [202, 131, 154]);
-            }
-        }
-        (Kind::Bakery, 2) => oven(b, v(0.83, 0.115, 0.79), BRICK),
-        (Kind::Bakery, 3) => bake_shelf(b, v(-0.66, 0.132, 0.91), WINE),
-        (Kind::Bakery, 4) => {
-            b.slab(v(0.60, 2.05, -0.49), v(0.58, 0.69, 0.61), BRICK);
-            masonry(b, v(0.60, 1.75, -0.18), 0.57, 0.55, BRICK);
-            b.slab(v(0.60, 2.43, -0.49), v(0.78, 0.14, 0.77), TRAVERTINE);
-            b.frustum(v(0.60, 2.49, -0.49), 0.31, 0.11, 0.26, 9, TILE);
-        }
-        (Kind::Potter, 2) => oven(b, v(0.80, 0.117, 0.78), [185, 98, 64]),
-        (Kind::Potter, 3) => shelf(b, v(-0.71, 0.12, 0.87), [89, 113, 124]),
-        (Kind::Potter, 4) => {
-            tower(b, v(-0.57, 1.82, -0.40), 1.11, 0.66, BRICK);
-            for x in [-0.94, -0.52, -0.11] {
-                amphora(b, v(x, 2.04, 0.16), 0.61, TRAVERTINE);
-            }
-        }
-        (Kind::Taverna, 2) => {
-            for x in [-0.73, 0.73] {
-                bench(b, v(x, 0.073, 1.03), 0.81);
-            }
-            mosaic(b, v(0.0, 0.17, 0.84), 16, 4, 0.15);
-        }
-        (Kind::Taverna, 3) => {
-            canopy(b, v(0.0, 0.12, 0.80), 2.52, 0.81, 1.54, WINE, false);
-            b.slab(v(0.0, 0.59, 0.72), v(1.36, 0.12, 0.38), OAK);
-        }
-        (Kind::Taverna, 4) => tower(b, v(0.40, 1.82, -0.48), 1.34, 0.60, PLASTER),
-        (Kind::Inn, 3) => {
-            canopy(b, v(0.0, 1.47, 0.67), 2.30, 0.68, 0.87, WINE, true);
-            b.slab(v(0.0, 2.39, 0.68), v(2.38, 0.091, 0.71), TRAVERTINE);
-        }
-        (Kind::Inn, 4) => tower(b, v(0.04, 2.30, -0.40), 1.42, 0.97, [224, 176, 129]),
-        (Kind::Storehouse, 2) => {
-            for x in [-0.87, 0.78] {
-                crate_box(b, v(x, 0.15, 0.91), v(0.54, 0.41, 0.48), [155, 106, 71]);
-                crate_box(b, v(x, 0.56, 0.87), v(0.38, 0.27, 0.37), [170, 121, 85]);
-            }
-            b.slab(v(0.0, 0.09, 1.01), v(2.50, 0.17, 0.52), BASALT);
-        }
-        (Kind::Storehouse, 3) => crane(b, v(0.87, 0.14, 0.10), 2.33),
-        (Kind::Storehouse, 4) => tower(b, v(-0.46, 2.08, -0.41), 1.49, 0.65, BRICK),
-        (Kind::Stoa, 2) => {
-            for x in [-0.70, 0.70] {
-                bench(b, v(x, 0.15, 0.72), 0.90);
-            }
-            mosaic(b, v(0.0, 0.16, 0.66), 15, 5, 0.15);
-        }
-        (Kind::Stoa, 3) => canal_gallery(b, v(0.0, 0.15, 0.7), 0.97, 0.43),
-        (Kind::Stoa, 4) => {
-            rail(b, v(0.0, 1.82, 0.30), 2.35, TRAVERTINE);
-            canopy(b, v(0.0, 1.83, -0.16), 1.95, 1.04, 0.54, TILE, false);
-        }
-        (Kind::Aqueduct, 2) => {
-            for x in [-0.83, 0.0, 0.83] {
-                arch(b, v(x, 2.27, -0.09), 0.62, 0.30, 0.110, 0.36, BRICK);
-            }
-            b.slab(v(0.0, 2.99, -0.10), v(2.68, 0.13, 0.58), TRAVERTINE);
-            b.slab(v(0.0, 3.09, -0.10), v(2.53, 0.084, 0.48), TILE);
-        }
-        (Kind::Aqueduct, 3) => {
-            pool(b, v(0.0, 0.16, 0.83), 2.52, 0.55);
-            for x in [-0.74, 0.74] {
-                b.beam(v(x, 1.05, 0.09), v(x, 0.92, 0.68), 0.10, TRAVERTINE);
-                b.slab(v(x, 0.58, 0.69), v(0.049, 0.66, 0.040), POOL);
-            }
-        }
-        (Kind::Aqueduct, 4) => {
-            for x in [-1.01, 1.01] {
-                b.slab(v(x, 3.36, -0.12), v(0.61, 0.60, 0.57), BRICK);
-                b.frustum(v(x, 3.68, -0.12), 0.46, 0.02, 0.24, 4, TILE);
-            }
-            b.slab(v(0.0, 3.22, -0.11), v(2.74, 0.12, 0.56), TRAVERTINE);
-        }
-        (Kind::Baths, 2) => {
-            for x in [-0.70, 0.70] {
-                b.frustum(v(x, 0.17, 0.70), 0.40, 0.43, 0.17, 12, TRAVERTINE);
-                b.frustum(v(x, 0.34, 0.70), 0.34, 0.34, 0.027, 12, POOL);
-            }
-        }
-        (Kind::Baths, 3) => {
-            canal_gallery(b, v(0.0, 0.17, 0.76), 1.21, 0.45);
-            b.slab(v(0.0, 0.077, 1.10), v(2.55, 0.15, 0.30), TRAVERTINE);
-        }
-        (Kind::Baths, 4) => {
-            for x in [-0.92, 0.92] {
-                b.frustum(v(x, 1.40, -0.53), 0.36, 0.35, 0.21, 12, TRAVERTINE);
-                b.frustum(v(x, 1.60, -0.53), 0.37, 0.24, 0.26, 12, TILE);
-                b.frustum(v(x, 1.85, -0.53), 0.24, 0.06, 0.16, 12, shift(TILE, 12));
-                b.gem(v(x, 2.05, -0.53), 0.068, 0.102, 0.067, x, GOLD);
-            }
-            b.frustum(v(0.0, 1.95, -0.60), 0.19, 0.19, 0.19, 10, TRAVERTINE);
-            b.frustum(v(0.0, 2.14, -0.60), 0.216, 0.032, 0.17, 10, TILE);
-        }
-        (Kind::Forum, 2) => {
-            canopy(b, v(0.0, 0.15, 0.83), 2.62, 0.76, 1.38, WINE, false);
-            for x in [-0.82, 0.82] {
-                crate_box(b, v(x, 0.17, 0.83), v(0.40, 0.37, 0.34), PLASTER);
-            }
-        }
-        (Kind::Forum, 3) => {
-            for x in [-0.64, 0.64] {
-                arch(b, v(x, 2.03, -0.4), 0.73, 0.37, 0.12, 0.44, BRICK);
-            }
-            b.slab(v(0.0, 2.83, -0.41), v(2.73, 0.14, 0.63), TRAVERTINE);
-        }
-        (Kind::Forum, 4) => {
-            b.slab(v(0.0, 2.97, -0.38), v(2.71, 0.11, 0.73), TILE);
-            b.face(
-                &[
-                    v(-1.32, 3.01, 0.02),
-                    v(1.32, 3.01, 0.02),
-                    v(0.0, 3.46, 0.02),
-                ],
-                TRAVERTINE,
-            );
-            b.gem(v(0.0, 3.17, 0.075), 0.17, 0.11, 0.037, 0.31, GOLD);
-            for side in [-1.0, 1.0] {
-                b.beam(
-                    v(side * 1.34, 3.01, 0.034),
-                    v(0.0, 3.47, 0.034),
-                    0.086,
-                    TILE,
-                );
-            }
-        }
-        _ => {}
-    }
-}
-
-fn canal_gallery(b: &mut Batch, p: Vec3, height: f32, depth: f32) {
-    for x in [-0.73, 0.73] {
-        arch(
-            b,
-            p + v(x, 0.0, 0.0),
-            0.87,
-            height,
-            0.137,
-            depth,
-            TRAVERTINE,
-        );
-    }
-    let y = height + 0.43;
-    b.slab(p + v(0.0, y, 0.0), v(2.69, 0.12, depth + 0.09), TRAVERTINE);
-    b.slab(p + v(0.0, y + 0.10, 0.0), v(2.72, 0.11, depth + 0.15), TILE);
-}
-
-fn tower(b: &mut Batch, p: Vec3, width: f32, height: f32, wall: Tint) {
-    b.slab(p + v(0.0, height * 0.38, 0.0), v(width, height, 0.84), wall);
-    let roof_y = p.y + height * 0.88;
-    b.slab(v(p.x, roof_y, p.z), v(width + 0.17, 0.17, 0.97), TRAVERTINE);
-    for x in [-0.23, 0.23] {
-        window(b, p + v(x, height * 0.46, 0.433), 0.24, height * 0.45);
-    }
-    for n in 0..10 {
-        let x = p.x + (n as f32 / 9.0 - 0.5) * width;
-        b.block(
-            v(x, roof_y + 0.14, p.z),
-            v(width / 9.4, 0.085, 1.04),
-            Quat::from_rotation_x(0.13),
-            shift(TILE, (n * 7 % 24) as i16 - 11),
-        );
-    }
+    let y = spring + 0.58;
+    b.slab(
+        p + v(0.0, y + 0.054, 0.0),
+        v(2.67, 0.13, depth + 0.11),
+        TRAVERTINE,
+    );
+    b.slab(
+        p + v(0.0, y + 0.144, 0.0),
+        v(2.70, 0.078, depth + 0.16),
+        TILE,
+    );
 }
 
 fn foundation(b: &mut Batch, depth: f32) {
@@ -317,7 +66,7 @@ fn foundation(b: &mut Batch, depth: f32) {
     b.slab(v(0.0, 0.12, 0.0), v(2.52, 0.067, depth - 0.1), TRAVERTINE);
 }
 
-fn masonry(b: &mut Batch, p: Vec3, width: f32, height: f32, color: Tint) {
+pub(super) fn masonry(b: &mut Batch, p: Vec3, width: f32, height: f32, color: Tint) {
     for n in 0..(height / 0.118) as usize {
         let y = p.y + 0.06 + n as f32 * 0.118;
         let step = if n % 2 == 0 { 0.0 } else { 0.106 };
@@ -336,7 +85,15 @@ fn masonry(b: &mut Batch, p: Vec3, width: f32, height: f32, color: Tint) {
     }
 }
 
-fn arch(b: &mut Batch, p: Vec3, width: f32, leg: f32, thick: f32, depth: f32, color: Tint) {
+pub(super) fn arch(
+    b: &mut Batch,
+    p: Vec3,
+    width: f32,
+    leg: f32,
+    thick: f32,
+    depth: f32,
+    color: Tint,
+) {
     let r = width / 2.0;
     for side in [-1.0, 1.0] {
         b.slab(
@@ -384,9 +141,11 @@ fn window(b: &mut Batch, p: Vec3, width: f32, height: f32) {
     }
 }
 
-fn insula(b: &mut Batch, villa: bool) {
-    foundation(b, 2.06);
-    let h = if villa { 1.54 } else { 2.03 };
+fn insula(b: &mut Batch, villa: bool, level: u8) {
+    foundation(b, if level >= 4 { 2.27 } else { 2.06 });
+    let base = if villa { 1.44 } else { 2.04 };
+    let upper = f32::from(level.saturating_sub(4)) * 0.25 + f32::from(villa && level >= 4) * 0.34;
+    let h = base + upper;
     let color = if villa { PLASTER } else { [194, 111, 79] };
     b.slab(v(0.0, 0.14 + h / 2.0, -0.40), v(2.32, h, 1.22), color);
     masonry(b, v(0.0, 0.15, 0.233), 2.27, h, shift(color, 8));
@@ -402,80 +161,213 @@ fn insula(b: &mut Batch, villa: bool) {
     if !villa {
         window(b, v(0.0, 1.66, 0.245), 0.40, 0.43);
     }
+    if upper >= 0.30 {
+        for x in [-0.71, 0.0, 0.71] {
+            window(b, v(x, h - 0.12, 0.245), 0.30, 0.24);
+        }
+        b.slab(v(0.0, h - 0.28, 0.26), v(2.40, 0.073, 0.10), TRAVERTINE);
+    }
     b.slab(v(0.0, h + 0.105, -0.36), v(2.42, 0.14, 1.38), TRAVERTINE);
     roof(b, 2.56, 1.89, h + 0.166, 0.38, TILE);
     if villa {
-        for x in [-0.97, 0.97] {
-            b.frustum(v(x, 0.135, 0.76), 0.102, 0.084, 1.22, 10, TRAVERTINE);
+        let front = if level >= 3 { 0.86 } else { 0.68 };
+        for x in [-1.02, 1.02] {
+            b.frustum(v(x, 0.14, front), 0.102, 0.084, 1.24, 10, TRAVERTINE);
         }
-        b.slab(v(0.0, 1.39, 0.66), v(2.20, 0.14, 0.73), TRAVERTINE);
-        b.slab(v(0.0, 1.48, 0.67), v(2.30, 0.09, 0.77), TILE);
-        mosaic(b, v(0.0, 0.157, 0.59), 9, 4, 0.16);
-        pool(b, v(0.0, 0.188, 0.67), 0.83, 0.40);
+        b.slab(
+            v(0.0, 1.43, (front + 0.26) / 2.0),
+            v(2.22, 0.14, front - 0.11),
+            TRAVERTINE,
+        );
+        panel_roof(
+            b,
+            v(0.0, 1.55, (front + 0.25) / 2.0),
+            2.38,
+            front + 0.17,
+            0.17,
+            if level >= 5 { TEAL } else { TILE },
+        );
+        mosaic(
+            b,
+            v(0.0, 0.16, 0.56),
+            if level >= 2 { 14 } else { 9 },
+            5,
+            0.15,
+        );
+        pool(
+            b,
+            v(0.0, 0.184, front - 0.11),
+            0.78 + f32::from(level - 1) * 0.16,
+            0.38,
+        );
+        if level >= 2 {
+            for x in [-0.95, 0.95] {
+                flowerpot(b, v(x, 0.15, 1.01), 0.64, [223, 122, 132]);
+            }
+        }
+        if level >= 4 {
+            stoop(b, v(0.0, 0.0, 1.01), 1.13, 0.15, 0.25, 2, TRAVERTINE);
+        }
+        if level >= 6 {
+            for x in [-1.18, 1.18] {
+                b.frustum(v(x, 0.15, 0.68), 0.18, 0.15, 0.34, 10, BASALT);
+                cypress(b, v(x, 0.47, 0.68), 0.48);
+            }
+        }
     } else {
-        b.slab(v(0.0, 1.37, 0.35), v(1.92, 0.08, 0.37), OAK);
-        for n in 0..10 {
-            b.slab(
-                v((n as f32 - 4.5) * 0.18, 1.54, 0.53),
-                v(0.032, 0.29, 0.032),
-                WINE,
-            );
+        let balcony = if level >= 2 { 2.49 } else { 1.79 };
+        let extension = if level >= 2 { 0.66 } else { 0.52 };
+        b.slab(
+            v(0.0, 1.39, (extension + 0.24) * 0.5),
+            v(balcony + 0.11, 0.115, extension - 0.21),
+            TRAVERTINE,
+        );
+        rail(b, v(0.0, 1.45, extension), balcony, WINE);
+        if level >= 2 {
+            for x in [-0.92, 0.92] {
+                flowerpot(b, v(x, 1.45, extension - 0.075), 0.49, [220, 112, 138]);
+            }
         }
-        b.slab(v(0.0, 1.69, 0.53), v(1.79, 0.062, 0.049), OAK);
-    }
-    flowerpot(b, v(-1.07, 0.13, 0.85), 0.75, [208, 108, 125]);
-}
-
-fn shop(b: &mut Batch, kind: Kind) {
-    let (front, fabric, h) = match kind {
-        Kind::Bakery => (PLASTER, WINE, 1.49),
-        Kind::Potter => ([183, 113, 82], [91, 115, 122], 1.45),
-        Kind::Taverna => ([213, 164, 107], [142, 77, 101], 1.55),
-        _ => (TRAVERTINE, [173, 75, 57], 2.10),
-    };
-    foundation(b, 1.95);
-    b.slab(v(0.0, 0.15 + h / 2.0, -0.33), v(2.31, h, 1.28), front);
-    masonry(b, v(0.0, 0.14, 0.327), 2.27, h, shift(front, 3));
-    b.slab(v(0.0, h + 0.119, -0.33), v(2.41, 0.12, 1.42), TRAVERTINE);
-    if kind == Kind::Potter {
-        b.slab(v(0.0, h + 0.23, -0.31), v(2.54, 0.12, 1.49), [88, 125, 130]);
-        b.frustum(v(0.61, h + 0.29, -0.34), 0.35, 0.19, 0.44, 12, BRICK);
-        b.frustum(v(0.61, h + 0.73, -0.34), 0.22, 0.20, 0.078, 12, TRAVERTINE);
-    } else {
-        roof(b, 2.53, 1.89, h + 0.19, 0.30, TILE);
-    }
-    for x in [-0.59, 0.59] {
-        b.slab(v(x, 0.58, 0.352), v(0.57, 0.83, 0.045), [52, 49, 44]);
-        arch(b, v(x, 0.15, 0.39), 0.57, 0.66, 0.105, 0.12, BRICK);
-        if kind == Kind::Inn {
-            window(b, v(x, 1.78, 0.352), 0.37, 0.45);
+        if level >= 3 {
+            for x in [-0.94, 0.94] {
+                b.beam(v(x, 0.72, 0.27), v(x, 1.34, extension - 0.014), 0.081, OAK);
+            }
+            b.slab(v(0.0, 0.11, 0.85), v(2.45, 0.17, 0.50), TRAVERTINE);
         }
-    }
-    awning(
-        b,
-        0.51,
-        if kind == Kind::Inn { 1.43 } else { 1.30 },
-        2.19,
-        fabric,
-    );
-    b.slab(v(-0.60, 0.49, 0.69), v(0.63, 0.13, 0.44), OAK);
-    for i in 0..3 {
-        let x = -0.79 + i as f32 * 0.20;
-        if kind == Kind::Bakery {
-            b.gem(v(x, 0.58, 0.73), 0.10, 0.07, 0.087, 0.28, GOLD);
-        } else {
-            amphora(
+        if level >= 4 {
+            for x in [-0.64, 0.64] {
+                arch(
+                    b,
+                    v(x, 0.15, extension - 0.035),
+                    0.75,
+                    0.73,
+                    0.135,
+                    0.14,
+                    BRICK,
+                );
+            }
+        }
+        if level >= 5 {
+            panel_roof(
                 b,
-                v(x, 0.55, 0.73),
+                v(0.0, 2.01, 0.53),
+                2.45,
                 0.51,
-                if i % 2 == 0 { BRICK } else { BLUE },
+                0.20,
+                if level >= 6 { TILE } else { TEAL },
             );
+            for x in [-1.10, 1.10] {
+                b.beam(v(x, 1.45, extension), v(x, 1.98, extension), 0.055, OAK);
+            }
         }
     }
-    amphora(b, v(0.83, 0.12, 0.79), 1.0, BRICK);
+    flowerpot(b, v(-1.09, 0.13, 0.86), 0.69, [208, 108, 125]);
 }
 
-fn mosaic(b: &mut Batch, p: Vec3, cols: usize, rows: usize, step: f32) {
+fn shop(b: &mut Batch, kind: Kind, level: u8) {
+    let inn = kind == Kind::Inn;
+    let wall = if inn { TRAVERTINE } else { [183, 113, 82] };
+    let h = if inn { 2.05 } else { 1.40 } + f32::from(level.saturating_sub(4)) * 0.23;
+    foundation(b, if level >= 4 { 2.27 } else { 1.95 });
+    b.slab(v(0.0, 0.15 + h / 2.0, -0.33), v(2.31, h, 1.28), wall);
+    masonry(b, v(0.0, 0.14, 0.327), 2.27, h, shift(wall, 3));
+    b.slab(v(0.0, h + 0.119, -0.33), v(2.41, 0.12, 1.42), TRAVERTINE);
+    if inn {
+        gable(b, v(0.0, h + 0.177, -0.39), 2.56, 1.73, 0.37, TILE);
+    } else {
+        let kiln = v(0.65, 0.16, -0.40);
+        b.slab(
+            v(0.0, h + 0.184, -0.34),
+            v(2.49, 0.068, 1.54),
+            [88, 125, 130],
+        );
+        b.frustum(
+            kiln + Vec3::Y * h,
+            0.31,
+            0.18,
+            0.41 + f32::from(level) * 0.038,
+            12,
+            BRICK,
+        );
+        b.frustum(
+            kiln + Vec3::Y * (h + 0.41 + f32::from(level) * 0.038),
+            0.23,
+            0.20,
+            0.073,
+            12,
+            TRAVERTINE,
+        );
+    }
+    for x in [-0.62, 0.62] {
+        b.slab(v(x, 0.61, 0.343), v(0.55, 0.86, 0.053), [52, 49, 44]);
+        arch(b, v(x, 0.15, 0.39), 0.57, 0.66, 0.105, 0.12, BRICK);
+        if inn {
+            window(b, v(x, 1.78 + (h - 2.05) * 0.64, 0.352), 0.36, 0.42);
+        }
+    }
+    if level < 4 {
+        awning(
+            b,
+            0.51,
+            if inn { 1.30 } else { 1.25 },
+            2.19,
+            if inn { WINE } else { TEAL },
+        );
+    } else if inn {
+        for x in [-1.08, 1.08] {
+            super::buildings::column(b, v(x, 0.14, 0.95), 1.18, 0.077);
+        }
+        b.slab(v(0.0, 1.37, 0.60), v(2.50, 0.12, 0.79), TRAVERTINE);
+        rail(b, v(0.0, 1.43, 0.98), 2.35, WINE);
+    } else {
+        for x in [-1.06, 1.06] {
+            b.beam(v(x, 0.15, 1.05), v(x, 1.30, 1.05), 0.082, OAK);
+        }
+        panel_roof(b, v(0.0, 1.37, 0.81), 2.49, 0.70, 0.19, TEAL);
+    }
+    if inn {
+        if (2..4).contains(&level) {
+            b.slab(v(0.0, 1.46, 0.49), v(1.86, 0.085, 0.34), TRAVERTINE);
+            rail(b, v(0.0, 1.50, 0.65), 1.76, WINE);
+        }
+        if level >= 3 {
+            mosaic(b, v(0.0, 0.16, 0.90), 14, 3, 0.143);
+            flowerpot(b, v(-1.07, 0.16, 0.82), 0.73, [218, 103, 129]);
+        }
+        if level >= 5 {
+            window(b, v(0.0, h - 0.15, 0.352), 0.29, 0.28);
+        }
+        if level >= 6 {
+            b.slab(v(0.0, h + 0.43, 0.482), v(0.72, 0.18, 0.08), TRAVERTINE);
+            b.gem(v(0.0, h + 0.43, 0.536), 0.15, 0.085, 0.06, 0.45, GOLD);
+        }
+    } else {
+        if level >= 2 {
+            oven(b, v(0.83, 0.15, 0.69), BRICK);
+        } else {
+            amphora(b, v(0.81, 0.15, 0.73), 1.08, BRICK);
+        }
+        if level >= 3 {
+            shelf(b, v(-0.72, 0.15, 0.86), TEAL);
+        } else {
+            b.slab(v(-0.63, 0.50, 0.72), v(0.69, 0.114, 0.37), OAK);
+            for x in [-0.85, -0.60, -0.33] {
+                amphora(b, v(x, 0.556, 0.77), 0.55, TEAL);
+            }
+        }
+        if level >= 5 {
+            for x in [-0.77, -0.38, 0.01] {
+                window(b, v(x, h - 0.08, 0.352), 0.22, 0.23);
+            }
+        }
+        if level >= 6 {
+            b.slab(v(0.0, 1.46, 1.10), v(0.53, 0.19, 0.08), GOLD);
+            b.gem(v(0.0, 1.44, 1.15), 0.095, 0.082, 0.028, 0.1, BLUE);
+        }
+    }
+}
+
+pub(super) fn mosaic(b: &mut Batch, p: Vec3, cols: usize, rows: usize, step: f32) {
     let chalk = [225, 204, 166];
     let ink = [90, 100, 113];
     for i in 0..cols {
@@ -527,91 +419,370 @@ fn pool(b: &mut Batch, p: Vec3, w: f32, d: f32) {
     }
 }
 
-fn cistern(b: &mut Batch) {
-    foundation(b, 1.56);
-    mosaic(b, v(0.0, 0.164, 0.0), 13, 9, 0.15);
-    pool(b, v(0.0, 0.18, 0.24), 1.29, 0.63);
-    arch(b, v(0.0, 0.14, -0.41), 0.78, 0.58, 0.17, 0.27, BRICK);
-    b.slab(v(0.0, 1.28, -0.41), v(1.31, 0.14, 0.36), TRAVERTINE);
-    amphora(b, v(0.96, 0.13, 0.63), 0.82, BRICK);
-}
-
-fn pipes(b: &mut Batch) {
-    foundation(b, 1.37);
-    for x in [-0.75, 0.75] {
-        arch(b, v(x, 0.12, -0.10), 0.91, 1.28, 0.20, 0.58, BRICK);
-    }
-    b.slab(v(0.0, 1.98, -0.10), v(2.79, 0.19, 0.69), TRAVERTINE);
-    b.slab(v(0.0, 2.12, -0.10), v(2.65, 0.16, 0.58), BRICK);
-    b.slab(v(0.0, 2.23, -0.10), v(2.59, 0.12, 0.61), TRAVERTINE);
-    pool(b, v(0.0, 0.143, 0.55), 1.36, 0.41);
-}
-
-fn baths(b: &mut Batch) {
-    foundation(b, 2.0);
-    b.slab(v(0.0, 0.73, -0.63), v(2.40, 1.15, 0.72), BRICK);
-    masonry(b, v(0.0, 0.14, -0.248), 2.37, 1.10, BRICK);
-    for x in [-0.68, 0.68] {
-        arch(b, v(x, 0.14, -0.20), 0.56, 0.74, 0.128, 0.16, TRAVERTINE);
-        window(b, v(x, 0.68, -0.224), 0.39, 0.59);
-    }
-    b.slab(v(0.0, 1.36, -0.64), v(2.51, 0.11, 0.87), TRAVERTINE);
-    b.frustum(v(0.0, 1.29, -0.60), 0.62, 0.47, 0.33, 14, TILE);
-    b.frustum(v(0.0, 1.60, -0.60), 0.46, 0.17, 0.26, 14, shift(TILE, 9));
-    b.frustum(v(0.0, 1.85, -0.60), 0.16, 0.14, 0.12, 10, TRAVERTINE);
-    mosaic(b, v(0.0, 0.164, 0.47), 13, 7, 0.16);
-    pool(b, v(0.0, 0.185, 0.48), 1.70, 0.64);
-    flowerpot(b, v(1.16, 0.17, 0.59), 0.69, [199, 132, 150]);
-}
-
-fn portico(b: &mut Batch) {
-    foundation(b, 1.73);
-    for x in [-0.75, 0.75] {
-        arch(b, v(x, 0.142, 0.24), 0.82, 0.91, 0.18, 0.40, BRICK);
-        arch(b, v(x, 0.142, -0.46), 0.82, 0.91, 0.18, 0.24, BRICK);
-    }
-    b.slab(v(0.0, 1.62, -0.16), v(2.60, 0.16, 1.26), TRAVERTINE);
-    b.slab(v(0.0, 1.75, -0.16), v(2.65, 0.12, 1.36), TILE);
-    b.slab(v(0.0, 0.39, -0.37), v(1.88, 0.115, 0.36), OAK);
-}
-
-fn forum(b: &mut Batch) {
-    foundation(b, 2.02);
-    mosaic(b, v(0.0, 0.165, 0.16), 15, 11, 0.15);
-    for x in [-0.80, 0.0, 0.80] {
-        arch(b, v(x, 0.14, -0.38), 0.57, 1.17, 0.14, 0.26, BRICK);
-        b.slab(v(x, 0.51, 0.13), v(0.59, 0.13, 0.41), OAK);
-        amphora(
+fn cistern(b: &mut Batch, level: u8) {
+    foundation(b, if level >= 3 { 2.14 } else { 1.65 });
+    mosaic(b, v(0.0, 0.164, 0.04), 14, 10, 0.14);
+    let width = if level >= 3 { 2.14 } else { 1.31 };
+    let z = if level >= 3 { 0.60 } else { 0.28 };
+    tank(
+        b,
+        v(0.0, 0.17, z),
+        width,
+        0.72,
+        if level >= 5 { 0.32 } else { 0.24 },
+        TRAVERTINE,
+        POOL,
+    );
+    let spring = if level >= 6 { 1.02 } else { 0.70 };
+    if level >= 2 {
+        arcade(
             b,
-            v(x, 0.57, 0.15),
-            0.61,
-            [WINE, TEAL, GOLD][((x + 0.81) * 1.26) as usize],
+            v(0.0, 0.14, -0.46),
+            spring,
+            if level >= 4 { 0.49 } else { 0.30 },
+            BRICK,
+        );
+    } else {
+        arch(b, v(0.0, 0.14, -0.41), 0.78, 0.59, 0.17, 0.27, BRICK);
+        b.slab(v(0.0, 1.284, -0.41), v(1.25, 0.15, 0.39), TRAVERTINE);
+    }
+    if level >= 3 {
+        for x in [-0.57, 0.57] {
+            b.frustum(v(x, 0.17, 0.10), 0.13, 0.11, 0.56, 10, TRAVERTINE);
+            b.beam(v(x, 0.71, 0.10), v(x, 0.68, 0.43), 0.083, GOLD);
+            b.beam(v(x, 0.65, 0.43), v(x, 0.38, 0.47), 0.044, POOL);
+        }
+    }
+    if level >= 4 {
+        for x in [-0.71, 0.71] {
+            b.slab(
+                v(x, 0.75, -0.65),
+                v(0.73, 1.20 + f32::from(level >= 6) * 0.28, 0.12),
+                PLASTER,
+            );
+            window(b, v(x, 0.85, -0.581), 0.28, 0.33);
+        }
+    }
+    if level >= 6 {
+        panel_roof(b, v(0.0, 1.94, -0.44), 2.73, 0.76, 0.18, TEAL);
+    }
+    amphora(b, v(1.21, 0.15, 0.15), 0.70, BRICK);
+}
+
+fn pipes(b: &mut Batch, level: u8) {
+    foundation(b, if level >= 3 { 2.12 } else { 1.65 });
+    for x in [-0.75, 0.75] {
+        arch(b, v(x, 0.14, -0.35), 0.94, 1.28, 0.20, 0.62, BRICK);
+    }
+    b.slab(v(0.0, 2.00, -0.35), v(2.76, 0.20, 0.77), TRAVERTINE);
+    b.slab(v(0.0, 2.14, -0.35), v(2.70, 0.104, 0.71), BRICK);
+    let shoulder = if level > 1 { 0.74 } else { 0.0 };
+    if level >= 2 {
+        for x in [-0.84, 0.0, 0.84] {
+            arch(b, v(x, 2.19, -0.35), 0.59, 0.29, 0.108, 0.41, BRICK);
+        }
+    }
+    let y = 2.197 + shoulder;
+    tank(
+        b,
+        v(0.0, y - 0.11, -0.35),
+        2.74,
+        0.61,
+        0.23,
+        TRAVERTINE,
+        POOL,
+    );
+    if level >= 3 {
+        tank(b, v(0.0, 0.15, 0.66), 2.26, 0.74, 0.245, TRAVERTINE, POOL);
+        for x in [-0.75, 0.75] {
+            b.beam(v(x, 1.05, -0.04), v(x, 0.99, 0.59), 0.108, TRAVERTINE);
+            b.beam(v(x, 0.96, 0.60), v(x, 0.35, 0.62), 0.048, POOL);
+        }
+    } else {
+        tank(b, v(0.0, 0.15, 0.53), 1.29, 0.55, 0.18, TRAVERTINE, POOL);
+    }
+    if level >= 4 {
+        for x in [-1.18, 1.18] {
+            b.slab(v(x, y - 0.02, -0.35), v(0.35, 0.22, 0.70), BRICK);
+            b.slab(v(x, y + 0.13, -0.35), v(0.42, 0.10, 0.74), TILE);
+        }
+    }
+    if level >= 5 {
+        mosaic(b, v(0.0, 0.16, 1.09), 15, 2, 0.145);
+        for x in [-1.189, 1.189] {
+            b.frustum(v(x, 0.15, 0.53), 0.139, 0.109, 0.74, 12, TRAVERTINE);
+            b.frustum(v(x, 0.89, 0.53), 0.14, 0.092, 0.11, 12, GOLD);
+        }
+    }
+    if level >= 6 {
+        tank(
+            b,
+            v(0.0, y + 0.14, -0.36),
+            1.48,
+            0.75,
+            0.30,
+            TRAVERTINE,
+            POOL,
+        );
+        b.frustum(v(0.0, y + 0.39, -0.36), 0.18, 0.13, 0.16, 10, TRAVERTINE);
+        b.gem(v(0.0, y + 0.57, -0.36), 0.095, 0.10, 0.08, 0.1, GOLD);
+    }
+}
+
+fn baths(b: &mut Batch, level: u8) {
+    foundation(b, 2.23);
+    let h = if level >= 6 { 1.69 } else { 1.34 };
+    b.slab(
+        v(0.0, (h + 0.14) / 2.0, -0.59),
+        v(2.42, h - 0.14, 0.84),
+        BRICK,
+    );
+    masonry(b, v(0.0, 0.15, -0.159), 2.39, h - 0.16, BRICK);
+    for x in [-0.68, 0.68] {
+        arch(b, v(x, 0.14, -0.10), 0.56, 0.69, 0.127, 0.16, TRAVERTINE);
+        window(b, v(x, 0.67, -0.123), 0.39, 0.57);
+    }
+    b.slab(v(0.0, h + 0.045, -0.59), v(2.54, 0.10, 0.90), TRAVERTINE);
+    let z = -0.54;
+    dome(b, v(0.0, h + 0.10, z), if level >= 6 { 0.65 } else { 0.58 });
+    if level >= 4 {
+        for x in [-0.84, 0.84] {
+            dome(b, v(x, h + 0.096, z - 0.07), 0.32);
+        }
+    }
+    mosaic(b, v(0.0, 0.164, 0.57), 14, 7, 0.15);
+    pool(
+        b,
+        v(0.0, 0.187, 0.53),
+        if level >= 2 { 2.10 } else { 1.62 },
+        if level >= 2 { 0.79 } else { 0.63 },
+    );
+    if level >= 3 {
+        arcade(
+            b,
+            v(0.0, 0.14, 0.95),
+            if level >= 6 { 0.81 } else { 0.70 },
+            0.31,
+            TRAVERTINE,
         );
     }
-    b.slab(v(0.0, 1.82, -0.38), v(2.70, 0.17, 0.55), TRAVERTINE);
-    b.slab(v(0.0, 1.97, -0.38), v(2.77, 0.13, 0.63), TILE);
-    awning(b, 0.0, 1.48, 2.40, WINE);
-}
-
-fn garden(b: &mut Batch) {
-    foundation(b, 1.90);
-    pool(b, v(0.0, 0.145, 0.58), 0.88, 0.31);
-    for x in [-0.84, 0.84] {
-        olive(b, v(x, 0.15, -0.42), 0.82);
-        flowerpot(b, v(x, 0.16, 0.73), 0.73, [213, 111, 144]);
+    if level >= 5 {
+        for x in [-1.08, 1.08] {
+            flowerpot(b, v(x, 0.16, 1.04), 0.74, [205, 134, 156]);
+        }
+        stoop(b, v(0.0, 0.0, 1.06), 0.94, 0.17, 0.20, 2, TRAVERTINE);
     }
-    mosaic(b, v(0.0, 0.168, -0.26), 5, 6, 0.15);
 }
 
-fn horreum(b: &mut Batch) {
-    foundation(b, 1.90);
-    b.slab(v(0.0, 0.89, -0.37), v(2.42, 1.49, 1.31), BRICK);
-    masonry(b, v(0.0, 0.16, 0.30), 2.35, 1.40, BRICK);
-    b.slab(v(0.0, 0.74, 0.34), v(0.91, 1.17, 0.08), [78, 59, 46]);
-    arch(b, v(0.0, 0.14, 0.38), 0.96, 0.79, 0.14, 0.18, TRAVERTINE);
-    roof(b, 2.64, 2.01, 1.68, 0.29, TILE);
-    for (x, col) in [(-0.94, BLUE), (0.91, BRICK), (1.14, TRAVERTINE)] {
-        amphora(b, v(x, 0.12, 0.81), 1.0, col);
+fn dome(b: &mut Batch, at: Vec3, r: f32) {
+    b.frustum(at, r, r * 0.89, r * 0.37, 14, TILE);
+    b.frustum(
+        at + Vec3::Y * (r * 0.37),
+        r * 0.89,
+        r * 0.52,
+        r * 0.39,
+        14,
+        shift(TILE, 12),
+    );
+    b.frustum(
+        at + Vec3::Y * (r * 0.76),
+        r * 0.52,
+        r * 0.16,
+        r * 0.25,
+        14,
+        shift(TILE, 23),
+    );
+    b.frustum(
+        at + Vec3::Y * (r * 1.01),
+        r * 0.15,
+        r * 0.13,
+        r * 0.18,
+        10,
+        GOLD,
+    );
+}
+
+fn portico(b: &mut Batch, level: u8) {
+    foundation(b, if level >= 3 { 2.14 } else { 1.75 });
+    let front = if level >= 3 { 0.73 } else { 0.40 };
+    let spring = if level >= 5 { 1.14 } else { 0.94 };
+    arcade(b, v(0.0, 0.14, front), spring, 0.34, BRICK);
+    arcade(b, v(0.0, 0.14, -0.59), spring, 0.27, BRICK);
+    let roof_y = spring + 0.93;
+    if level >= 4 {
+        gable(
+            b,
+            v(0.0, roof_y, (front - 0.59) / 2.0),
+            2.73,
+            front + 0.99,
+            if level >= 6 { 0.46 } else { 0.34 },
+            TILE,
+        );
+    } else {
+        b.slab(
+            v(0.0, spring + 0.86, (front - 0.59) / 2.0),
+            v(2.72, 0.126, front + 0.99),
+            TILE,
+        );
+    }
+    bench(b, v(0.0, 0.15, -0.49), 1.74);
+    if level >= 2 {
+        mosaic(b, v(0.0, 0.16, 0.45), 14, 7, 0.145);
+    }
+    if level >= 5 {
+        flowerpot(b, v(-1.21, 0.17, 0.97), 0.57, [213, 131, 152]);
+    }
+    if level >= 6 {
+        b.gem(
+            v(0.0, roof_y + 0.21, front + 0.224),
+            0.17,
+            0.111,
+            0.042,
+            0.55,
+            GOLD,
+        );
+        b.slab(
+            v(0.0, roof_y - 0.081, front + 0.19),
+            v(2.62, 0.037, 0.034),
+            GOLD,
+        );
+    }
+}
+
+fn forum(b: &mut Batch, level: u8) {
+    foundation(b, 2.22);
+    mosaic(b, v(0.0, 0.165, 0.25), 15, 12, 0.15);
+    for (i, x) in [-0.80, 0.0, 0.80].into_iter().enumerate() {
+        arch(b, v(x, 0.14, -0.44), 0.57, 1.25, 0.144, 0.29, BRICK);
+        b.slab(v(x, 0.51, -0.08), v(0.59, 0.13, 0.41), OAK);
+        amphora(b, v(x, 0.57, 0.03), 0.68, [WINE, TEAL, GOLD][i]);
+        if level >= 2 {
+            crate_box(b, v(x, 0.16, 0.72), v(0.42, 0.34, 0.39), PLASTER);
+            b.gem(
+                v(x, 0.57, 0.72),
+                0.12,
+                0.094,
+                0.12,
+                x,
+                [WINE, TEAL, GOLD][i],
+            );
+        }
+    }
+    b.slab(v(0.0, 1.88, -0.44), v(2.70, 0.18, 0.61), TRAVERTINE);
+    if level < 3 {
+        b.slab(v(0.0, 2.017, -0.44), v(2.75, 0.094, 0.73), TILE);
+    } else {
+        let top = if level >= 5 { 0.39 } else { 0.24 };
+        arcade(b, v(0.0, 1.97, -0.44), top, 0.41, BRICK);
+        if level >= 4 {
+            let y = 2.728 + top;
+            gable(
+                b,
+                v(0.0, y, -0.44),
+                2.76,
+                0.76,
+                if level >= 6 { 0.44 } else { 0.31 },
+                TILE,
+            );
+            b.gem(v(0.0, y + 0.15, -0.043), 0.15, 0.094, 0.035, 0.38, GOLD);
+        }
+    }
+    if level >= 5 {
+        for x in [-1.16, 1.16] {
+            b.beam(v(x, 0.16, 0.93), v(x, 1.42, 0.93), 0.075, OAK);
+        }
+        panel_roof(b, v(0.0, 1.47, 0.43), 2.50, 1.29, 0.14, WINE);
+    } else {
+        awning(b, 0.30, 1.48, 2.40, WINE);
+    }
+    if level >= 6 {
+        stoop(b, v(0.0, 0.0, 1.04), 1.28, 0.16, 0.26, 2, TRAVERTINE);
+    }
+}
+
+fn garden(b: &mut Batch, level: u8) {
+    foundation(b, 2.14);
+    pool(b, v(0.0, 0.145, 0.61), 0.85 + f32::from(level) * 0.15, 0.35);
+    for x in [-0.79, 0.79] {
+        olive(b, v(x, 0.15, -0.42), 0.85 + f32::from(level - 1) * 0.028);
+        flowerpot(b, v(x * 1.47, 0.16, 0.73), 0.71, [213, 111, 144]);
+    }
+    mosaic(
+        b,
+        v(0.0, 0.17, -0.26),
+        if level >= 2 { 8 } else { 5 },
+        6,
+        0.15,
+    );
+    if level >= 3 {
+        arcade(
+            b,
+            v(0.0, 0.14, 0.06),
+            if level >= 5 { 0.95 } else { 0.73 },
+            0.36,
+            TRAVERTINE,
+        );
+        bench(b, v(0.0, 0.16, 0.03), 1.02);
+    }
+    if level >= 4 {
+        let y = if level >= 5 { 1.90 } else { 1.68 };
+        for i in 0..9 {
+            let x = -1.04 + i as f32 * 0.26;
+            b.gem(
+                v(x, y, 0.19),
+                0.23,
+                0.133,
+                0.16,
+                x,
+                shift([94, 128, 79], (i * 7 % 17) as i16),
+            );
+        }
+    }
+    if level >= 6 {
+        for x in [-1.03, 1.03] {
+            b.frustum(v(x, 0.15, 0.93), 0.19, 0.17, 0.32, 10, TRAVERTINE);
+            flowerpot(b, v(x, 0.46, 0.93), 0.76, [221, 135, 170]);
+        }
+    }
+}
+
+fn horreum(b: &mut Batch, level: u8) {
+    let height = 1.42 + f32::from(level.saturating_sub(4)) * 0.27;
+    foundation(b, if level >= 2 { 2.23 } else { 1.91 });
+    b.slab(
+        v(0.0, 0.14 + height * 0.5, -0.37),
+        v(2.42, height, 1.31),
+        BRICK,
+    );
+    masonry(b, v(0.0, 0.15, 0.30), 2.35, height - 0.08, BRICK);
+    b.slab(v(0.0, 0.73, 0.34), v(0.91, 1.17, 0.08), [78, 59, 46]);
+    arch(b, v(0.0, 0.14, 0.38), 0.96, 0.78, 0.14, 0.18, TRAVERTINE);
+    gable(b, v(0.0, 0.16 + height, -0.34), 2.64, 1.73, 0.39, TILE);
+    if level >= 2 {
+        for x in [-0.86, 0.89] {
+            crate_box(b, v(x, 0.15, 0.82), v(0.51, 0.35, 0.42), [150, 102, 69]);
+            if level >= 4 {
+                crate_box(b, v(x, 0.50, 0.81), v(0.40, 0.25, 0.32), [158, 112, 73]);
+            }
+        }
+    } else {
+        amphora(b, v(0.91, 0.13, 0.83), 0.87, BRICK);
+    }
+    if level >= 3 {
+        crane(b, v(1.16, 0.15, 0.28), 1.82 + f32::from(level - 3) * 0.14);
+    }
+    if level >= 4 {
+        b.beam(v(-1.12, 0.16, 1.06), v(-1.12, 1.31, 1.06), 0.071, OAK);
+        panel_roof(b, v(-0.45, 1.38, 0.78), 1.58, 0.68, 0.18, TILE);
+    }
+    if level >= 5 {
+        for x in [-0.72, 0.72] {
+            window(b, v(x, height - 0.02, 0.338), 0.34, 0.22);
+        }
+    }
+    if level >= 6 {
+        b.slab(v(0.0, 1.48, 0.33), v(2.44, 0.10, 0.10), TRAVERTINE);
+        stoop(b, v(0.0, 0.0, 0.94), 1.16, 0.16, 0.30, 2, TRAVERTINE);
     }
 }
 

@@ -36,6 +36,7 @@ pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign, gam
                     (None, "Antike", "forum"),
                     (Some(Region::Japan), "Japan", "temple"),
                     (Some(Region::Nordic), "Nordisch", "boatyard"),
+                    (Some(Region::Oasis), "Oasen", "oasis_home"),
                 ] {
                     button(
                         tabs,

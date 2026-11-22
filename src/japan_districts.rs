@@ -39,6 +39,7 @@ const HARBOR_PLANS: &[crate::model::Kind] = &[
 
 const COAST: Chapter = Chapter {
     region: Region::Japan,
+    shift: crate::campaign::Shift::Day,
     name: "",
     district: "",
     difficulty: "Sanft",

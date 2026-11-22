@@ -4,6 +4,10 @@ mod districts;
 mod japan;
 #[path = "nordic_districts.rs"]
 mod nordic;
+#[path = "oasis_districts.rs"]
+mod oasis;
+#[path = "harbor_progression.rs"]
+mod progression;
 
 use crate::{
     errands::Job,
@@ -12,13 +16,79 @@ use crate::{
 };
 
 pub const REGION_SIZE: usize = 24;
+pub const CORE_HARBORS: usize = 12;
 
 pub const fn harbor_stage(index: usize) -> usize {
     index % REGION_SIZE
 }
 pub const JAPAN_START: usize = REGION_SIZE * 2;
 pub const NORDIC_START: usize = REGION_SIZE * 3;
-pub const CHAPTER_COUNT: usize = REGION_SIZE * 4;
+pub const OASIS_START: usize = REGION_SIZE * 4;
+pub const CHAPTER_COUNT: usize = REGION_SIZE * 5;
+
+pub fn main_route_end(chapter: usize) -> bool {
+    harbor_stage(chapter) + 1 == CORE_HARBORS
+}
+
+pub fn next_harbor(chapter: usize) -> Option<usize> {
+    if main_route_end(chapter) {
+        let start = Region::of(chapter).start() + REGION_SIZE;
+        (start < CHAPTER_COUNT).then_some(start)
+    } else {
+        (harbor_stage(chapter) + 1 < REGION_SIZE).then_some(chapter + 1)
+    }
+}
+
+pub fn previous_harbor(chapter: usize) -> Option<usize> {
+    if chapter > 0 && harbor_stage(chapter) == 0 {
+        Some(chapter - REGION_SIZE + CORE_HARBORS - 1)
+    } else {
+        chapter.checked_sub(1)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shift {
+    Day,
+    Late,
+    Long,
+    Night,
+}
+
+impl Shift {
+    pub fn night(self) -> bool {
+        self == Self::Night
+    }
+
+    fn minutes(self) -> (u16, u16) {
+        match self {
+            Self::Day => (7 * 60, 19 * 60),
+            Self::Late => (7 * 60, 20 * 60),
+            Self::Long => (7 * 60, 21 * 60 + 30),
+            Self::Night => (19 * 60, 30 * 60),
+        }
+    }
+
+    pub fn clock(self, progress: f32) -> String {
+        let (start, end) = self.minutes();
+        let minute =
+            (start + (progress.clamp(0.0, 1.0) * f32::from(end - start)) as u16) % (24 * 60);
+        format!("{:02}:{:02}", minute / 60, minute % 60)
+    }
+
+    pub fn hours(self) -> String {
+        format!("{}–{}", self.clock(0.0), self.clock(1.0))
+    }
+
+    fn extra_seconds(self) -> f32 {
+        match self {
+            Self::Day => 0.0,
+            Self::Late => 12.0,
+            Self::Long => 24.0,
+            Self::Night => 14.0,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Region {
@@ -26,10 +96,17 @@ pub enum Region {
     Rome,
     Japan,
     Nordic,
+    Oasis,
 }
 
 impl Region {
-    pub const ALL: [Self; 4] = [Self::Greece, Self::Rome, Self::Japan, Self::Nordic];
+    pub const ALL: [Self; 5] = [
+        Self::Greece,
+        Self::Rome,
+        Self::Japan,
+        Self::Nordic,
+        Self::Oasis,
+    ];
 
     pub fn of(chapter: usize) -> Self {
         Self::ALL[(chapter / REGION_SIZE).min(Self::ALL.len() - 1)]
@@ -41,6 +118,7 @@ impl Region {
             Self::Rome => REGION_SIZE,
             Self::Japan => JAPAN_START,
             Self::Nordic => NORDIC_START,
+            Self::Oasis => OASIS_START,
         }
     }
 
@@ -49,7 +127,8 @@ impl Region {
             Self::Greece => "Griechenland",
             Self::Rome => "Rom",
             Self::Japan => "Japan",
-            Self::Nordic => "Nordische Häfen",
+            Self::Nordic => "Norden",
+            Self::Oasis => "Oasenreiche",
         }
     }
 
@@ -59,6 +138,7 @@ impl Region {
             Self::Rome => "forum",
             Self::Japan => "temple",
             Self::Nordic => "boatyard",
+            Self::Oasis => "oasis_home",
         }
     }
 
@@ -68,6 +148,7 @@ impl Region {
             Self::Rome => "Denare",
             Self::Japan => "Mon",
             Self::Nordic => "Silber",
+            Self::Oasis => "Dirham",
         }
     }
 }
@@ -88,10 +169,15 @@ pub enum Goal {
     Catch(u32),
     Voyages(u32),
     CargoIncome(u32),
+    Caravans(u32),
+    CaravanIncome(u32),
+    SpiceRoutes(u32),
     Route(Job, u32),
     RouteVariety(u32),
     FerryDay(u32),
     GoodDay(u32),
+    Specials(u32),
+    Residents(u32),
     Upgrade(Kind, u32),
     Pair(Kind, Kind, u32),
 }
@@ -113,10 +199,15 @@ impl Goal {
             | Self::Catch(n)
             | Self::Voyages(n)
             | Self::CargoIncome(n)
+            | Self::Caravans(n)
+            | Self::CaravanIncome(n)
+            | Self::SpiceRoutes(n)
             | Self::Route(_, n)
             | Self::RouteVariety(n)
             | Self::FerryDay(n)
             | Self::GoodDay(n)
+            | Self::Specials(n)
+            | Self::Residents(n)
             | Self::Upgrade(_, n)
             | Self::Pair(_, _, n) => n,
         }
@@ -142,6 +233,14 @@ impl Goal {
                 Service::SmokedFish => "Räucherfisch verkaufen",
                 Service::Textiles => "Webwaren verkaufen",
                 Service::HearthMeal => "Gäste am Herd bewirten",
+                Service::Honey => "Honig verkaufen",
+                Service::DyedCloth => "Gefärbte Stoffe verkaufen",
+                Service::Tablets => "Wachstafeln ausgeben",
+                Service::Casks => "Fässer verkaufen",
+                Service::Dates => "Datteln verkaufen",
+                Service::Spices => "Gewürze verkaufen",
+                Service::Glass => "Glaswaren verkaufen",
+                Service::Incense => "Duftwaren verkaufen",
             }
             .into(),
             Self::Renown(_) => "Ansehen sammeln".into(),
@@ -156,10 +255,15 @@ impl Goal {
             Self::Catch(_) => "Fische an einem Tag fangen".into(),
             Self::Voyages(_) => "Handelsschiffe zurückholen".into(),
             Self::CargoIncome(_) => "Silber aus dem Seehandel".into(),
+            Self::Caravans(_) => "Karawanen losschicken".into(),
+            Self::CaravanIncome(_) => "Dirham im Karawanenhandel verdienen".into(),
+            Self::SpiceRoutes(_) => "Karawanen auf die Gewürzstraße schicken".into(),
             Self::Route(job, _) => job.name().into(),
             Self::RouteVariety(_) => "Verschiedene Touren".into(),
             Self::FerryDay(_) => "Fährgäste an einem Tag".into(),
             Self::GoodDay(_) => "Zufriedenheit (%)".into(),
+            Self::Specials(_) => "Lieblingsangebote verkaufen".into(),
+            Self::Residents(_) => "Nachbarn im Viertel".into(),
             Self::Upgrade(kind, _) => format!("{} · Ausbaustufe", kind.name()),
             Self::Pair(a, b, _) => format!("{} neben {}", a.name(), b.name()),
         }
@@ -169,6 +273,7 @@ impl Goal {
 #[derive(Clone, Copy)]
 pub struct Chapter {
     pub region: Region,
+    pub shift: Shift,
     pub name: &'static str,
     pub district: &'static str,
     pub difficulty: &'static str,
@@ -214,8 +319,9 @@ impl Chapter {
             Region::Rome => 5.0,
             Region::Japan => 10.0,
             Region::Nordic => 12.0,
+            Region::Oasis => 14.0,
         };
-        DAY_SECONDS + walking_room + market_room + regional
+        DAY_SECONDS + walking_room + market_room + regional + self.shift.extra_seconds()
     }
 
     pub fn extra_ferry_guests(&self) -> u16 {
@@ -236,6 +342,7 @@ use Weather::*;
 const GREEK_START: [Chapter; 12] = [
     Chapter {
         region: Region::Greece,
+        shift: crate::campaign::Shift::Day,
         name: "Brot für die Bucht",
         district: "Naxos",
         difficulty: "Sanft",
@@ -259,6 +366,7 @@ const GREEK_START: [Chapter; 12] = [
     },
     Chapter {
         region: Region::Greece,
+        shift: crate::campaign::Shift::Day,
         name: "Der trockene Sommer",
         district: "Amorgos",
         difficulty: "Sanft",
@@ -286,6 +394,7 @@ const GREEK_START: [Chapter; 12] = [
     },
     Chapter {
         region: Region::Greece,
+        shift: crate::campaign::Shift::Day,
         name: "Ein Krug für Delos",
         district: "Delos",
         difficulty: "Leicht",
@@ -313,6 +422,7 @@ const GREEK_START: [Chapter; 12] = [
     },
     Chapter {
         region: Region::Greece,
+        shift: crate::campaign::Shift::Day,
         name: "Die Säulenhalle",
         district: "Rhodos",
         difficulty: "Mittel",
@@ -340,6 +450,7 @@ const GREEK_START: [Chapter; 12] = [
     },
     Chapter {
         region: Region::Greece,
+        shift: crate::campaign::Shift::Day,
         name: "Feigen zum Sonnenfest",
         district: "Samos",
         difficulty: "Mittel",
@@ -363,6 +474,7 @@ const GREEK_START: [Chapter; 12] = [
     },
     Chapter {
         region: Region::Greece,
+        shift: crate::campaign::Shift::Day,
         name: "Ein Bett am Meer",
         district: "Kos",
         difficulty: "Mittel",
@@ -386,6 +498,7 @@ const GREEK_START: [Chapter; 12] = [
     },
     Chapter {
         region: Region::Greece,
+        shift: crate::campaign::Shift::Day,
         name: "Die zwei Werften",
         district: "Paros",
         difficulty: "Knifflig",
@@ -409,6 +522,7 @@ const GREEK_START: [Chapter; 12] = [
     },
     Chapter {
         region: Region::Greece,
+        shift: crate::campaign::Shift::Day,
         name: "Das Fest der Laternen",
         district: "Kythnos",
         difficulty: "Knifflig",
@@ -432,10 +546,11 @@ const GREEK_START: [Chapter; 12] = [
     },
     Chapter {
         region: Region::Greece,
+        shift: crate::campaign::Shift::Day,
         name: "Unter dem Stern der Dione",
         district: "Thera",
         difficulty: "Knifflig",
-        greeting: "Morgen kommen Pilger. Menon und Nili wollen sie mit Schatten und warmem Brot empfangen.",
+        greeting: "Menon holt die Honigkrüge vom Hang. Auf der Tafel fehlt noch Platz für warmes Essen.",
         hint: "Beim Ausbau steigt der Wasserbedarf. Prüfe im Hafenplan, ob das Wasser reicht.",
         layout: Layout::legacy(6),
         coins: 59,
@@ -451,10 +566,11 @@ const GREEK_START: [Chapter; 12] = [
         guests: &[Shade, Bed, Meze, Meze, Pottery],
         weather: &[Heat, Clear, Heat, Feast],
         favors: &[ShadeFavor, Jugs, Cargo],
-        goals: [Serve(Shade, 36), Serve(Meze, 36), Renown(94)],
+        goals: [Pair(Taverna, HerbGarden, 1), Serve(Meze, 36), MarketDay(36)],
     },
     Chapter {
         region: Region::Greece,
+        shift: crate::campaign::Shift::Day,
         name: "Die Hafengemeinschaft",
         district: "Milos",
         difficulty: "Anspruchsvoll",
@@ -478,6 +594,7 @@ const GREEK_START: [Chapter; 12] = [
     },
     Chapter {
         region: Region::Greece,
+        shift: crate::campaign::Shift::Day,
         name: "Die letzte Nachtfähre",
         district: "Ikaria",
         difficulty: "Anspruchsvoll",
@@ -501,6 +618,7 @@ const GREEK_START: [Chapter; 12] = [
     },
     Chapter {
         region: Region::Greece,
+        shift: crate::campaign::Shift::Day,
         name: "Nilis lange Tafel",
         district: "Kallisti",
         difficulty: "Anspruchsvoll",
@@ -543,13 +661,24 @@ pub static CHAPTERS: [Chapter; CHAPTER_COUNT] = {
         chapters[i] = japan::CHAPTERS[i - JAPAN_START];
         i += 1;
     }
-    while i < CHAPTER_COUNT {
+    while i < OASIS_START {
         chapters[i] = nordic::CHAPTERS[i - NORDIC_START];
+        i += 1;
+    }
+    while i < CHAPTER_COUNT {
+        chapters[i] = oasis::CHAPTERS[i - OASIS_START];
         i += 1;
     }
     let mut index = 0;
     while index < CHAPTER_COUNT {
         chapters[index].layout = chapters[index].layout.for_chapter(index);
+        chapters[index].shift = match harbor_stage(index) {
+            7 | 14 | 21 => Shift::Night,
+            17.. => Shift::Long,
+            9..=16 => Shift::Late,
+            _ => Shift::Day,
+        };
+        chapters[index] = progression::revise(chapters[index], harbor_stage(index));
         index += 1;
     }
     chapters

@@ -1,6 +1,9 @@
 use super::*;
 use crate::{
-    campaign::{Chapter, JAPAN_START, NORDIC_START, REGION_SIZE, Region, harbor_stage},
+    campaign::{
+        CORE_HARBORS, Chapter, REGION_SIZE, Region, harbor_stage, main_route_end, next_harbor,
+    },
+    caravan::Contract,
     coach::{self, Step},
     errands::Job,
     model::{Assortment, Building, HarborPlan, MAX_LEVEL, Price, Report, SERVICES, Town},
@@ -67,10 +70,15 @@ fn brief(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter
         format!("TUTORIAL  {} / {}", town.chapter + 1, coach::ISLANDS)
     } else {
         format!(
-            "{}  ·  HAFEN {} / {}",
+            "{}  ·  {}  ·  {} / {}",
             region.name().to_uppercase(),
-            town.chapter - region.start() + 1,
-            REGION_SIZE
+            if harbor_stage(town.chapter) >= CORE_HARBORS {
+                "BONUSROUTE"
+            } else {
+                "HAUPTREISE"
+            },
+            harbor_stage(town.chapter) % CORE_HARBORS + 1,
+            CORE_HARBORS
         )
     };
     modal(
@@ -132,6 +140,14 @@ fn brief(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter
                     chapter_picture(intro, hud, town.chapter, Val::Px(230.0), Val::Px(112.0));
                     intro.spawn(column(7.0)).with_children(|words| {
                         label(words, hud, chapter.greeting, 20.0, Face::Body, SAND);
+                        if chapter.shift.night() {
+                            metric(
+                                words,
+                                hud,
+                                "moon",
+                                format!("Nachtschicht · {} Uhr", chapter.shift.hours()),
+                            );
+                        }
                         metric(
                             words,
                             hud,
@@ -229,6 +245,37 @@ fn new_in_harbor(page: &mut ChildSpawnerCommands, hud: &Hud, island: usize, chap
                 "lampion",
                 "Licht für Pilger",
                 "Neben einer Lampionwerkstatt ruft die Glocke drei Gäste.",
+            )),
+            _ => None,
+        };
+        fresh.extend(feature);
+    }
+    if chapter.region == Region::Oasis {
+        let feature = match stage {
+            0 => Some((
+                "cistern",
+                "Datteln und Wasser",
+                "Baue einen Dattelhain neben der Zisterne.",
+            )),
+            4 => Some((
+                "caravan",
+                "Die erste Karawane",
+                "Geh mit Nili zur Karawanserei. Halte dort Datteln und drei freie Krüge bereit.",
+            )),
+            5 => Some((
+                "qanat",
+                "Wasser unter dem Sand",
+                "Ein Qanat bringt den Nachbarhöfen und Karawanen zusätzliches Wasser.",
+            )),
+            12 => Some((
+                "caravan",
+                "Die Gewürzstraße",
+                "Ein Qanat ab Stufe 2, fünf freie Krüge und zwei Waren öffnen die Fernroute.",
+            )),
+            14 => Some((
+                "moon_garden",
+                "Rast nach Sonnenuntergang",
+                "Mondgärten bieten nachts vier zusätzliche Plätze.",
             )),
             _ => None,
         };
@@ -790,10 +837,12 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                 }
             } else {
                 let (art, effect) = match b.kind {
-                    Kind::House | Kind::Villa | Kind::Machiya | Kind::Longhouse => {
-                        (kind_icon(b.kind), format!("{} Nachbarn", b.residents()))
-                    }
-                    Kind::Well | Kind::Aqueduct => {
+                    Kind::House
+                    | Kind::Villa
+                    | Kind::Machiya
+                    | Kind::Longhouse
+                    | Kind::OasisHome => (kind_icon(b.kind), format!("{} Nachbarn", b.residents())),
+                    Kind::Well | Kind::Aqueduct | Kind::Cistern | Kind::Qanat => {
                         ("water", format!("{} Krüge auf der Insel", before.water))
                     }
                     Kind::HerbGarden => (
@@ -852,6 +901,9 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
             }
             if b.kind == Kind::Boatyard {
                 trade_routes(page, hud, town, chapter, lot, b.level);
+            }
+            if b.kind == Kind::Caravanserai && Contract::Oasis.available(town.chapter) {
+                caravan_routes(page, hud, town, chapter, lot, b.level);
             }
             if matches!(b.kind, Kind::Bakery | Kind::Taverna) && town.herb_support(lot) > 0 {
                 metric(
@@ -1105,6 +1157,66 @@ fn building_link(kind: Kind) -> Option<(&'static str, &'static str)> {
             "smoked_fish",
             "Proviant aus einer Räucherei im Umkreis von drei Bauplätzen",
         ),
+        Kind::Apiary => (
+            "herb_garden",
+            "Kräutergarten bis zu zwei Plätze weit liefert mehr Honig",
+        ),
+        Kind::Dyer => ("water", "Krüge Wasser füllen die Farbbäder"),
+        Kind::FerryOffice => (
+            "ferry",
+            "Mehr Fährgäste bis zu zwei Bauplätze vom Anleger entfernt",
+        ),
+        Kind::Mill => ("bread", "Mehl für Backstuben bis zu zwei Plätze weit"),
+        Kind::Scribe => ("forum", "Mehr Wachstafeln mit einem Forum in der Nähe"),
+        Kind::GardenCourt => (
+            "aqueduct",
+            "Ein Aquädukt in der Nähe schafft zusätzliche Rastplätze",
+        ),
+        Kind::MarketGarden => (
+            "tea_cup",
+            "Versorgt Reisküche, Teehaus und Seidenladen im Umkreis von zwei Bauplätzen",
+        ),
+        Kind::CeramicStudio => ("water", "Krüge Wasser füllen die Glasurbecken"),
+        Kind::SilkShop => (
+            "market_garden",
+            "Färbepflanzen aus einem Gemüsegarten bringen mehr Stoffe",
+        ),
+        Kind::Sheepfold => (
+            "weaver",
+            "Wolle für Webereien im Umkreis von zwei Bauplätzen",
+        ),
+        Kind::Cooperage => (
+            "boatyard",
+            "Spart am benachbarten Bootshaus eine Portion Proviant je Fahrt",
+        ),
+        Kind::OasisHome => ("house", "Mit weiteren Stufen finden mehr Menschen Platz."),
+        Kind::DateGarden => (
+            "qanat",
+            "Ein Qanat in der Nähe bringt drei zusätzliche Datteln.",
+        ),
+        Kind::SpiceBazaar => (
+            "caravan",
+            "Proviant für die Gewürzstraße und die Teppichhalle.",
+        ),
+        Kind::Caravanserai => (
+            "caravan",
+            "Ein Schlafplatz für Reisende und Treffpunkt der Karawanen.",
+        ),
+        Kind::Qanat => (
+            "cistern",
+            "Eine Zisterne in Reichweite bringt drei zusätzliche Krüge.",
+        ),
+        Kind::Glassworks => ("water", "Krüge Wasser kühlen das Glas ab."),
+        Kind::Perfumer => ("water", "Wasser für die Destillation von Duftölen."),
+        Kind::MoonGarden => ("moon", "Vier zusätzliche Rastplätze in einer Nachtschicht."),
+        Kind::CarpetHall => (
+            "spice_bazaar",
+            "Mit einem Gewürzbasar in der Nähe steigt der Vorrat.",
+        ),
+        Kind::SignalTower => (
+            "sea_trade",
+            "Erhöht den Handelserlös bis zu zwei Plätze vom Bootshaus entfernt",
+        ),
         Kind::FeastHall => (
             "smoked_fish",
             "Zwei Portionen Räucherfisch von nebenan ergeben fünf Plätze",
@@ -1171,7 +1283,10 @@ fn trade_routes(
                     details,
                     hud,
                     "smoked_fish",
-                    format!("{} Portionen Räucherfisch", route.provisions()),
+                    format!(
+                        "{} Portionen Räucherfisch",
+                        town.voyage_provisions(lot, route)
+                    ),
                 );
                 metric(
                     details,
@@ -1179,7 +1294,7 @@ fn trade_routes(
                     "coin",
                     format!(
                         "+{} Silber ab Tag {}",
-                        route.silver(level),
+                        town.voyage_silver(lot, route, level),
                         town.day + route.days()
                     ),
                 );
@@ -1205,6 +1320,67 @@ fn trade_routes(
             });
         }
     });
+}
+
+fn caravan_routes(
+    page: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    town: &Town,
+    chapter: &Chapter,
+    lot: usize,
+    level: u8,
+) {
+    let water = match &town.phase {
+        Phase::Open(day) => day.caravan_water,
+        _ => {
+            let plan = town.production(chapter);
+            plan.water.saturating_sub(plan.used_water)
+        }
+    };
+    metric(page, hud, "water", format!("{water} Krüge in der Reserve"));
+    for contract in Contract::ALL
+        .into_iter()
+        .filter(|c| c.available(town.chapter))
+    {
+        let (dates, spices, water) = contract.supplies();
+        let needs = if spices > 0 {
+            format!("{dates} Datteln · {spices} Gewürze · {water} Krüge")
+        } else {
+            format!("{dates} Datteln · {water} Krüge")
+        };
+        page.spawn(row(13.0)).with_children(|line| {
+            icon(line, hud, "caravan", 30.0);
+            line.spawn(Node {
+                flex_grow: 1.0,
+                ..column(3.0)
+            })
+            .with_children(|text| {
+                label(text, hud, contract.name(), 18.0, Face::Bold, SAND);
+                label(text, hud, needs, 15.0, Face::Body, MUTED);
+            });
+            let pay = contract.pay(chapter, level);
+            let ready = town.caravan_supply(chapter, lot, contract);
+            if town.planning() {
+                metric(line, hud, "coin", format!("+{pay} Dirham"));
+            } else {
+                button(
+                    line,
+                    hud,
+                    Action::SendCaravan(lot, contract),
+                    &format!("Losschicken · +{pay}"),
+                    "coin",
+                    "",
+                    Style::Primary,
+                    ready.is_err(),
+                );
+            }
+        });
+        if !town.planning()
+            && let Err(reason) = town.caravan_supply(chapter, lot, contract)
+        {
+            label(page, hud, reason.label(), 15.0, Face::Body, MUTED);
+        }
+    }
 }
 
 fn price_cards(
@@ -1307,169 +1483,445 @@ fn meter(p: &mut ChildSpawnerCommands, fraction: f32, fill: Color) {
 }
 
 fn expansion(kind: Kind, tier: u8, region: Region) -> &'static str {
-    if region == Region::Nordic {
-        use Kind::*;
-        let stages = match kind {
-            Longhouse | FeastHall => [
-                "Holzgeländer",
-                "Vordach",
-                "Seitenkammer",
-                "Dachgaube",
-                "Geschmückter Eingang",
-            ],
-            Fishery => [
-                "Zweites Trockengestell",
-                "Beiboot",
-                "Überdachter Fangplatz",
-                "Breiter Steg",
-                "Netzaufzug",
-            ],
-            Smokehouse => [
-                "Zweites Räuchergestell",
-                "Räucherkammer",
-                "Höherer Rauchfang",
-                "Vordach",
-                "Zweiter Rauchfang",
-            ],
-            Woodlot => [
-                "Holzstapel",
-                "Holzschuppen",
-                "Mehr Holzstapel",
-                "Holzgeländer",
-                "Überdachter Stapelplatz",
-            ],
-            Boatyard => [
-                "Seilwinde · Fernhandel",
-                "Seilschuppen",
-                "Hafenfahne",
-                "Verbreiterter Steg",
-                "Dachaufbau",
-            ],
-            Weaver => [
-                "Weiterer Webstuhl",
-                "Veranda",
-                "Färbekammer",
-                "Dachkammer",
-                "Gewebte Fahnen",
-            ],
-            Well | Storehouse => [
-                "Holzgeländer",
-                "Kleiner Schuppen",
-                "Vordach",
-                "Lagerkammer",
-                "Markierte Pfosten",
-            ],
-            _ => unreachable!("building unavailable in the Nordic campaign"),
-        };
-        return stages[usize::from(tier - 2)];
-    }
-    if region == Region::Japan {
-        use Kind::*;
-        let stages = match kind {
-            Machiya | Inn => [
-                "Veranda mit Laternen",
-                "Dachgaube",
-                "Vordach",
-                "Breiter Balkon",
-                "Dachkammer",
-            ],
-            Well => [
-                "Wassertröge",
-                "Vordach",
-                "Papierlaternen",
-                "Überdachte Kammer",
-                "Steinlaternen",
-            ],
-            RicePaddy => [
-                "Junge Reishalme",
-                "Dichtere Saat",
-                "Bewässerungsrinne",
-                "Reife Reisbüschel",
-                "Gestell für die Ernte",
-            ],
-            TeaGarden => [
-                "Bambus",
-                "Steinlaterne · größere Reichweite",
-                "Bambushain",
-                "Zweite Steinlaterne",
-                "Ahorn am Garten",
-            ],
-            RiceKitchen | TeaHouse | PaperWorkshop => [
-                "Auslage",
-                "Vordach",
-                "Papierlaternen",
-                "Dachwerkstatt",
-                "Verzierte Ladenschilder",
-            ],
-            Temple => [
-                "Steinlaternen",
-                "Seitendächer",
-                "Dritte Dachstufe",
-                "Lampions am Aufgang",
-                "Goldene Dachspitze",
-            ],
-            Storehouse => [
-                "Ladekisten",
-                "Vordach",
-                "Papierlaternen",
-                "Oberer Lagerraum",
-                "Steinlaternen",
-            ],
-            _ => unreachable!("building unavailable in Japan"),
-        };
-        return stages[usize::from(tier - 2)];
-    }
-    if tier >= 5 {
-        let names = match kind {
-            Kind::House | Kind::Inn | Kind::Villa => ["Überdachter Hof", "Wohnkammer mit Fenster"],
-            Kind::Well | Kind::Aqueduct => ["Zusätzlicher Auslauf", "Großer Wasserbehälter"],
-            Kind::HerbGarden | Kind::Grove => ["Neue Pflanzbeete", "Grüne Laube"],
-            Kind::Bakery | Kind::Potter | Kind::Storehouse | Kind::Press => {
-                ["Werkstattanbau", "Oberer Lagerraum"]
-            }
-            _ => ["Geschmückter Vorhof", "Obere Galerie"],
-        };
-        return names[usize::from(tier - 5)];
-    }
-    let names = match kind {
-        Kind::House if region == Region::Greece => {
-            ["Balkon", "Seitenkammer mit Treppe", "Schattenterrasse"]
-        }
-        Kind::House => ["Loggia", "Seitenkammer mit Treppe", "Arkaden"],
-        Kind::Well if region == Region::Greece => {
-            ["Ziehbrunnen mit Dach", "Tränke", "Hochbehälter"]
-        }
-        Kind::Well => ["Brunnenarkade", "Doppelter Auslauf", "Wasserturm"],
-        Kind::Bakery => ["Außenofen", "Brotregal", "Ofenturm"],
-        Kind::HerbGarden => ["Hochbeet", "Ranklaube · größere Reichweite", "Saatgutlaube"],
-        Kind::Grove => ["Dritter Olivenbaum", "Überdachte Rastbank", "Weinlaube"],
-        Kind::Potter => ["Brennofen", "Auslage", "Dachwerkstatt"],
-        Kind::Stoa => ["Sitzbänke", "Säulenvorbau", "Verziertes Dach"],
-        Kind::Taverna => ["Terrasse", "Überdachte Tische", "Obergeschoss"],
-        Kind::Inn => ["Breiter Balkon", "Balkondach", "Dachkammer"],
-        Kind::Storehouse => ["Ladeplatz", "Lastenkran", "Speicherboden"],
-        Kind::Press => ["Pressdach", "Krugablage", "Ölbehälter"],
-        Kind::Shrine => ["Altarstufen", "Stirngiebel", "Feuerschalen"],
-        Kind::Aqueduct => ["Zweite Arkadenreihe", "Wasserbecken", "Kopftürme"],
-        Kind::Baths => ["Zwei Seitenbecken", "Badegalerie", "Kuppelflügel"],
-        Kind::Forum => ["Marktlaube", "Obere Arkaden", "Stadtgiebel"],
-        Kind::Villa => ["Mosaikhof", "Säulenloggia", "Turmzimmer"],
-        Kind::RicePaddy
-        | Kind::RiceKitchen
-        | Kind::TeaGarden
-        | Kind::TeaHouse
-        | Kind::PaperWorkshop
-        | Kind::Temple
-        | Kind::Machiya
-        | Kind::Longhouse
-        | Kind::Fishery
-        | Kind::Smokehouse
-        | Kind::Woodlot
-        | Kind::Boatyard
-        | Kind::Weaver
-        | Kind::FeastHall => unreachable!("buildings from other regions have their own upgrades"),
+    use Kind::*;
+    let stages = match (region, kind) {
+        (Region::Greece, House) => [
+            "Pflanzen am Eingang",
+            "Seitliches Wohnhaus",
+            "Schattenplatz",
+            "Mosaikterrasse",
+            "Höheres Seitenhaus",
+        ],
+        (Region::Rome, House) => [
+            "Breite Loggia",
+            "Gestützter Balkon",
+            "Arkaden",
+            "Überdachter Balkon",
+            "Oberes Geschoss",
+        ],
+        (Region::Greece, Well) => [
+            "Ziegeldach",
+            "Tränke",
+            "Zwei Wassergefäße",
+            "Zwei Ausläufe",
+            "Brunnenhalle",
+        ],
+        (Region::Rome, Well) => [
+            "Brunnenarkade",
+            "Doppelter Auslauf",
+            "Rückwand",
+            "Tieferes Becken",
+            "Brunnenhalle",
+        ],
+        (Region::Japan, Well) => [
+            "Wassertröge",
+            "Auslauf",
+            "Papierlaternen",
+            "Breites Dach",
+            "Steinlaternen",
+        ],
+        (Region::Nordic, Well) => [
+            "Schöpfplatz",
+            "Wassertröge",
+            "Breites Dach",
+            "Zweiter Trog",
+            "Verzierte Pfosten",
+        ],
+        (_, Bakery) => [
+            "Außenofen",
+            "Brotregal",
+            "Höherer Rauchfang",
+            "Überdachte Auslage",
+            "Backstubenboden",
+        ],
+        (_, HerbGarden) => [
+            "Dichtere Kräuterbeete",
+            "Rankhilfe · größere Reichweite",
+            "Gießbecken",
+            "Hochbeete",
+            "Ranklaube",
+        ],
+        (Region::Greece, Grove) => [
+            "Dritter Olivenbaum",
+            "Überdachte Rastbank",
+            "Weinranken",
+            "Breite Pergola",
+            "Blühende Hochbeete",
+        ],
+        (Region::Rome, Grove) => [
+            "Mosaikpfad",
+            "Rastarkade",
+            "Weinranken",
+            "Höhere Arkade",
+            "Blumentröge",
+        ],
+        (Region::Greece, Potter) => [
+            "Tonwarenregal",
+            "Überdachte Auslage",
+            "Trockengestell",
+            "Werkstattboden",
+            "Höherer Brennofen",
+        ],
+        (Region::Rome, Potter) => [
+            "Außenofen",
+            "Tonwarenregal",
+            "Ziegeldach",
+            "Werkstattboden",
+            "Goldenes Ladenschild",
+        ],
+        (Region::Greece, Stoa) => [
+            "Breite Stufen",
+            "Tiefere Säulenhalle",
+            "Geschmückter Giebel",
+            "Höhere Säulen",
+            "Giebelschmuck",
+        ],
+        (Region::Rome, Stoa) => [
+            "Mosaikboden",
+            "Tiefere Arkade",
+            "Ziegelgiebel",
+            "Höhere Arkaden",
+            "Goldenes Relief",
+        ],
+        (_, Taverna) => [
+            "Mosaikterrasse",
+            "Überdachte Tische",
+            "Leuchten am Ausschank",
+            "Kammer hinter der Tafel",
+            "Höhere Gaststube",
+        ],
+        (Region::Greece, Inn) => [
+            "Breiter Balkon",
+            "Gestützte Loggia",
+            "Treppenaufgang",
+            "Beschildertes Obergeschoss",
+            "Balkondach",
+        ],
+        (Region::Rome, Inn) => [
+            "Balkon",
+            "Mosaik am Eingang",
+            "Säulenloggia",
+            "Drittes Fenster",
+            "Herbergszeichen",
+        ],
+        (Region::Greece | Region::Rome, Storehouse) => [
+            "Ladeplatz",
+            "Lastenkran",
+            "Überdachte Ablage",
+            "Fenster im Speicherboden",
+            "Großer Warenboden",
+        ],
+        (_, Press) => [
+            "Verstärktes Pressdach",
+            "Ölwanne",
+            "Überdachte Presshalle",
+            "Vorratsgefäße",
+            "Höhere Mühle",
+        ],
+        (_, Shrine) => [
+            "Altarstufen",
+            "Mosaik vor dem Altar",
+            "Giebel und Feuerschalen",
+            "Höhere Säulen",
+            "Goldener Dachschmuck",
+        ],
+        (_, Aqueduct) => [
+            "Zweite Arkadenreihe",
+            "Breites Auffangbecken",
+            "Befestigte Wasserläufe",
+            "Mosaik und Brunnenpfeiler",
+            "Oberes Sammelbecken",
+        ],
+        (_, Baths) => [
+            "Breiteres Badebecken",
+            "Badegalerie",
+            "Zwei Seitenkuppeln",
+            "Badestufen",
+            "Höherer Kuppelsaal",
+        ],
+        (_, Forum) => [
+            "Marktkisten",
+            "Obere Arkaden",
+            "Stadtgiebel",
+            "Überdachte Marktstände",
+            "Breiter Treppenaufgang",
+        ],
+        (_, Villa) => [
+            "Mosaikhof",
+            "Tiefere Säulenloge",
+            "Anbau mit Stufen",
+            "Breiteres Wasserbecken",
+            "Zypressen am Eingang",
+        ],
+        (_, Apiary) => [
+            "Dritter Bienenkorb",
+            "Überdachter Wabenplatz",
+            "Vierter Bienenkorb",
+            "Blühender Vorgarten",
+            "Honigabfüllung",
+        ],
+        (_, Dyer) => [
+            "Erste Trockenstoffe",
+            "Gestell für Farbstoffe",
+            "Drittes Farbbad",
+            "Höhere Färbehalle",
+            "Zweites Trockengestell",
+        ],
+        (_, FerryOffice) => [
+            "Mehr Fährwimpel",
+            "Überdachter Warteplatz",
+            "Höherer Signalmast",
+            "Oberer Ausguck",
+            "Treppen und Leuchtfeuer",
+        ],
+        (_, Mill) => [
+            "Mehlsäcke",
+            "Vorratskiste",
+            "Größere Mahlsteine",
+            "Überdachte Mühle",
+            "Mosaik und Speicherfenster",
+        ],
+        (_, Scribe) => [
+            "Mosaik am Schreibpult",
+            "Überdachte Ablage",
+            "Travertinbögen",
+            "Schild der Schreibstube",
+            "Oberes Schreibzimmer",
+        ],
+        (_, GardenCourt) => [
+            "Wasserspiel",
+            "Laubengang",
+            "Zwei Bänke",
+            "Höhere Arkaden",
+            "Begrünter Laubengang",
+        ],
+        (Region::Japan, Machiya | Inn) => [
+            "Veranda mit Laternen",
+            "Breiter Erdgeschossvorbau",
+            "Schattige Veranda",
+            "Oberer Wohnraum",
+            "Ausgearbeitetes Obergeschoss",
+        ],
+        (_, RicePaddy) => [
+            "Junge Reishalme",
+            "Dichtere Saat",
+            "Bewässerungsrinne",
+            "Reife Reisbüschel",
+            "Gestell für die Ernte",
+        ],
+        (_, TeaGarden) => [
+            "Bambus",
+            "Steinlaterne · größere Reichweite",
+            "Bambushain",
+            "Zweite Steinlaterne",
+            "Ahorn am Garten",
+        ],
+        (_, RiceKitchen) => [
+            "Weitere Reisschalen",
+            "Überdachte Auslage",
+            "Dampfkessel",
+            "Obere Reiskammer",
+            "Geschmückte Küche",
+        ],
+        (_, TeaHouse) => [
+            "Teegeschirr",
+            "Schattige Veranda",
+            "Geschmückter Teetisch",
+            "Höherer Teeraum",
+            "Offener Teesalon",
+        ],
+        (_, PaperWorkshop) => [
+            "Papiergestell",
+            "Vordach für Lampions",
+            "Größere Lampionauslage",
+            "Höhere Werkstatt",
+            "Schrein der Lampions",
+        ],
+        (_, Temple) => [
+            "Steinlaternen",
+            "Geschmückte Vorhalle",
+            "Dritte Dachstufe",
+            "Lampions am Aufgang",
+            "Goldene Dachspitze",
+        ],
+        (Region::Japan, Storehouse) => [
+            "Ladekisten",
+            "Vordach",
+            "Papierlaternen",
+            "Oberer Lagerraum",
+            "Steinlaternen",
+        ],
+        (_, MarketGarden) => [
+            "Viertes Gemüsebeet",
+            "Bewässerungsbecken",
+            "Hochbeete",
+            "Bepflanzter Laubengang",
+            "Bambus und Steinlaterne",
+        ],
+        (_, CeramicStudio) => [
+            "Glasierte Schalen",
+            "Überdachte Auslage",
+            "Werkstattlaterne",
+            "Oberes Werkstattfenster",
+            "Hoher Brennofen",
+        ],
+        (_, SilkShop) => [
+            "Mehr Stoffbahnen",
+            "Überdachter Stoffstand",
+            "Breite Veranda",
+            "Oberer Webraum",
+            "Seidengalerie",
+        ],
+        (_, Longhouse) => [
+            "Holzbank",
+            "Vordach",
+            "Seitenkammer",
+            "Größerer Wohnraum",
+            "Geschmückter Eingang",
+        ],
+        (_, FeastHall) => [
+            "Gästebänke",
+            "Vordach",
+            "Seitenkammer",
+            "Höhere Festhalle",
+            "Geschmückter Eingang",
+        ],
+        (_, Fishery) => [
+            "Zweites Trockengestell",
+            "Beiboot",
+            "Überdachter Fangplatz",
+            "Breiter Steg",
+            "Netzaufzug",
+        ],
+        (_, Smokehouse) => [
+            "Zweites Räuchergestell",
+            "Räucherkammer",
+            "Höherer Rauchfang",
+            "Vordach",
+            "Überdachte Kühlung",
+        ],
+        (_, Woodlot) => [
+            "Holzstapel",
+            "Holzschuppen",
+            "Mehr Holzstapel",
+            "Sortierter Stapelplatz",
+            "Überdachter Ladeplatz",
+        ],
+        (_, Boatyard) => [
+            "Seilwinde · Fernhandel",
+            "Seilschuppen",
+            "Hafenfahne",
+            "Verbreiterter Steg",
+            "Höheres Werkdach",
+        ],
+        (_, Weaver) => [
+            "Weiterer Webstuhl",
+            "Veranda",
+            "Färbekammer",
+            "Höhere Webstube",
+            "Gewebte Fahnen",
+        ],
+        (Region::Nordic, Storehouse) => [
+            "Ladebank",
+            "Kleiner Schuppen",
+            "Vordach",
+            "Höherer Speicher",
+            "Markierte Pfosten",
+        ],
+        (_, Sheepfold) => [
+            "Drittes Schaf",
+            "Viehtränke",
+            "Höherer Weidezaun",
+            "Stall mit viertem Schaf",
+            "Heuballen und Weidetor",
+        ],
+        (_, Cooperage) => [
+            "Drittes Fass",
+            "Geschützte Ablage",
+            "Großes Vorratsfass",
+            "Höhere Werkstatt",
+            "Fassbinderzunft",
+        ],
+        (_, SignalTower) => [
+            "Höherer Leuchtkorb",
+            "Brennholzschuppen",
+            "Signalflagge",
+            "Wappenschild",
+            "Gesicherter Feuerplatz",
+        ],
+        (_, OasisHome) => [
+            "Palisanderfenster",
+            "Breitere Hofstufen",
+            "Seitengalerie",
+            "Oberer Wohnraum",
+            "Gestufter Dachhof",
+        ],
+        (_, Cistern) => [
+            "Zweiter Krug",
+            "Schattendach",
+            "Tieferes Becken",
+            "Zweiter Auslauf",
+            "Kuppel über der Zisterne",
+        ],
+        (_, DateGarden) => [
+            "Dritte Palme",
+            "Bewässerungsbecken",
+            "Terrasse",
+            "Erntekorb",
+            "Überdachter Ernteplatz",
+        ],
+        (_, SpiceBazaar) => [
+            "Weitere Schalen",
+            "Längere Markise",
+            "Zweiter Marktstand",
+            "Bogenhalle",
+            "Oberes Warenlager",
+        ],
+        (_, Caravanserai) => [
+            "Breitere Treppe",
+            "Seitengalerie",
+            "Obere Arkaden",
+            "Geschmückte Hoffassade",
+            "Hof mit zwei Kuppeln",
+        ],
+        (_, Qanat) => [
+            "Höherer Schacht",
+            "Doppelter Wasserlauf",
+            "Begehbare Arkade",
+            "Zweites Sammelbecken",
+            "Geschützter Wasserturm",
+        ],
+        (_, Glassworks) => [
+            "Kühlbecken",
+            "Gläserregal",
+            "Breiter Ofen",
+            "Höhere Werkstatt",
+            "Große Glashalle",
+        ],
+        (_, Perfumer) => [
+            "Kupferkolben",
+            "Kräutertisch",
+            "Überdachter Eingang",
+            "Oberes Destillierzimmer",
+            "Galerie für Duftwaren",
+        ],
+        (_, MoonGarden) => [
+            "Blühende Büsche",
+            "Überdachte Rastbank",
+            "Beleuchteter Gang",
+            "Weiteres Wasserbecken",
+            "Kleine Gartenkuppel",
+        ],
+        (_, CarpetHall) => [
+            "Neue Muster",
+            "Überdachte Auslage",
+            "Größere Webstühle",
+            "Obere Webhalle",
+            "Große Tuchgalerie",
+        ],
+        _ => unreachable!("building unavailable in this region"),
     };
-    names[usize::from(tier - 2)]
+    stages[usize::from(tier - 2)]
 }
 
 struct UpgradeEstimate {
@@ -1514,16 +1966,38 @@ fn upgrade_estimate(town: &Town, chapter: &Chapter, lot: usize) -> Option<Upgrad
         let route = SailingRoute::Coastal;
         (
             "sea_trade",
-            route.silver(building.level) as u16,
-            route.silver(next.level) as u16,
+            town.voyage_silver(lot, route, building.level) as u16,
+            town.voyage_silver(lot, route, next.level) as u16,
             "Silber im Inselhandel",
         )
-    } else if building.kind == Kind::Storehouse {
+    } else if building.kind == Kind::SignalTower {
+        (
+            "sea_trade",
+            u16::from(building.level) * 3,
+            u16::from(next.level) * 3,
+            "Silber pro Fahrt",
+        )
+    } else if building.kind == Kind::FerryOffice {
+        (
+            "ferry",
+            u16::from(building.level).div_ceil(2),
+            u16::from(next.level).div_ceil(2),
+            "zusätzliche Ankünfte",
+        )
+    } else if matches!(
+        building.kind,
+        Kind::Storehouse | Kind::Mill | Kind::MarketGarden | Kind::Sheepfold
+    ) {
+        let bonus = if building.kind == Kind::Storehouse {
+            0
+        } else {
+            2
+        };
         (
             "bread",
-            u16::from(building.level),
-            u16::from(next.level),
-            "mehr je Laden",
+            u16::from(building.level) + bonus,
+            u16::from(next.level) + bonus,
+            "Portionen für Betriebe in Reichweite",
         )
     } else {
         let service = building.kind.service()?;
@@ -2010,7 +2484,7 @@ fn day_plan(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
         ..row(9.0)
     })
     .with_children(|parts| {
-        for (phase, (time, sky)) in ["07:00", "10:36", "15:31"]
+        for (phase, (time, sky)) in crate::model::WEATHER_PHASES
             .into_iter()
             .zip(schedule)
             .enumerate()
@@ -2028,7 +2502,14 @@ fn day_plan(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
             .with_children(|slot| {
                 icon(slot, hud, weather_icon(sky), 34.0);
                 slot.spawn(column(0.0)).with_children(|copy| {
-                    label(copy, hud, time, 14.0, Face::Body, MUTED);
+                    label(
+                        copy,
+                        hud,
+                        chapter.shift.clock(time),
+                        14.0,
+                        Face::Body,
+                        MUTED,
+                    );
                     label(copy, hud, sky.name(), 20.0, Face::Bold, SAND);
                 });
             });
@@ -2174,21 +2655,27 @@ fn evening(
     tutorial: bool,
 ) {
     let clear = report.stars > 0;
-    let ending = clear && town.chapter + 1 == CHAPTERS.len();
-    let rome_unlocked = clear && town.chapter + 1 == REGION_SIZE;
-    let japan_unlocked = clear && town.chapter + 1 == JAPAN_START;
-    let nordic_unlocked = clear && town.chapter + 1 == NORDIC_START;
+    let onward = next_harbor(town.chapter);
+    let milestone = clear && !tutorial && main_route_end(town.chapter);
+    let bonus_complete = clear && !milestone && onward.is_none();
+    let next_region = milestone.then(|| onward.map(Region::of)).flatten();
+    let next_label = match next_region {
+        Some(Region::Rome) => "Nach Rom segeln",
+        Some(Region::Japan) => "Nach Japan segeln",
+        Some(Region::Nordic) => "In den Norden segeln",
+        Some(Region::Oasis) => "Zu den Oasen reisen",
+        _ if onward.is_none() => "Zur Kampagnenkarte",
+        _ => "Nächster Hafen",
+    };
     let tutorial_complete = clear && tutorial && town.chapter + 1 == coach::ISLANDS;
-    let title = if ending {
-        "Alle Häfen erreicht"
-    } else if nordic_unlocked {
-        "Die Lichter der Inlandsee"
-    } else if japan_unlocked {
-        "Auf zu Japans Küsten"
-    } else if rome_unlocked {
-        "Das Bündnis steht"
+    let title = if milestone {
+        "Zwölf Häfen geschafft"
+    } else if bonus_complete {
+        "Bonusroute abgeschlossen"
     } else if clear {
         "Der Hafen blüht auf"
+    } else if chapter.shift.night() {
+        "Morgengrauen am Kai"
     } else {
         "Abend am Kai"
     };
@@ -2276,7 +2763,7 @@ fn evening(
                 });
             }
             if clear {
-                let next = CHAPTERS.get(town.chapter + 1);
+                let next = onward.map(|i| (i, &CHAPTERS[i]));
                 card(page, frame_node(Val::Percent(100.0), 5.0, 11.0), JADE).with_children(
                     |victory| {
                         victory
@@ -2303,13 +2790,13 @@ fn evening(
                                         SAND,
                                     );
                                 });
-                                if let Some(next) = next.filter(|_| !tutorial) {
-                                    icon(band, hud, &format!("island_{}", town.chapter + 1), 58.0);
+                                if let Some((index, next)) = next.filter(|_| !tutorial) {
+                                    icon(band, hud, &format!("island_{index}"), 58.0);
                                     band.spawn(column(0.0)).with_children(|reward| {
                                         label(reward, hud, next.name, 21.0, Face::Serif, SAND);
                                         let bonus = crate::save::travel_bonus(
-                                            town.chapter + 1,
-                                            town.totals.income,
+                                            index,
+                                            town.totals.income + town.totals.caravan_income,
                                         );
                                         label(
                                             reward,
@@ -2361,8 +2848,12 @@ fn evening(
                 label(
                     page,
                     hud,
-                    if ending {
-                        "Nili, Flavia und Gaius feiern mit dir auf dem Forum."
+                    if milestone && next_region.is_some() {
+                        "Das nächste Gebiet und die Bonusroute sind jetzt frei."
+                    } else if milestone {
+                        "Du hast alle fünf Hauptreisen abgeschlossen. Die Bonusroute der Oasen ist frei."
+                    } else if bonus_complete {
+                        "Du hast den letzten Hafen dieser Bonusroute erreicht."
                     } else {
                         "Der nächste Hafen ist frei."
                     },
@@ -2374,8 +2865,11 @@ fn evening(
                 for goal in chapter.goals {
                     super::screens::goal(page, hud, town, goal);
                 }
-                if !tutorial && town.chapter + 1 < CHAPTERS.len() {
-                    let bonus = crate::save::travel_bonus(town.chapter + 1, town.totals.income);
+                if !tutorial && let Some(next) = onward {
+                    let bonus = crate::save::travel_bonus(
+                        next,
+                        town.totals.income + town.totals.caravan_income,
+                    );
                     metric(
                         page,
                         hud,
@@ -2418,7 +2912,18 @@ fn evening(
                     false,
                 );
                 if clear {
-                    if !tutorial {
+                    if milestone {
+                        button(
+                            actions,
+                            hud,
+                            Action::BonusHarbor,
+                            "Bonusroute",
+                            "star",
+                            "",
+                            Style::Quiet,
+                            false,
+                        );
+                    } else if !tutorial {
                         button(
                             actions,
                             hud,
@@ -2438,16 +2943,8 @@ fn evening(
                             "Tutorial abschließen"
                         } else if tutorial {
                             "Nächste Übung"
-                        } else if ending {
-                            "Zur Kampagnenkarte"
-                        } else if rome_unlocked {
-                            "Nach Rom segeln"
-                        } else if japan_unlocked {
-                            "Nach Japan segeln"
-                        } else if nordic_unlocked {
-                            "In den Norden segeln"
                         } else {
-                            "Nächster Hafen"
+                            next_label
                         },
                         "ferry",
                         "A",
@@ -2621,52 +3118,6 @@ fn demolish(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town) {
                     Action::ConfirmDemolish,
                     "Zurückbauen",
                     "",
-                    "",
-                    Style::Danger,
-                    false,
-                );
-            });
-        },
-    );
-}
-
-pub fn replace(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
-    modal(
-        p,
-        hud,
-        650.0,
-        "KAMPAGNENKARTE",
-        "Einen neuen Hafen beginnen?",
-        "ferry",
-        |page| {
-            label(
-                page,
-                hud,
-                format!(
-                    "Wenn du nach {} reist, endet der laufende Hafen. Deine Sterne bleiben gespeichert.",
-                    CHAPTERS[game.chart].district
-                ),
-                19.0,
-                Face::Body,
-                SAND,
-            );
-            page.spawn(row(11.0)).with_children(|actions| {
-                button(
-                    actions,
-                    hud,
-                    Action::Back,
-                    "Kampagnenkarte",
-                    "",
-                    "B",
-                    Style::Primary,
-                    false,
-                );
-                button(
-                    actions,
-                    hud,
-                    Action::ConfirmSail,
-                    "Ablegen",
-                    "ferry",
                     "",
                     Style::Danger,
                     false,

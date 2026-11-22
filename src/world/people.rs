@@ -131,7 +131,19 @@ fn outfit(index: usize, region: Region) -> (Mesh, [Vec3; BONES]) {
     let roman = region == Region::Rome;
     let japan = region == Region::Japan;
     let nordic = region == Region::Nordic;
-    let cloth = if nordic {
+    let oasis = region == Region::Oasis;
+    let cloth = if oasis {
+        [
+            [55, 116, 125],
+            [183, 113, 64],
+            [139, 75, 106],
+            [188, 146, 100],
+            [81, 105, 133],
+            [95, 127, 95],
+            [186, 95, 73],
+            [104, 80, 133],
+        ][style]
+    } else if nordic {
         [
             [132, 77, 63],
             [67, 110, 139],
@@ -186,7 +198,7 @@ fn outfit(index: usize, region: Region) -> (Mesh, [Vec3; BONES]) {
     ][(index * 7 + index / 3) % 6];
     let hair = if age == Age::Senior {
         [[186, 175, 158], [157, 151, 141], [211, 202, 178]][style % 3]
-    } else if japan {
+    } else if japan || oasis {
         [[48, 40, 37], [66, 49, 42], [42, 37, 35], [78, 56, 43]][style % 4]
     } else {
         [
@@ -200,8 +212,21 @@ fn outfit(index: usize, region: Region) -> (Mesh, [Vec3; BONES]) {
     };
     let width = 0.148 + (index % 5) as f32 * 0.013 - 0.020 * f32::from(age == Age::Child);
     let delicate = matches!(style, 1 | 4 | 7);
-    let hem = if delicate { 0.162 } else { 0.259 } + (index % 3) as f32 * 0.012;
-    let belt = if japan {
+    let hem = if oasis {
+        0.185
+    } else if delicate {
+        0.162
+    } else {
+        0.259
+    } + (index % 3) as f32 * 0.012;
+    let belt = if oasis {
+        [
+            [227, 196, 147],
+            [182, 108, 66],
+            [212, 175, 99],
+            [121, 62, 83],
+        ][style % 4]
+    } else if japan {
         [
             [195, 147, 79],
             [88, 119, 123],
@@ -603,6 +628,50 @@ fn head(b: &mut Batch, index: usize, region: Region, skin: Tint, hair: Tint, clo
         shift(hair, -2),
     );
     match style {
+        0 | 2 | 5 if region == Region::Oasis => {
+            let headscarf = if style == 2 {
+                [231, 210, 169]
+            } else {
+                shift(cloth, 24)
+            };
+            b.gem(
+                v(0.0, 0.91, -0.039),
+                w + 0.024,
+                0.116,
+                0.142,
+                0.31,
+                headscarf,
+            );
+            for (side, length) in [(-1.0, 0.18), (1.0, 0.103)] {
+                let start = v((w + 0.012) * side, 0.908, 0.048);
+                b.beam(
+                    start,
+                    start + v(-side * 0.013, -length, -0.044),
+                    0.046,
+                    headscarf,
+                );
+            }
+            b.frustum(
+                v(0.0, 0.918, -0.029),
+                w + 0.029,
+                w + 0.005,
+                0.030,
+                11,
+                shift(cloth, -30),
+            );
+        }
+        3 | 6 if region == Region::Oasis => {
+            b.frustum(
+                v(0.0, 0.926, -0.032),
+                w + 0.024,
+                w + 0.014,
+                0.063,
+                12,
+                shift(cloth, 18),
+            );
+            b.frustum(v(0.0, 0.988, -0.032), w + 0.014, w * 0.62, 0.039, 12, cloth);
+            b.gem(v(0.0, 0.954, 0.092), 0.035, 0.039, 0.027, 0.20, GOLD);
+        }
         0 | 3 | 7 if region == Region::Nordic => {
             let wool = shift(cloth, -8);
             b.gem(v(0.0, 0.91, -0.067), w + 0.043, 0.161, 0.144, 0.31, wool);

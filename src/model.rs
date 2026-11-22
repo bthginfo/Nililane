@@ -9,8 +9,8 @@ use crate::{
 pub use crate::layout::{LOTS, distance};
 pub const DAY_SECONDS: f32 = 65.0;
 pub const MAX_LEVEL: u8 = 6;
-pub const SERVICES: usize = 16;
-pub const BUILDINGS: usize = 30;
+pub const SERVICES: usize = 24;
+pub const BUILDINGS: usize = 52;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Service {
@@ -30,6 +30,14 @@ pub enum Service {
     SmokedFish,
     Textiles,
     HearthMeal,
+    Honey,
+    DyedCloth,
+    Tablets,
+    Casks,
+    Dates,
+    Spices,
+    Glass,
+    Incense,
 }
 
 impl Service {
@@ -50,6 +58,14 @@ impl Service {
         Self::SmokedFish,
         Self::Textiles,
         Self::HearthMeal,
+        Self::Honey,
+        Self::DyedCloth,
+        Self::Tablets,
+        Self::Casks,
+        Self::Dates,
+        Self::Spices,
+        Self::Glass,
+        Self::Incense,
     ];
 
     pub fn priced(self) -> bool {
@@ -74,6 +90,14 @@ impl Service {
             Self::SmokedFish => "Räucherfisch",
             Self::Textiles => "Webwaren",
             Self::HearthMeal => "Essen am Herd",
+            Self::Honey => "Honig",
+            Self::DyedCloth => "Gefärbte Stoffe",
+            Self::Tablets => "Wachstafeln",
+            Self::Casks => "Fässer",
+            Self::Dates => "Datteln",
+            Self::Spices => "Gewürze",
+            Self::Glass => "Glaswaren",
+            Self::Incense => "Duftwaren",
         }
     }
 }
@@ -110,6 +134,28 @@ pub enum Kind {
     Boatyard,
     Weaver,
     FeastHall,
+    Apiary,
+    Dyer,
+    FerryOffice,
+    Mill,
+    Scribe,
+    GardenCourt,
+    MarketGarden,
+    CeramicStudio,
+    SilkShop,
+    Sheepfold,
+    Cooperage,
+    SignalTower,
+    OasisHome,
+    Cistern,
+    DateGarden,
+    SpiceBazaar,
+    Caravanserai,
+    Qanat,
+    Glassworks,
+    Perfumer,
+    MoonGarden,
+    CarpetHall,
 }
 
 impl Kind {
@@ -144,6 +190,28 @@ impl Kind {
         Self::Boatyard,
         Self::Weaver,
         Self::FeastHall,
+        Self::Apiary,
+        Self::Dyer,
+        Self::FerryOffice,
+        Self::Mill,
+        Self::Scribe,
+        Self::GardenCourt,
+        Self::MarketGarden,
+        Self::CeramicStudio,
+        Self::SilkShop,
+        Self::Sheepfold,
+        Self::Cooperage,
+        Self::SignalTower,
+        Self::OasisHome,
+        Self::Cistern,
+        Self::DateGarden,
+        Self::SpiceBazaar,
+        Self::Caravanserai,
+        Self::Qanat,
+        Self::Glassworks,
+        Self::Perfumer,
+        Self::MoonGarden,
+        Self::CarpetHall,
     ];
 
     pub fn name(self) -> &'static str {
@@ -178,6 +246,28 @@ impl Kind {
             Self::Boatyard => "Bootshaus",
             Self::Weaver => "Weberei",
             Self::FeastHall => "Festhalle",
+            Self::Apiary => "Imkerei",
+            Self::Dyer => "Färberei",
+            Self::FerryOffice => "Lotsenhaus",
+            Self::Mill => "Getreidemühle",
+            Self::Scribe => "Schreibstube",
+            Self::GardenCourt => "Gartenhof",
+            Self::MarketGarden => "Gemüsegarten",
+            Self::CeramicStudio => "Keramikwerkstatt",
+            Self::SilkShop => "Seidenweberei",
+            Self::Sheepfold => "Schafweide",
+            Self::Cooperage => "Fassbinderei",
+            Self::SignalTower => "Signalfeuer",
+            Self::OasisHome => "Hofhaus",
+            Self::Cistern => "Zisterne",
+            Self::DateGarden => "Dattelhain",
+            Self::SpiceBazaar => "Gewürzbasar",
+            Self::Caravanserai => "Karawanserei",
+            Self::Qanat => "Qanat",
+            Self::Glassworks => "Glasbläserei",
+            Self::Perfumer => "Duftwerkstatt",
+            Self::MoonGarden => "Mondgarten",
+            Self::CarpetHall => "Teppichhalle",
         }
     }
 
@@ -213,6 +303,28 @@ impl Kind {
             Self::Boatyard => 34,
             Self::Weaver => 28,
             Self::FeastHall => 35,
+            Self::Apiary => 24,
+            Self::Dyer => 29,
+            Self::FerryOffice => 34,
+            Self::Mill => 22,
+            Self::Scribe => 30,
+            Self::GardenCourt => 36,
+            Self::MarketGarden => 21,
+            Self::CeramicStudio => 29,
+            Self::SilkShop => 36,
+            Self::Sheepfold => 22,
+            Self::Cooperage => 31,
+            Self::SignalTower => 37,
+            Self::OasisHome => 23,
+            Self::Cistern => 17,
+            Self::DateGarden => 22,
+            Self::SpiceBazaar => 25,
+            Self::Caravanserai => 35,
+            Self::Qanat => 37,
+            Self::Glassworks => 33,
+            Self::Perfumer => 34,
+            Self::MoonGarden => 30,
+            Self::CarpetHall => 39,
         }
     }
 
@@ -234,6 +346,20 @@ impl Kind {
             Self::Smokehouse => Some(Service::SmokedFish),
             Self::Weaver => Some(Service::Textiles),
             Self::FeastHall => Some(Service::HearthMeal),
+            Self::Apiary => Some(Service::Honey),
+            Self::Dyer => Some(Service::DyedCloth),
+            Self::Scribe => Some(Service::Tablets),
+            Self::GardenCourt => Some(Service::Shade),
+            Self::CeramicStudio => Some(Service::Pottery),
+            Self::SilkShop => Some(Service::Textiles),
+            Self::Cooperage => Some(Service::Casks),
+            Self::DateGarden => Some(Service::Dates),
+            Self::SpiceBazaar => Some(Service::Spices),
+            Self::Caravanserai => Some(Service::Bed),
+            Self::Glassworks => Some(Service::Glass),
+            Self::Perfumer => Some(Service::Incense),
+            Self::MoonGarden => Some(Service::Shade),
+            Self::CarpetHall => Some(Service::Textiles),
             _ => None,
         }
     }
@@ -247,11 +373,22 @@ impl Kind {
                 | Self::Baths
                 | Self::RiceKitchen
                 | Self::FeastHall
+                | Self::Dyer
+                | Self::GardenCourt
+                | Self::CeramicStudio
+                | Self::DateGarden
+                | Self::Caravanserai
+                | Self::Glassworks
+                | Self::Perfumer
+                | Self::MoonGarden
         )
     }
 
     pub fn water_source(self) -> bool {
-        matches!(self, Self::Well | Self::Aqueduct)
+        matches!(
+            self,
+            Self::Well | Self::Aqueduct | Self::Cistern | Self::Qanat
+        )
     }
 }
 
@@ -288,6 +425,14 @@ impl Price {
             Service::Rice | Service::Tea => 4,
             Service::SmokedFish | Service::Textiles => 6,
             Service::HearthMeal => 7,
+            Service::Honey => 5,
+            Service::DyedCloth => 6,
+            Service::Tablets => 6,
+            Service::Casks => 7,
+            Service::Dates => 4,
+            Service::Spices => 6,
+            Service::Glass => 7,
+            Service::Incense => 6,
             Service::Prayer => return 0,
         };
         match self {
@@ -419,6 +564,16 @@ impl Assortment {
                 | Kind::Smokehouse
                 | Kind::Weaver
                 | Kind::FeastHall
+                | Kind::Apiary
+                | Kind::Dyer
+                | Kind::Scribe
+                | Kind::CeramicStudio
+                | Kind::SilkShop
+                | Kind::Cooperage
+                | Kind::SpiceBazaar
+                | Kind::Glassworks
+                | Kind::Perfumer
+                | Kind::CarpetHall
         )
     }
 
@@ -546,6 +701,116 @@ impl Assortment {
                 "Wintermahl",
                 "Festbrei mit Beeren",
             ],
+            Kind::Apiary => [
+                "Blütenhonig",
+                "Honigfladen",
+                "Thymianhonig",
+                "Pinienhonig",
+                "Honigobst",
+                "Honig mit Feigen",
+                "Dunkler Waldhonig",
+                "Waben vom Hang",
+                "Festgläser",
+            ],
+            Kind::Dyer => [
+                "Naturfarben",
+                "Bunte Bänder",
+                "Indigotuch",
+                "Krappfärbung",
+                "Farbfäden",
+                "Purpurstreifen",
+                "Wurzelfarben",
+                "Hafenblau",
+                "Feststoffe",
+            ],
+            Kind::Scribe => [
+                "Wachstafel",
+                "Bildtafel",
+                "Handelsbuch",
+                "Brief auf Papyrus",
+                "Spieltafel",
+                "Vertragsrolle",
+                "Kopie eines Gedichts",
+                "Stadtplan",
+                "Festprogramm",
+            ],
+            Kind::CeramicStudio => [
+                "Schlichte Teeschale",
+                "Bemaltes Schälchen",
+                "Reisschale",
+                "Glasurbecher",
+                "Kleine Tierfigur",
+                "Töpferset",
+                "Rauchglasur",
+                "Teekanne",
+                "Feine Festschale",
+            ],
+            Kind::SilkShop => [
+                "Leinenband",
+                "Blütenband",
+                "Seidentuch",
+                "Indigoschal",
+                "Bunte Haarbänder",
+                "Vorratsbeutel",
+                "Gewebter Obi",
+                "Reisehaori",
+                "Feststoff",
+            ],
+            Kind::Cooperage => [
+                "Kleines Fass",
+                "Korb mit Deckel",
+                "Reisefass",
+                "Salzfass",
+                "Bunter Eimer",
+                "Fischkiste",
+                "Lagerfass",
+                "Fjordfass",
+                "Festtonne",
+            ],
+            Kind::SpiceBazaar => [
+                "Kräutersalz",
+                "Zimtzucker",
+                "Kardamom",
+                "Kümmelmischung",
+                "Bunte Gewürzdosen",
+                "Gerösteter Koriander",
+                "Milde Kurkuma",
+                "Safranmischung",
+                "Gewürztruhe",
+            ],
+            Kind::Glassworks => [
+                "Trinkglas",
+                "Türkisglas",
+                "Reiseflasche",
+                "Ölfläschchen",
+                "Glasvogel",
+                "Bauchige Karaffe",
+                "Graviertes Glas",
+                "Rubinbecher",
+                "Gläsernes Sternenlicht",
+            ],
+            Kind::Perfumer => [
+                "Rosenwasser",
+                "Süße Orangenblüte",
+                "Jasminöl",
+                "Mildes Zedernöl",
+                "Blütenbeutel",
+                "Bergamotteöl",
+                "Weihrauch",
+                "Nachtjasmin",
+                "Dufttruhe",
+            ],
+            Kind::CarpetHall => [
+                "Schlichte Matte",
+                "Tiermuster",
+                "Reiseteppich",
+                "Knotenkissen",
+                "Sternenteppich",
+                "Gestreifter Läufer",
+                "Klassischer Webteppich",
+                "Mondläufer",
+                "Festteppich",
+            ],
             _ => return "Grundangebot",
         };
         offers[self as usize]
@@ -584,7 +849,7 @@ impl Building {
 
     pub fn residents(self) -> u16 {
         match self.kind {
-            Kind::House | Kind::Machiya => 2 + u16::from(self.level),
+            Kind::House | Kind::Machiya | Kind::OasisHome => 2 + u16::from(self.level),
             Kind::Villa => 2 + u16::from(self.level) * 2,
             Kind::Longhouse => 3 + u16::from(self.level),
             _ => 0,
@@ -720,7 +985,13 @@ impl Favor {
             Self::Jugs => kind.water_source(),
             Self::Shade => matches!(
                 kind,
-                Kind::Grove | Kind::Stoa | Kind::Baths | Kind::TeaGarden | Kind::Temple
+                Kind::Grove
+                    | Kind::Stoa
+                    | Kind::Baths
+                    | Kind::TeaGarden
+                    | Kind::Temple
+                    | Kind::DateGarden
+                    | Kind::MoonGarden
             ),
             Self::Cargo | Self::Crates => kind.service().is_some_and(Service::priced),
             Self::Fire => matches!(
@@ -730,14 +1001,26 @@ impl Favor {
                     | Kind::RiceKitchen
                     | Kind::PaperWorkshop
                     | Kind::Smokehouse
+                    | Kind::Glassworks
             ),
             Self::BrokenJars => matches!(
                 kind,
-                Kind::Potter | Kind::Taverna | Kind::Press | Kind::TeaHouse
+                Kind::Potter
+                    | Kind::Taverna
+                    | Kind::Press
+                    | Kind::TeaHouse
+                    | Kind::Glassworks
+                    | Kind::Perfumer
             ),
             Self::ShadeSail => matches!(
                 kind,
-                Kind::Stoa | Kind::Taverna | Kind::Baths | Kind::TeaHouse | Kind::Weaver
+                Kind::Stoa
+                    | Kind::Taverna
+                    | Kind::Baths
+                    | Kind::TeaHouse
+                    | Kind::Weaver
+                    | Kind::SpiceBazaar
+                    | Kind::CarpetHall
             ),
             Self::LostGuests => {
                 matches!(
@@ -748,6 +1031,8 @@ impl Favor {
                         | Kind::Stoa
                         | Kind::Temple
                         | Kind::TeaHouse
+                        | Kind::Caravanserai
+                        | Kind::MoonGarden
                         | Kind::FeastHall
                 )
             }
@@ -922,6 +1207,12 @@ pub struct Tally {
     pub voyages: u32,
     #[serde(default)]
     pub cargo_income: u32,
+    #[serde(default)]
+    pub caravans: u32,
+    #[serde(default)]
+    pub caravan_income: u32,
+    #[serde(default)]
+    pub spice_routes: u32,
 }
 
 impl Tally {
@@ -965,6 +1256,9 @@ impl Tally {
         self.best_mood = self.best_mood.max(other.best_mood);
         self.street_bonus += other.street_bonus;
         self.specialty_income += other.specialty_income;
+        self.caravans += other.caravans;
+        self.caravan_income += other.caravan_income;
+        self.spice_routes += other.spice_routes;
         self.harvest_peak = self.harvest_peak.max(other.harvest_peak);
         self.bell_rings += other.bell_rings;
         self.catch_peak = self.catch_peak.max(other.catch_peak);
@@ -995,8 +1289,12 @@ pub struct Day {
     pub seconds: f32,
     #[serde(default)]
     pub water: u16,
+    #[serde(default)]
+    pub caravan_water: u16,
     #[serde(deserialize_with = "extend_plot_array")]
     pub stock: [u16; LOTS],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supplied: Option<[u16; LOTS]>,
     pub visits: Vec<Visit>,
     pub tally: Tally,
     pub favor: Favor,
@@ -1018,6 +1316,27 @@ pub struct Day {
 }
 
 impl Day {
+    pub fn stock_capacity(&self, lot: usize) -> u16 {
+        self.supplied.as_ref().map_or_else(
+            || {
+                let served = self
+                    .visits
+                    .iter()
+                    .filter(|visit| visit.shop == Some(lot as u8))
+                    .count();
+                self.stock[lot].saturating_add(served as u16)
+            },
+            |supplied| supplied[lot].max(self.stock[lot]),
+        )
+    }
+
+    fn restock(&mut self, lot: usize, amount: u16) {
+        self.stock[lot] += amount;
+        if let Some(supplied) = &mut self.supplied {
+            supplied[lot] += amount;
+        }
+    }
+
     pub fn manual_route(&self) -> Option<(Route, NiliControl)> {
         Some((self.route?, self.nili?))
     }
@@ -1472,7 +1791,8 @@ impl Town {
             .flatten()
             .map(|b| self.home_visits(*b))
             .sum();
-        let ferry = (chapter.ferry + chapter.extra_ferry_guests())
+        let pilot = self.support(chapter.layout.dock(), Kind::FerryOffice, 2);
+        let ferry = (chapter.ferry + chapter.extra_ferry_guests() + pilot.div_ceil(2))
             .saturating_add_signed(self.weather(chapter).ferry_change());
         let ferry = match self.harbor {
             HarborPlan::Regular => ferry,
@@ -1557,6 +1877,17 @@ impl Town {
         })
     }
 
+    pub fn support(&self, lot: usize, kind: Kind, range: usize) -> u16 {
+        self.lots
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| distance(*i, lot) <= range)
+            .filter_map(|(_, building)| building.filter(|b| b.kind == kind))
+            .map(|b| u16::from(b.level))
+            .max()
+            .unwrap_or(0)
+    }
+
     pub fn herb_support(&self, lot: usize) -> u16 {
         self.lots
             .iter()
@@ -1590,7 +1921,12 @@ impl Town {
         for (lot, building) in self.lots.iter().enumerate() {
             let Some(building) = building else { continue };
             match building.kind {
-                Kind::Well => plan.water += 4 + u16::from(building.level) * 4,
+                Kind::Well | Kind::Cistern => plan.water += 4 + u16::from(building.level) * 4,
+                Kind::Qanat => {
+                    plan.water += 8
+                        + u16::from(building.level) * 5
+                        + 3 * u16::from(self.neighboring(lot, Kind::Cistern, 2));
+                }
                 Kind::Grove => plan.olives += 2 + u16::from(building.level) * 3,
                 Kind::RicePaddy => {
                     plan.rice += self.paddy_harvest(lot, building.level, weather);
@@ -1640,6 +1976,16 @@ impl Town {
                 plan.used_water += cost;
             }
             plan.stock[lot] = match (b.kind, stocked) {
+                (Kind::DateGarden, true) => {
+                    7 + level * 3 + 3 * u16::from(self.neighboring(lot, Kind::Qanat, 2))
+                }
+                (Kind::DateGarden, false) => 3 + level,
+                (Kind::Caravanserai | Kind::Glassworks | Kind::Perfumer, true) => 4 + level * 3,
+                (Kind::MoonGarden, true) => {
+                    4 + level * 3
+                        + 4 * u16::from(chapter.shift.night())
+                        + self.support(lot, Kind::DateGarden, 2)
+                }
                 (Kind::Bakery, true) => 4 + level * 3,
                 (Kind::Bakery, false) => 2 + level,
                 (Kind::RiceKitchen, _) => {
@@ -1650,6 +1996,10 @@ impl Town {
                 }
                 (Kind::Potter | Kind::Inn, true) => 3 + level * 2,
                 (Kind::FeastHall, true) => 5 + level * 3,
+                (Kind::Dyer | Kind::CeramicStudio, true) => 5 + level * 3,
+                (Kind::GardenCourt, true) => {
+                    6 + level * 3 + 4 * u16::from(self.neighboring(lot, Kind::Aqueduct, 2))
+                }
                 (Kind::Baths, true) => {
                     4 + level * 3 + 2 * u16::from(self.neighboring(lot, Kind::Aqueduct, 2))
                 }
@@ -1667,6 +2017,18 @@ impl Town {
                 Kind::TeaHouse => plan.stock[lot] = 4 + level * 2 + self.tea_support(lot),
                 Kind::PaperWorkshop => plan.stock[lot] = 4 + level * 3,
                 Kind::Weaver => plan.stock[lot] = 5 + level * 3,
+                Kind::Apiary => {
+                    plan.stock[lot] = 6 + level * 3 + self.support(lot, Kind::HerbGarden, 2)
+                }
+                Kind::Scribe => plan.stock[lot] = 5 + level * 3 + self.support(lot, Kind::Forum, 2),
+                Kind::SilkShop => {
+                    plan.stock[lot] = 5 + level * 3 + self.support(lot, Kind::MarketGarden, 2)
+                }
+                Kind::Cooperage => plan.stock[lot] = 5 + level * 3,
+                Kind::SpiceBazaar => plan.stock[lot] = 6 + level * 3,
+                Kind::CarpetHall => {
+                    plan.stock[lot] = 4 + level * 3 + self.support(lot, Kind::SpiceBazaar, 2)
+                }
                 Kind::Smokehouse => {
                     let fish = catch.min(2 + level * 2);
                     catch -= fish;
@@ -1733,6 +2095,17 @@ impl Town {
             }
             if matches!(b.kind, Kind::Bakery | Kind::Taverna) {
                 plan.stock[lot] += self.herb_support(lot);
+                plan.stock[lot] += self.support(lot, Kind::Apiary, 1);
+            }
+            let nearby = match b.kind {
+                Kind::Bakery => Some(Kind::Mill),
+                Kind::RiceKitchen | Kind::TeaHouse => Some(Kind::MarketGarden),
+                Kind::Weaver => Some(Kind::Sheepfold),
+                _ => None,
+            };
+            if let Some(source) = nearby {
+                let level = self.support(lot, source, 2);
+                plan.stock[lot] += level + u16::from(level > 0) * 2;
             }
         }
         plan
@@ -1885,7 +2258,7 @@ impl Town {
         }
         let total = count.saturating_sub(1).max(1) as f32;
         for (i, visit) in visitors.iter_mut().enumerate() {
-            visit.at = 6.0 + (i as f32 / total) * (chapter.day_seconds() - 12.0);
+            visit.at = 6.0 + (i as f32 / total) * (chapter.day_seconds() - 8.4);
         }
         visitors
     }
@@ -2010,7 +2383,9 @@ impl Town {
         Day {
             seconds: 0.0,
             water: production.water,
+            caravan_water: production.water.saturating_sub(production.used_water),
             stock: production.stock,
+            supplied: Some(production.stock),
             visits: self.visit_plan(chapter),
             tally: Tally::default(),
             favor: self.next_favor(chapter),
@@ -2033,7 +2408,7 @@ impl Town {
             && self.lots[lot].is_some_and(|building| building.kind == Kind::Temple)
             && day.route.is_none()
             && day.rung_bells & (1 << lot) == 0
-            && day.seconds + 4.0 < chapter.day_seconds()
+            && day.seconds + 1.0 < chapter.day_seconds()
     }
 
     pub fn bell_guests(&self, lot: usize) -> u16 {
@@ -2050,7 +2425,7 @@ impl Town {
         };
         day.rung_bells |= 1 << lot;
         day.tally.bell_rings += 1;
-        day.stock[lot] += guests;
+        day.restock(lot, guests);
         let at = day.seconds;
         invite_party(
             &self.lots,
@@ -2109,7 +2484,9 @@ impl Town {
                 .layout
                 .lots()
                 .filter(|&i| {
-                    self.lots[i].is_some_and(|b| matches!(b.kind, Kind::Grove | Kind::TeaGarden))
+                    self.lots[i].is_some_and(|b| {
+                        matches!(b.kind, Kind::Grove | Kind::TeaGarden | Kind::DateGarden)
+                    })
                 })
                 .min_by_key(|&i| distance(lot, i))
                 .map_or(target, |i| Stop::Parcel(i as u8)),
@@ -2117,7 +2494,7 @@ impl Town {
         Route::new(
             day.favor.job(),
             true,
-            day.nili_at,
+            (day.nili_at, day.nili),
             pickup,
             target,
             day.seconds,
@@ -2248,11 +2625,21 @@ impl Town {
             Goal::RouteVariety(_) => self.totals.routes.iter().filter(|&&n| n > 0).count() as u32,
             Goal::FerryDay(_) => self.totals.best_ferry_day,
             Goal::GoodDay(_) => self.totals.best_mood,
+            Goal::Specials(_) => self.totals.specialties.iter().sum(),
+            Goal::Residents(_) => self
+                .lots
+                .iter()
+                .flatten()
+                .map(|b| u32::from(b.residents()))
+                .sum(),
             Goal::Harvest(_) => self.totals.harvest_peak,
             Goal::Bell(_) => self.totals.bell_rings,
             Goal::Catch(_) => self.totals.catch_peak,
             Goal::Voyages(_) => self.totals.voyages,
             Goal::CargoIncome(_) => self.totals.cargo_income,
+            Goal::Caravans(_) => self.totals.caravans,
+            Goal::CaravanIncome(_) => self.totals.caravan_income,
+            Goal::SpiceRoutes(_) => self.totals.spice_routes,
             Goal::Upgrade(kind, _) => self
                 .lots
                 .iter()
@@ -2370,18 +2757,21 @@ fn finish_route(
     };
     match route.job {
         Job::Freight => {
-            day.stock[lot] += if matches!(route.pickup, Stop::Parcel(_)) {
-                6
-            } else {
-                4
-            };
+            day.restock(
+                lot,
+                if matches!(route.pickup, Stop::Parcel(_)) {
+                    6
+                } else {
+                    4
+                },
+            );
         }
         Job::Water => {
-            day.stock[lot] += 4;
+            day.restock(lot, 4);
             day.water += 2;
         }
         Job::Welcome => invite_party(lots, day, lot, at, closing, island, 2),
-        Job::Shade => day.stock[lot] += 5,
+        Job::Shade => day.restock(lot, 5),
         Job::Quay => {}
     }
     day.tally.income += 3;
@@ -2428,7 +2818,7 @@ fn finish_favor(
         Favor::Jugs => {
             for (neighbor, building) in lots.iter().enumerate() {
                 if building.is_some_and(|b| b.kind.water_user()) && distance(lot, neighbor) <= 3 {
-                    day.stock[neighbor] += 2;
+                    day.restock(neighbor, 2);
                 }
             }
         }
@@ -2440,13 +2830,13 @@ fn finish_favor(
                         Kind::Stoa | Kind::Baths | Kind::TeaHouse | Kind::Temple
                     )
                 }) {
-                    day.stock[neighbor] += 2;
+                    day.restock(neighbor, 2);
                 }
             }
         }
-        Favor::Cargo | Favor::Crates | Favor::Fire => day.stock[lot] += 3,
-        Favor::BrokenJars => day.stock[lot] += 2,
-        Favor::ShadeSail => day.stock[lot] += 5,
+        Favor::Cargo | Favor::Crates | Favor::Fire => day.restock(lot, 3),
+        Favor::BrokenJars => day.restock(lot, 2),
+        Favor::ShadeSail => day.restock(lot, 5),
         Favor::LostGuests => invite_party(lots, day, lot, at, closing, island, 2),
     }
     day.tally.income += 6;
@@ -2592,16 +2982,13 @@ mod tests {
     #[test]
     fn first_twelve_harbors_can_earn_three_stars_and_unlock_the_next() {
         let mut save = Campaign::default();
-        for (i, (chapter, builds)) in CHAPTERS.iter().zip(PLANS).enumerate() {
+        for (i, chapter) in CHAPTERS.iter().take(PLANS.len()).enumerate() {
             assert!(save.unlocked(i), "{}", chapter.district);
             let mut town = Town::new(i, chapter);
             let mut result = None;
+            let layout = reference_layout(i, chapter);
             for _ in 1..=chapter.par {
-                for &(lot, kind) in builds {
-                    if town.lots[lot].is_none() && !town.build(chapter, lot, kind) {
-                        break;
-                    }
-                }
+                prepare_market(&mut town, chapter, &layout);
                 for goal in chapter.goals {
                     if let Goal::Upgrade(kind, level) = goal
                         && let Some(lot) = town.lots.iter().position(|b| {
@@ -2611,7 +2998,21 @@ mod tests {
                         town.upgrade(lot);
                     }
                 }
-                town = play_market(town, chapter, HarborPlan::Regular, Price::Fair);
+                if i == 5
+                    && town.day >= 3
+                    && let Some(lot) = town
+                        .lots
+                        .iter()
+                        .position(|b| b.is_some_and(|b| b.kind == Taverna && b.level < 2))
+                {
+                    town.upgrade(lot);
+                }
+                let policy = if i == 10 {
+                    HarborPlan::Ferry
+                } else {
+                    HarborPlan::Regular
+                };
+                town = play_market(town, chapter, policy, Price::Fair);
                 let Phase::Report(report) = &town.phase else {
                     unreachable!()
                 };
@@ -2846,8 +3247,163 @@ mod tests {
         }));
     }
 
+    fn prepare_market(town: &mut Town, chapter: &Chapter, layout: &[(usize, Kind)]) {
+        use crate::campaign::Goal::*;
+        let near = |lot| distance(lot, chapter.layout.dock());
+        let planned = |kind, lot| layout.iter().any(|&(i, k)| i == lot && k == kind);
+        for goal in chapter.goals {
+            let Pair(first, second, need) = goal else {
+                continue;
+            };
+            while town.goal(goal).0 < need {
+                let mut best = None;
+                for a in chapter.layout.lots() {
+                    if town.lots[a].is_some_and(|b| b.kind != first)
+                        || (town.lots[a].is_some() && town.neighboring(a, second, 1))
+                    {
+                        continue;
+                    }
+                    for b in chapter.layout.lots().filter(|&b| distance(a, b) == 1) {
+                        if town.lots[b].is_some_and(|building| building.kind != second) {
+                            continue;
+                        }
+                        let cost = if town.lots[a].is_none() {
+                            first.cost()
+                        } else {
+                            0
+                        } + if town.lots[b].is_none() {
+                            second.cost()
+                        } else {
+                            0
+                        };
+                        if cost == 0 || cost > town.coins {
+                            continue;
+                        }
+                        let rank = (
+                            cost,
+                            !planned(first, a),
+                            !planned(second, b),
+                            near(a) + near(b),
+                            a,
+                            b,
+                        );
+                        if best.is_none_or(|prior| rank < prior) {
+                            best = Some(rank);
+                        }
+                    }
+                }
+                let Some((_, _, _, _, a, b)) = best else {
+                    break;
+                };
+                let mut built = false;
+                if town.lots[a].is_none() {
+                    built |= town.build(chapter, a, first);
+                }
+                if town.lots[b].is_none() {
+                    built |= town.build(chapter, b, second);
+                }
+                if !built || town.lots[a].is_none() || town.lots[b].is_none() {
+                    break;
+                }
+            }
+        }
+        for goal in chapter.goals {
+            let (kind, count) = match goal {
+                Build(kind, count) => (kind, count),
+                Upgrade(kind, _) => (kind, 1),
+                Serve(service, _) => {
+                    if town
+                        .lots
+                        .iter()
+                        .flatten()
+                        .any(|b| b.kind.service() == Some(service))
+                    {
+                        continue;
+                    }
+                    let Some(&kind) = chapter
+                        .allowed()
+                        .iter()
+                        .find(|k| k.service() == Some(service))
+                    else {
+                        continue;
+                    };
+                    (kind, 1)
+                }
+                Residents(_) => {
+                    let kind = *chapter
+                        .allowed()
+                        .iter()
+                        .find(|&&kind| Building::new(kind).residents() > 0)
+                        .unwrap();
+                    (kind, if town.day >= 4 { 3 } else { 2 })
+                }
+                _ => continue,
+            };
+            for _ in town.count(kind)..count {
+                let lot = chapter
+                    .layout
+                    .lots()
+                    .filter(|&lot| town.lots[lot].is_none())
+                    .min_by_key(|&lot| {
+                        (
+                            !planned(kind, lot),
+                            layout.iter().any(|&(i, _)| i == lot),
+                            near(lot),
+                        )
+                    });
+                if let Some(lot) = lot {
+                    town.build(chapter, lot, kind);
+                }
+            }
+        }
+        if town.day >= 3
+            && chapter
+                .goals
+                .iter()
+                .any(|g| matches!(g, Residents(need) if town.goal(*g).0 < *need))
+            && let Some(lot) = town
+                .lots
+                .iter()
+                .position(|b| b.is_some_and(|b| b.residents() > 0 && b.level < MAX_LEVEL))
+        {
+            town.upgrade(lot);
+        }
+        if town.chapter >= crate::campaign::OASIS_START + crate::campaign::CORE_HARBORS {
+            let cistern = town
+                .lots
+                .iter()
+                .position(|lot| lot.is_some_and(|b| b.kind == Qanat && b.level < 2));
+            if let Some(lot) = cistern {
+                town.upgrade(lot);
+            }
+        }
+        for &(lot, kind) in layout {
+            if town.lots[lot].is_none() && is_open(chapter, lot) && !town.build(chapter, lot, kind)
+            {
+                break;
+            }
+        }
+    }
+
     fn reference_layout(i: usize, chapter: &Chapter) -> Vec<(usize, Kind)> {
         use crate::campaign::{Goal::*, JAPAN_START, NORDIC_START, REGION_SIZE};
+
+        if i >= crate::campaign::OASIS_START {
+            return [
+                (8, Caravanserai),
+                (7, DateGarden),
+                (3, SpiceBazaar),
+                (4, Glassworks),
+                (9, Qanat),
+                (10, Perfumer),
+                (11, MoonGarden),
+                (5, CarpetHall),
+                (0, OasisHome),
+            ]
+            .into_iter()
+            .filter(|(_, kind)| chapter.allowed().contains(kind))
+            .collect();
+        }
 
         if i >= NORDIC_START {
             return match i - NORDIC_START {
@@ -2861,10 +3417,23 @@ mod tests {
                     (0, Fishery),
                     (5, Storehouse),
                 ],
+                7 => vec![
+                    (4, Smokehouse),
+                    (0, Fishery),
+                    (6, FeastHall),
+                    (5, Storehouse),
+                    (11, Cooperage),
+                ],
                 10 => vec![
                     (6, FeastHall),
                     (4, Smokehouse),
                     (0, Fishery),
+                    (5, Storehouse),
+                ],
+                17 => vec![
+                    (4, Smokehouse),
+                    (0, Fishery),
+                    (6, Cooperage),
                     (5, Storehouse),
                 ],
                 15 => vec![
@@ -2908,6 +3477,14 @@ mod tests {
                     (11, TeaHouse),
                     (5, Storehouse),
                 ],
+                21 => vec![
+                    (4, PaperWorkshop),
+                    (11, TeaHouse),
+                    (5, SilkShop),
+                    (6, CeramicStudio),
+                    (0, RicePaddy),
+                    (12, RiceKitchen),
+                ],
                 19 | 23 => vec![
                     (4, PaperWorkshop),
                     (11, TeaHouse),
@@ -2923,7 +3500,45 @@ mod tests {
             };
         }
         if let Some(plan) = PLANS.get(i) {
-            return plan.to_vec();
+            return match i {
+                5 => vec![
+                    (2, Grove),
+                    (6, Bakery),
+                    (8, Taverna),
+                    (10, Inn),
+                    (4, Potter),
+                    (9, Stoa),
+                ],
+                6 => vec![
+                    (3, Grove),
+                    (9, Taverna),
+                    (6, Bakery),
+                    (11, Potter),
+                    (10, Stoa),
+                    (5, Inn),
+                ],
+                7 => vec![
+                    (9, Apiary),
+                    (3, Grove),
+                    (8, Taverna),
+                    (11, Inn),
+                    (6, Storehouse),
+                ],
+                _ => plan.to_vec(),
+            };
+        }
+        if i == REGION_SIZE - 1 {
+            return vec![
+                (4, Potter),
+                (10, Dyer),
+                (11, Apiary),
+                (6, Storehouse),
+                (9, Press),
+                (5, Shrine),
+                (8, Taverna),
+                (13, Stoa),
+                (14, HerbGarden),
+            ];
         }
         if i < REGION_SIZE {
             return [
@@ -3023,7 +3638,9 @@ mod tests {
             } else {
                 ManualStage::Delivery
             };
-            walk_to(town, chapter, motion::stop(stop, chapter.layout));
+            if !motion::can_work(*nili, route, chapter.layout) {
+                walk_to(town, chapter, motion::stop(stop, chapter.layout));
+            }
             if !matches!(town.phase, Phase::Open(_)) {
                 return;
             }
@@ -3041,6 +3658,30 @@ mod tests {
         town.set_harbor(chapter, policy);
         for i in 0..LOTS {
             town.set_price(i, tariff);
+        }
+        if chapter
+            .goals
+            .iter()
+            .any(|goal| matches!(goal, Goal::Specials(_)))
+        {
+            let production = town.production(chapter);
+            for lot in 0..LOTS {
+                let Some(forecast) = town.offer_forecast(chapter, lot, &production) else {
+                    continue;
+                };
+                let building = town.lots[lot].unwrap();
+                let choice = Assortment::ALL
+                    .into_iter()
+                    .filter(|choice| choice.unlocked(building.level))
+                    .max_by_key(|&choice| {
+                        (
+                            forecast.matches[choice as usize],
+                            forecast.extra_coins[choice as usize],
+                        )
+                    })
+                    .unwrap();
+                town.set_assortment(lot, choice);
+            }
         }
         assert!(town.open(chapter));
         let ready = town.favor_ready_at(chapter, town.next_favor(chapter));
@@ -3084,10 +3725,10 @@ mod tests {
             let ships = remaining(false);
             let silver = remaining(true);
             if ships + silver > 0
-                && let Some(lot) = chapter
-                    .layout
-                    .lots()
-                    .find(|&lot| town.lots[lot].is_some_and(|b| b.kind == Boatyard))
+                && let Some(lot) = chapter.layout.lots().find(|&lot| {
+                    town.trade_source(chapter, lot, SailingRoute::Coastal)
+                        .is_ok()
+                })
             {
                 let level = town.lots[lot].unwrap().level;
                 let coastal = SailingRoute::Coastal;
@@ -3104,6 +3745,28 @@ mod tests {
                     assert!(motion::can_inspect(&town, lot, chapter.layout));
                     assert!(town.send_voyage(chapter, lot, route).is_ok());
                 }
+            }
+        }
+        if chapter.region == crate::campaign::Region::Oasis
+            && chapter.goals.iter().any(|goal| {
+                matches!(
+                    goal,
+                    Goal::Caravans(_) | Goal::CaravanIncome(_) | Goal::SpiceRoutes(_)
+                )
+            })
+            && let Some(lot) = chapter
+                .layout
+                .lots()
+                .find(|&lot| town.lots[lot].is_some_and(|b| b.kind == Caravanserai))
+        {
+            use crate::{caravan::Contract, world::motion};
+            let contract = [Contract::SpiceRoad, Contract::Oasis]
+                .into_iter()
+                .find(|&contract| town.caravan_supply(chapter, lot, contract).is_ok());
+            if let Some(contract) = contract {
+                walk_to(&mut town, chapter, motion::entrance(lot, chapter.layout));
+                assert!(motion::can_inspect(&town, lot, chapter.layout));
+                assert!(town.send_caravan(chapter, lot, contract).is_ok());
             }
         }
         let Phase::Open(day) = &town.phase else {
@@ -3186,7 +3849,7 @@ mod tests {
     }
 
     #[test]
-    fn all_96_harbors_can_earn_three_stars_and_unlock_the_next() {
+    fn all_120_harbors_can_earn_three_stars_and_unlock_the_next() {
         use crate::campaign::{JAPAN_START, NORDIC_START, REGION_SIZE};
 
         let mut save = Campaign::default();
@@ -3209,11 +3872,7 @@ mod tests {
             let layout = reference_layout(i, chapter);
             let mut result = None;
             for _ in 0..chapter.par {
-                for &(lot, kind) in &layout {
-                    if town.lots[lot].is_none() && !town.build(chapter, lot, kind) {
-                        break;
-                    }
-                }
+                prepare_market(&mut town, chapter, &layout);
                 for goal in chapter.goals {
                     if let Goal::Upgrade(kind, level) = goal
                         && let Some(lot) = town.lots.iter().position(|b| {
@@ -3224,6 +3883,23 @@ mod tests {
                     }
                 }
                 for desired in [
+                    DateGarden,
+                    SpiceBazaar,
+                    Cistern,
+                    OasisHome,
+                    Caravanserai,
+                    Glassworks,
+                    Perfumer,
+                    MoonGarden,
+                    CarpetHall,
+                    Apiary,
+                    Dyer,
+                    FerryOffice,
+                    GardenCourt,
+                    Scribe,
+                    CeramicStudio,
+                    SilkShop,
+                    Cooperage,
                     Fishery,
                     Smokehouse,
                     Weaver,
@@ -3333,6 +4009,61 @@ mod tests {
             "Unfinished routes: {}",
             failures.join("\n")
         );
+    }
+
+    #[test]
+    fn nili_can_restock_and_finish_a_short_errand_late_in_the_shift() {
+        let mut chapter = CHAPTERS[9];
+        chapter.shift = crate::campaign::Shift::Long;
+        chapter.favors = &[Favor::Jugs];
+        chapter.starts = &[(2, Well), (7, Bakery)];
+        let mut town = Town::new(9, &chapter);
+        let lot = chapter
+            .layout
+            .lots()
+            .find(|&lot| town.lots[lot].is_some_and(|b| b.kind == Well))
+            .unwrap();
+        assert!(town.open(&chapter));
+        let close = chapter.day_seconds();
+        assert_eq!(chapter.shift.clock(1.0), "21:30");
+        town.tick(&chapter, close - 3.3);
+        if let Phase::Open(day) = &mut town.phase {
+            day.favor = Favor::Jugs;
+            let position = crate::world::motion::entrance(lot, chapter.layout);
+            day.nili = Some(NiliControl {
+                position: [position.x, position.z],
+                yaw: 0.0,
+                stage: ManualStage::Pickup,
+            });
+        }
+        let route = town.favor_plan(&chapter, lot).unwrap();
+        assert!(route.finish < close);
+        assert!(town.aid(&chapter, lot));
+        walk_errand(&mut town, &chapter, route);
+        let Phase::Open(day) = &town.phase else {
+            panic!("Shift ended before Nili finished")
+        };
+        assert_eq!(day.tally.favors, 1);
+        assert!(day.seconds < close);
+    }
+
+    #[test]
+    fn a_restock_extends_the_inventory_total_and_old_saves_keep_their_count() {
+        let chapter = &CHAPTERS[0];
+        let mut town = Town::new(0, chapter);
+        assert!(town.build(chapter, 2, Bakery));
+        assert!(town.open(chapter));
+        let Phase::Open(day) = &mut town.phase else {
+            unreachable!()
+        };
+        let start = day.stock_capacity(2);
+        day.stock[2] -= 1;
+        assert_eq!(day.stock_capacity(2), start);
+        day.restock(2, 3);
+        assert_eq!(day.stock_capacity(2), start + 3);
+        assert_eq!(day.stock[2], start + 2);
+        day.supplied = None;
+        assert_eq!(day.stock_capacity(2), start + 2);
     }
 
     #[test]

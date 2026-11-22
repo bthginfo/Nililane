@@ -93,7 +93,7 @@ pub fn setup(mut hud: ResMut<Hud>, assets: Res<AssetServer>) {
         assets.load("embedded://fonts/DMSans-Bold.ttf"),
         assets.load("embedded://fonts/DMSerifText-Regular.ttf"),
     ];
-    let icons = "house well bakery grove potter stoa taverna inn bread olive meze bed coin star sun water wind ferry fire chart book guide hammer lock check nili title_fade storehouse press shrine aqueduct baths forum villa mood cloud rain storm guest_book guest_down guest_empty guest_happy guest_mixed guest_steps guest_wait pad_dpad pad_view sunset pause budget age_child age_adult age_senior cat dog leaves scraps herb_garden machiya temple temple_bell rice_paddy rice_kitchen rice_bowl tea_garden tea_house tea_cup paper_workshop lampion longhouse fishery smokehouse woodlot boatyard sea_trade weaver feast_hall smoked_fish woven_cloth hearth_bowl";
+    let icons = "house well bakery grove potter stoa taverna inn bread olive meze bed coin star sun water wind ferry fire chart book guide hammer lock check nili title_fade storehouse press shrine aqueduct baths forum villa mood cloud rain storm guest_book guest_down guest_empty guest_happy guest_mixed guest_steps guest_wait pad_dpad pad_view sunset pause budget age_child age_adult age_senior cat dog leaves scraps herb_garden machiya temple temple_bell rice_paddy rice_kitchen rice_bowl tea_garden tea_house tea_cup paper_workshop lampion longhouse fishery smokehouse woodlot boatyard sea_trade weaver feast_hall smoked_fish woven_cloth hearth_bowl moon apiary dyer ferry_office mill scribe garden_court market_garden ceramic_studio silk_shop sheepfold cooperage signal_tower oasis_home cistern date_garden spice_bazaar caravanserai qanat glassworks perfumer moon_garden carpet_hall caravan";
     for key in icons
         .split_whitespace()
         .map(str::to_owned)
@@ -135,7 +135,6 @@ pub fn draw(
                 (_, Panel::Options) => panels::options(base, &hud, &save),
                 (_, Panel::Wardrobe) => wardrobe::draw(base, &hud, &save, &game),
                 (View::Title, _) => screens::title(base, &hud, &save),
-                (View::Chart, Panel::Replace) => panels::replace(base, &hud, &game),
                 (View::Chart, _) => screens::chart(base, &hud, &game, &save),
                 (View::Street, panel) => {
                     let Some(town) = save.active_town() else {
@@ -227,7 +226,6 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
                 Action::Begin
             }
         }
-        (View::Chart, Panel::Replace) => Action::Back,
         (View::Chart, _) => Action::Choose(game.chart),
         (View::Street, Panel::None) => return None,
         (View::Street, Panel::Pause) => Action::Back,
@@ -459,10 +457,8 @@ pub fn refresh(
                 }
             }
             Dynamic::Clock => {
-                if let Some(day) = day {
-                    let hour = 7.0 + day.seconds / length * 12.0;
-                    let text_value =
-                        format!("{:02}:{:02}", hour as u8, ((hour % 1.0) * 60.0) as u8);
+                if let (Some(town), Some(day)) = (town, day) {
+                    let text_value = CHAPTERS[town.chapter].shift.clock(day.seconds / length);
                     if text.0 != text_value {
                         text.0 = text_value;
                     }
@@ -779,6 +775,28 @@ fn kind_icon(kind: Kind) -> &'static str {
         Kind::Boatyard => "boatyard",
         Kind::Weaver => "weaver",
         Kind::FeastHall => "feast_hall",
+        Kind::Apiary => "apiary",
+        Kind::Dyer => "dyer",
+        Kind::FerryOffice => "ferry_office",
+        Kind::OasisHome => "oasis_home",
+        Kind::Cistern => "cistern",
+        Kind::DateGarden => "date_garden",
+        Kind::SpiceBazaar => "spice_bazaar",
+        Kind::Caravanserai => "caravanserai",
+        Kind::Qanat => "qanat",
+        Kind::Glassworks => "glassworks",
+        Kind::Perfumer => "perfumer",
+        Kind::MoonGarden => "moon_garden",
+        Kind::CarpetHall => "carpet_hall",
+        Kind::Mill => "mill",
+        Kind::Scribe => "scribe",
+        Kind::GardenCourt => "garden_court",
+        Kind::MarketGarden => "market_garden",
+        Kind::CeramicStudio => "ceramic_studio",
+        Kind::SilkShop => "silk_shop",
+        Kind::Sheepfold => "sheepfold",
+        Kind::Cooperage => "cooperage",
+        Kind::SignalTower => "signal_tower",
     }
 }
 
@@ -896,6 +914,62 @@ fn stock_unit(service: Service, amount: u16) -> &'static str {
                 "Lampions"
             }
         }
+        Service::Honey => {
+            if amount == 1 {
+                "Glas Honig"
+            } else {
+                "Gläser Honig"
+            }
+        }
+        Service::DyedCloth => {
+            if amount == 1 {
+                "Stoff"
+            } else {
+                "Stoffe"
+            }
+        }
+        Service::Tablets => {
+            if amount == 1 {
+                "Tafel"
+            } else {
+                "Tafeln"
+            }
+        }
+        Service::Dates => {
+            if amount == 1 {
+                "Dattel"
+            } else {
+                "Datteln"
+            }
+        }
+        Service::Spices => {
+            if amount == 1 {
+                "Gewürzpaket"
+            } else {
+                "Gewürzpakete"
+            }
+        }
+        Service::Glass => {
+            if amount == 1 {
+                "Glas"
+            } else {
+                "Gläser"
+            }
+        }
+        Service::Incense => {
+            if amount == 1 {
+                "Flakon"
+            } else {
+                "Flakons"
+            }
+        }
+        Service::Casks => {
+            if amount == 1 {
+                "Fass"
+            } else {
+                "Fässer"
+            }
+        }
         Service::Prayer | Service::HearthMeal => {
             if amount == 1 {
                 "Platz"
@@ -938,6 +1012,14 @@ fn service_icon(service: Service) -> &'static str {
         Service::SmokedFish => "smoked_fish",
         Service::Textiles => "woven_cloth",
         Service::HearthMeal => "hearth_bowl",
+        Service::Honey => "apiary",
+        Service::DyedCloth => "dyer",
+        Service::Tablets => "scribe",
+        Service::Dates => "date_garden",
+        Service::Spices => "spice_bazaar",
+        Service::Glass => "glassworks",
+        Service::Incense => "perfumer",
+        Service::Casks => "cooperage",
     }
 }
 
@@ -980,6 +1062,10 @@ fn shown_goal(town: &crate::model::Town, goal: crate::campaign::Goal) -> (u32, u
         Goal::MarketDay(_) => value.max(day.tally.income),
         Goal::Water(_) => value.max(u32::from(day.water)),
         Goal::Harvest(_) => value.max(u32::from(day.rice_harvest)),
+        Goal::Specials(_) => value + day.tally.specialties.iter().sum::<u32>(),
+        Goal::Caravans(_) => value + day.tally.caravans,
+        Goal::CaravanIncome(_) => value + day.tally.caravan_income,
+        Goal::SpiceRoutes(_) => value + day.tally.spice_routes,
         Goal::Bell(_) => value + day.tally.bell_rings,
         Goal::Catch(_) => value.max(u32::from(day.fish_catch)),
         Goal::Route(job, _) => value + day.tally.routes[job as usize],

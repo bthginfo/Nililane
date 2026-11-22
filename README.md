@@ -1,22 +1,19 @@
-# Nililane 2.6.0
+# Nililane 2.7.0
 
 Nililane ist ein 3D-Straßenmanagementspiel in Rust und Bevy. Mit Nili
-reist du durch das antike Griechenland, das antike Rom, das feudale Japan
-und die nordischen Häfen der Wikingerzeit. Jede Reise hat 24 Kapitel.
-Du planst morgens die Gasse, versorgst Nachbarn und Fährgäste und steuerst
-Nili tagsüber bei seinen Aufgaben.
+reist du durch Griechenland, Rom, Japan, die nordischen Häfen und die
+Oasenreiche. In der Planung baust du die Gasse und legst Angebote fest.
+Während der Schicht steuerst du Nili und versorgst Nachbarn und Reisende.
 
-**[Android-APK für ARM64-Tablets](https://raw.githubusercontent.com/bthginfo/Nililane/e105d3533c082a6634dc7f1442792332b5a722d9/Nililane-2.6.0.apk)** · [APK für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/e105d3533c082a6634dc7f1442792332b5a722d9/Nililane-2.6.0-x86_64.apk) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.6.0)
+**[Android-APK für ARM64-Tablets](https://media.githubusercontent.com/media/bthginfo/Nililane/3c9270b01b1d4d1328ab1b630d1f1004c90c767e/Nililane-2.7.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/3c9270b01b1d4d1328ab1b630d1f1004c90c767e/Nililane-2.7.0-x86_64.apk) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.7.0)
 
-[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/e105d3533c082a6634dc7f1442792332b5a722d9/Nililane-2.6.0.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/e105d3533c082a6634dc7f1442792332b5a722d9/Nililane-2.6.0-x86_64.apk.sha256)
+[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/3c9270b01b1d4d1328ab1b630d1f1004c90c767e/Nililane-2.7.0.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/3c9270b01b1d4d1328ab1b630d1f1004c90c767e/Nililane-2.7.0-x86_64.apk.sha256)
+
+![Nachtschicht in Raml Yasmin mit beleuchteten Gassen, Mondgarten und Karawanserei](docs/bilder/oasen-nacht.jpg)
 
 ![Nili mit Bewohnern und dem ausgebauten Wohnhof in Naxos](docs/bilder/naxos.jpg)
 
-![Capua mit mehrstöckigem Aquädukt, Thermen und römischen Arkaden](docs/bilder/capua.jpg)
-
 ![Tempeldächer, Reisfelder und Holzfähren in Japan](docs/bilder/japan.jpg)
-
-![Langhäuser mit Grasdächern und gestreifte Segel in Trondenes](docs/bilder/nordische-haefen.jpg)
 
 ## Auf dem Tablet spielen
 
@@ -53,6 +50,29 @@ Für Bauplätze, Preise und Angebote nutzt du morgens die Planung.
 Mit der Tastatur bewegst du Nili mit WASD oder den Pfeiltasten. Enter
 entspricht A, Escape entspricht B. X, Y, P, Q und E entsprechen X, Y,
 Start, LB und RB. N öffnet Nilis Touren. F öffnet das Gästebuch.
+
+## Neu in 2.7.0
+
+- **Hauptreise und Bonusroute.** Nach zwölf geschafften Häfen öffnet sich
+  das nächste Gebiet. Die zwölf Bonusinseln je Gebiet haben eigene Aufträge
+  und weitere Gebäude. Du kannst zwischen den Routen wechseln und laufende
+  Häfen später fortsetzen.
+- **Oasenreiche.** 24 neue Orte mit Dattelhainen, Gewürzbasaren, Qanats und
+  Karawansereien. Geh mit Nili zur Karawanserei, um Datteln und freies
+  Wasser zur Nachbaroase zu schicken. Die Gewürzstraße braucht zusätzlich
+  Gewürze und einen ausgebauten Qanat in der Nähe.
+- **Vorräte direkt über dem Gebäude.** Wenn Nili am Eingang steht, siehst
+  du den verbliebenen und den für die Schicht bereitgestellten Vorrat.
+  Kurze Touren bleiben bis kurz vor Schichtende möglich.
+- **Fünfzehn Nachtinseln.** Nachtmärkte öffnen von 19:00 bis 06:00 Uhr und
+  ziehen Gäste mit eigenen Wünschen an. Öllampen, Feuerschalen,
+  Papierlaternen, Fackeln und bronzene Leuchten begleiten die Nacht.
+  Große Tageshäfen bleiben bis 21:30 Uhr geöffnet.
+- **Gebäude und Aufgaben.** Alle sechs Ausbaustufen wurden überprüft.
+  Die vier früheren Gebiete erhalten zusammen zwölf neue Bauten, etwa
+  Imkerei, Schreibstube, Seidenweberei und Signalfeuer. Gerüst und Staub
+  begleiten den Wechsel der Gebäudestufen. Die Oasen ergänzen zehn eigene
+  Gebäudetypen, drei Kleidungsstücke und 24 Musikstücke mit Abendfassungen.
 
 ## Neu in 2.6.0
 

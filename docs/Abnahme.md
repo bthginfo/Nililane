@@ -1,4 +1,27 @@
-# Spielreview und Abnahme · Nililane 2.4.0
+# Spielreview und Abnahme
+
+## Hafenreisen 2.7.0
+
+Die Kampagnenprüfung baut und versorgt alle 120 Häfen durch ihre regulären
+Bau-, Preis-, Ausbau- und Hafenaktionen. Sie steuert Nili zu Abholorten
+und Zielen, setzt Preise und Angebote und lädt den Spielstand nach jedem
+Hafenabschluss erneut. Alle Häfen erreichten drei Sterne.
+
+Die Kampagnenkarte bietet nach zwölf Inseln den Weg ins nächste Gebiet
+und die optionale Weiterfahrt in der bisherigen Region. Ein Test wechselt
+mit einer noch laufenden Schicht zwischen den Routen und lädt beide
+Fortschritte. Der Android-Emulator erreichte mit der A-Taste Ostia
+unmittelbar nach Kallisti.
+
+Die Modellprüfung rendert die sechs Stufen aller 67 regionalen
+Gebäudevarianten. Sie hat unter anderem durchstoßene Dächer, überlagerte
+Vordächer und ungestützte Aufbauten sichtbar gemacht. Die Ausbaustufen
+haben jetzt durchgehende Fassaden und Dächer. Die Laufwege und die Maße
+der Modelle wurden ebenfalls geprüft. Am Tabletformat war die
+Vorratsanzeige mit „7/7 Laibe“ um 20:36 und 20:52 lesbar.
+Ein eigener Test schließt einen kurzen Auftrag gegen Ende der Schicht ab.
+
+## Frühere Abnahme · 2.4.0
 
 ## Einstieg als neuer Spieler
 

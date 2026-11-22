@@ -30,6 +30,7 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
     let roman = region == Region::Rome;
     let japan = region == Region::Japan;
     let nordic = region == Region::Nordic;
+    let oasis = region == Region::Oasis;
     let mut grain = Grain::new(401 + chapter as u32 * 4051);
     let wide = columns as f32 * LOT_STEP * 0.5 + 2.6;
     let coast = [
@@ -63,7 +64,10 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
             z + waterfront + grain.span(-0.16, 0.19),
         )
     });
-    let (earth, edge) = if nordic {
+    let (earth, edge) = if oasis {
+        let earth = super::oasis::paving(2, 1, chapter);
+        (shift(earth, -13), shift(earth, -46))
+    } else if nordic {
         let earth = super::nordic::paving(2, 1, chapter);
         (shift(earth, -16), shift(earth, -53))
     } else if japan {
@@ -118,7 +122,9 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
             b.slab(
                 v(x + grain.span(-0.008, 0.008), 0.021, pz),
                 v(0.501, grain.span(0.037, 0.054), 0.316),
-                if nordic {
+                if oasis {
+                    super::oasis::paving(i, row, chapter)
+                } else if nordic {
                     super::nordic::paving(i, row, chapter)
                 } else if japan {
                     super::japan::paving(i, row, chapter)
@@ -141,14 +147,18 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
     for row in 0..2 {
         for col in 0..layout.row(row) {
             let p = lot_position(lot_id(row, col), columns);
-            let borders = if nordic {
+            let borders = if oasis {
+                [184, 130, 92]
+            } else if nordic {
                 [153, 153, 138]
             } else if japan {
                 [176, 166, 145]
             } else {
                 [206, 177, 132]
             };
-            let yard = if nordic {
+            let yard = if oasis {
+                [229, 185, 135]
+            } else if nordic {
                 [187, 181, 156]
             } else if japan {
                 [201, 187, 157]
@@ -184,7 +194,9 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
     for row in 0..2 {
         for col in layout.row(row)..columns {
             let at = lot_position(lot_id(row, col), columns);
-            if nordic {
+            if oasis {
+                super::oasis::garden(&mut b, at, chapter, &mut grain);
+            } else if nordic {
                 super::nordic::garden(&mut b, at, chapter, &mut grain);
             } else if japan {
                 super::japan::garden(&mut b, at, chapter, &mut grain);
@@ -204,7 +216,9 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
     }
     promenade_wall(&mut b, wide, quay(layout));
     harbor(&mut b, quay(layout));
-    if nordic {
+    if oasis {
+        super::oasis::bank(&mut b, wide, chapter, &mut grain);
+    } else if nordic {
         super::nordic::bank(&mut b, wide, chapter, &mut grain);
     } else if japan {
         super::japan::bank(&mut b, wide, chapter, &mut grain);
@@ -496,6 +510,7 @@ pub fn water(columns: usize, region: Region) -> Mesh {
                 Region::Rome => [mix(125.0, 49.0), mix(170.0, 111.0), mix(151.0, 124.0)],
                 Region::Japan => [mix(109.0, 43.0), mix(172.0, 103.0), mix(159.0, 133.0)],
                 Region::Nordic => [mix(110.0, 48.0), mix(151.0, 82.0), mix(156.0, 112.0)],
+                Region::Oasis => [mix(97.0, 29.0), mix(160.0, 105.0), mix(142.0, 112.0)],
             };
             let point = |x, z| v(x, WATER_LEVEL, z);
             let a = point(x, z);
@@ -558,6 +573,9 @@ pub fn foam(columns: usize, lane: usize) -> Mesh {
 }
 
 pub fn islands(chapter: usize) -> Mesh {
+    if Region::of(chapter) == Region::Oasis {
+        return super::oasis::distant(chapter);
+    }
     if Region::of(chapter) == Region::Nordic {
         return super::nordic::distant(chapter);
     }

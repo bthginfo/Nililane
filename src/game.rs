@@ -5,7 +5,11 @@ use bevy::{
 };
 
 use crate::{
-    campaign::{CHAPTERS, JAPAN_START, NORDIC_START, REGION_SIZE, Region},
+    campaign::{
+        CHAPTERS, CORE_HARBORS, JAPAN_START, NORDIC_START, OASIS_START, REGION_SIZE, Region,
+        main_route_end, next_harbor,
+    },
+    caravan::Contract,
     coach::{self, Lesson, Prompt, Step},
     controls::{self, Controls, Direction},
     cosmetics::{Category, Cosmetic},
@@ -44,7 +48,6 @@ pub enum Panel {
     Wardrobe,
     Guide,
     Demolish,
-    Replace,
     Report,
 }
 
@@ -59,8 +62,8 @@ pub enum Action {
     Region(Region),
     ChartPage(bool),
     Sail,
-    ConfirmSail,
     NextChapter,
+    BonusHarbor,
     Back,
     Pause,
     Options,
@@ -100,6 +103,7 @@ pub enum Action {
     AidAt(usize),
     RingBell(usize),
     SendVoyage(usize, SailingRoute),
+    SendCaravan(usize, Contract),
     Nili,
     ChooseJob(Job),
     Dispatch,
@@ -189,6 +193,7 @@ pub struct Game {
     preview_rome: Town,
     preview_japan: Town,
     preview_nordic: Town,
+    preview_oasis: Town,
     checkpoint: f32,
     cue: Option<Cue>,
 }
@@ -264,6 +269,21 @@ impl Default for Game {
                 ..model::Building::new(kind)
             });
         }
+        let island = OASIS_START + 14;
+        let mut preview_oasis = Town::new(island, &CHAPTERS[island]);
+        for (lot, kind, level) in [
+            (0, OasisHome, 4),
+            (5, MoonGarden, 3),
+            (6, Perfumer, 2),
+            (8, Caravanserai, 5),
+            (10, OasisHome, 3),
+            (11, Glassworks, 4),
+        ] {
+            preview_oasis.lots[lot] = Some(model::Building {
+                level,
+                ..model::Building::new(kind)
+            });
+        }
         Self {
             view: View::Title,
             panel: Panel::None,
@@ -304,6 +324,7 @@ impl Default for Game {
             preview_rome,
             preview_japan,
             preview_nordic,
+            preview_oasis,
             checkpoint: 0.0,
             cue: None,
         }
@@ -350,6 +371,7 @@ impl Game {
             Region::Rome => &self.preview_rome,
             Region::Japan => &self.preview_japan,
             Region::Nordic => &self.preview_nordic,
+            Region::Oasis => &self.preview_oasis,
         }
     }
 
@@ -968,8 +990,12 @@ fn finish_day(game: &mut Game, save: &mut Campaign) {
     if let Some(town) = save.active_town()
         && let Phase::Report(report) = &town.phase
     {
-        let (chapter, day, stars, income) =
-            (town.chapter, town.day, report.stars, town.totals.income);
+        let (chapter, day, stars, income) = (
+            town.chapter,
+            town.day,
+            report.stars,
+            town.totals.income + town.totals.caravan_income,
+        );
         if stars > 0 {
             save.record(chapter, day, stars);
             save.record_income(chapter, income);
@@ -1025,8 +1051,10 @@ fn start(chapter: usize, tutorial: bool, game: &mut Game, save: &mut Campaign) {
         return;
     }
     let rule = &CHAPTERS[chapter];
-    let mut town = Town::new(chapter, rule);
-    let bonus = if tutorial {
+    let moored = (!tutorial).then(|| save.take_moored(chapter)).flatten();
+    let resuming = moored.is_some();
+    let mut town = moored.unwrap_or_else(|| Town::new(chapter, rule));
+    let bonus = if tutorial || resuming {
         0
     } else {
         save.travel_bonus(chapter)
@@ -1049,6 +1077,9 @@ fn start(chapter: usize, tutorial: bool, game: &mut Game, save: &mut Campaign) {
     game.checkpoint = 0.0;
     game.note_left = 0.0;
     game.transition(View::Street, Panel::Brief);
+    if resuming {
+        apply(Action::Resume, game, save);
+    }
     if bonus > 0 {
         game.message(
             format!("+{bonus} Startmünzen aus dem letzten Hafen"),
@@ -1152,8 +1183,8 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
         Action::ChartPage(next) => {
             let offset = Region::of(game.chart).start();
             let local = game.chart - offset;
-            game.chart = offset + if next { 12 } else { 0 };
-            if (local >= 12) != next {
+            game.chart = offset + if next { CORE_HARBORS } else { 0 };
+            if (local >= CORE_HARBORS) != next {
                 game.focus = Some(Action::Choose(game.chart));
                 game.dirty = true;
             } else {
@@ -1169,28 +1200,30 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                     && !matches!(&town.phase, Phase::Report(report) if report.stars > 0)
             }) {
                 apply(Action::Resume, game, save);
-            } else if save.town.as_ref().is_some_and(
-                |town| !matches!(&town.phase, Phase::Report(report) if report.stars > 0),
-            ) {
-                game.show(Panel::Replace);
             } else {
                 start(game.chart, false, game, save);
             }
         }
-        Action::ConfirmSail => start(game.chart, false, game, save),
         Action::NextChapter => {
             let Some(town) = save.active_town() else {
                 return;
             };
-            let next = town.chapter + 1;
             let tutorial = save.in_tutorial();
-            if tutorial && next == coach::ISLANDS {
+            if tutorial && town.chapter + 1 == coach::ISLANDS {
                 open_chart(game, save);
                 game.message("Tutorial abgeschlossen", Cue::Earned);
-            } else if next == CHAPTERS.len() {
-                open_chart(game, save);
-            } else {
+            } else if let Some(next) = next_harbor(town.chapter) {
                 start(next, tutorial, game, save);
+            } else {
+                open_chart(game, save);
+            }
+        }
+        Action::BonusHarbor => {
+            if !save.in_tutorial()
+                && let Some(town) = save.active_town()
+                && main_route_end(town.chapter)
+            {
+                start(town.chapter + 1, false, game, save);
             }
         }
         Action::Back => {
@@ -1428,6 +1461,27 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                 Err(reason) => game.message(reason.hint(), Cue::Blocked),
             }
         }
+        Action::SendCaravan(lot, contract) => {
+            let Some(town) = save.active_town_mut() else {
+                return;
+            };
+            let chapter = &CHAPTERS[town.chapter];
+            if !motion::can_inspect(town, lot, chapter.layout) {
+                return;
+            }
+            match town.send_caravan(chapter, lot, contract) {
+                Ok(pay) => {
+                    game.loading_cargo = Some((lot, game.clock));
+                    game.show(Panel::None);
+                    game.message(
+                        format!("Karawane aufgebrochen · +{pay} Dirham"),
+                        Cue::CastOff,
+                    );
+                    game.save(save);
+                }
+                Err(reason) => game.message(reason.label(), Cue::Blocked),
+            }
+        }
         Action::Nili => {
             game.job = None;
             game.show(if game.panel == Panel::Nili {
@@ -1656,6 +1710,11 @@ impl Track {
                 evening: true,
             }
             .asset(),
+            Self::Menu(Region::Oasis) => Self::Harbor {
+                chapter: OASIS_START,
+                evening: true,
+            }
+            .asset(),
             Self::Harbor { chapter, evening } => {
                 let suffix = if evening { "-abend" } else { "" };
                 let source = if cfg!(target_os = "android") {
@@ -1706,7 +1765,8 @@ pub fn audio(
     let track = if in_harbor {
         Track::Harbor {
             chapter: town.chapter,
-            evening: town.sky_phase(&CHAPTERS[town.chapter]) == 2,
+            evening: CHAPTERS[town.chapter].shift.night()
+                || town.sky_phase(&CHAPTERS[town.chapter]) == 2,
         }
     } else {
         Track::Menu(region)

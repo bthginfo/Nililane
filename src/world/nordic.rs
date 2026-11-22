@@ -2,7 +2,10 @@ use bevy::prelude::*;
 
 use crate::{campaign::NORDIC_START, model::Kind};
 
-use super::mesh::{Batch, Grain, Tint, shift, v};
+use super::{
+    architecture::{panel_roof, tank},
+    mesh::{Batch, Grain, Tint, shift, v},
+};
 
 const OAK: Tint = [99, 71, 52];
 const PINE: Tint = [151, 114, 76];
@@ -18,24 +21,28 @@ pub fn model(kind: Kind, level: u8) -> Mesh {
     let mut b = Batch::default();
     use Kind::*;
     match kind {
-        Longhouse => hall(&mut b, false),
-        FeastHall => hall(&mut b, true),
-        Fishery => fishery(&mut b),
-        Smokehouse => smoker(&mut b),
-        Woodlot => woodlot(&mut b),
-        Boatyard => yard(&mut b),
-        Weaver => weaver(&mut b),
-        Well => well(&mut b),
-        Storehouse => store(&mut b),
+        Sheepfold | Cooperage | SignalTower => {
+            super::market_buildings::nordic(&mut b, kind, level);
+            return b.mesh();
+        }
+        Longhouse => hall(&mut b, false, level),
+        FeastHall => hall(&mut b, true, level),
+        Fishery => fishery(&mut b, level),
+        Smokehouse => smoker(&mut b, level),
+        Woodlot => woodlot(&mut b, level),
+        Boatyard => yard(&mut b, level),
+        Weaver => weaver(&mut b, level),
+        Well => well(&mut b, level),
+        Storehouse => store(&mut b, level),
         _ => unreachable!("building unavailable in the Nordic campaign"),
     }
     for tier in 2..=level {
-        append_upgrade(&mut b, kind, tier);
+        append_upgrade(&mut b, kind, tier, level);
     }
     b.mesh()
 }
 
-fn wall(b: &mut Batch, center: Vec3, w: f32, height: f32, depth: f32, wood: Tint) {
+pub(super) fn wall(b: &mut Batch, center: Vec3, w: f32, height: f32, depth: f32, wood: Tint) {
     b.slab(center, v(w, height, depth), shift(wood, -12));
     let planks = (w / 0.16).ceil() as usize;
     for i in 0..planks {
@@ -122,7 +129,7 @@ fn turf(b: &mut Batch, at: Vec3, width: f32, depth: f32, rise: f32, color: Tint)
     );
 }
 
-fn shingle(b: &mut Batch, at: Vec3, half: f32, dept: f32, high: f32, color: Tint) {
+pub(super) fn shingle(b: &mut Batch, at: Vec3, half: f32, dept: f32, high: f32, color: Tint) {
     for side in [-1.0, 1.0] {
         for i in 0..9 {
             let x = half * (i as f32 / 4.5 - 1.0);
@@ -177,8 +184,9 @@ fn footing(b: &mut Batch, width: f32, depth: f32) {
     }
 }
 
-fn hall(b: &mut Batch, feast: bool) {
-    let roof_y = if feast { 1.47 } else { 1.18 };
+fn hall(b: &mut Batch, feast: bool, level: u8) {
+    let height = f32::from(level.saturating_sub(4)) * 0.18;
+    let roof_y = if feast { 1.47 } else { 1.18 } + height;
     let width = if feast { 2.70 } else { 2.48 };
     footing(b, width, 1.69);
     wall(
@@ -217,6 +225,12 @@ fn hall(b: &mut Batch, feast: bool) {
         0.110,
         OAK,
     );
+    if level >= 5 {
+        for x in [-0.67, 0.59] {
+            b.slab(v(x, roof_y - 0.14, 0.747), v(0.28, 0.187, 0.07), DARK);
+            b.slab(v(x, roof_y - 0.14, 0.794), v(0.198, 0.122, 0.028), GOLD);
+        }
+    }
     for x in [-0.74, 0.70] {
         b.slab(v(x, 0.752, 0.750), v(0.27, 0.26, 0.085), DARK);
         b.slab(v(x, 0.746, 0.807), v(0.194, 0.177, 0.036), GOLD);
@@ -242,7 +256,7 @@ fn hall(b: &mut Batch, feast: bool) {
     }
 }
 
-fn brooch(b: &mut Batch, p: Vec3, size: f32, color: Tint) {
+pub(super) fn brooch(b: &mut Batch, p: Vec3, size: f32, color: Tint) {
     b.block(
         p,
         v(size, size, size * 0.14),
@@ -259,8 +273,9 @@ fn brooch(b: &mut Batch, p: Vec3, size: f32, color: Tint) {
     );
 }
 
-fn fishery(b: &mut Batch) {
-    for x in [-1.09, 1.08] {
+fn fishery(b: &mut Batch, level: u8) {
+    let extension = f32::from(level >= 5) * 0.11;
+    for x in [-1.09, 1.08 + extension] {
         for z in [-0.76, 0.85] {
             b.slab(v(x, 0.24, z), v(0.14, 0.44, 0.14), OAK);
         }
@@ -330,26 +345,27 @@ fn drying_rack(b: &mut Batch, at: Vec3, s: f32, tint: Tint) {
     }
 }
 
-fn smoker(b: &mut Batch) {
+fn smoker(b: &mut Batch, level: u8) {
     footing(b, 2.35, 1.83);
     wall(b, v(-0.26, 0.87, -0.29), 1.74, 1.44, 1.17, shift(OAK, 3));
     shingle(b, v(-0.26, 1.53, -0.20), 1.07, 0.8, 0.58, [83, 89, 83]);
     b.slab(v(-0.36, 0.76, 0.354), v(0.70, 1.02, 0.104), DARK);
     b.slab(v(-0.36, 0.49, 0.422), v(0.52, 0.39, 0.075), [150, 84, 48]);
     b.slab(v(-0.36, 0.43, 0.476), v(0.38, 0.18, 0.025), [227, 127, 59]);
+    let stretch = if level >= 4 { 0.36 } else { 0.0 };
     b.slab(
-        v(-0.70, 1.77, -0.33),
-        v(0.35, 1.14, 0.37),
+        v(-0.70, 1.77 + stretch * 0.5, -0.33),
+        v(0.35, 1.14 + stretch, 0.37),
         shift(STONE, -28),
     );
-    for n in 0..5 {
+    for n in 0..if level >= 4 { 7 } else { 5 } {
         b.slab(
             v(-0.70, 1.52 + n as f32 * 0.18, -0.33),
             v(0.37, 0.028, 0.388),
             shift(STONE, -8 - n * 5),
         );
     }
-    b.slab(v(-0.70, 2.35, -0.33), v(0.43, 0.09, 0.43), DARK);
+    b.slab(v(-0.70, 2.35 + stretch, -0.33), v(0.43, 0.09, 0.43), DARK);
     drying_rack(b, v(0.35, 0.16, 0.89), 0.84, [191, 127, 80]);
 }
 
@@ -376,7 +392,7 @@ fn log(b: &mut Batch, at: Vec3, length: f32, radius: f32, bark: Tint) {
     );
 }
 
-fn woodlot(b: &mut Batch) {
+fn woodlot(b: &mut Batch, level: u8) {
     footing(b, 2.45, 1.87);
     for x in [-1.0, 0.05, 1.05] {
         b.beam(v(x, 0.09, -0.30), v(x, 1.04, -0.47), 0.10, OAK);
@@ -390,7 +406,7 @@ fn woodlot(b: &mut Batch) {
             shift(MOSS, (i * 13 % 25) as i16),
         );
     }
-    for n in 0..12 {
+    for n in 0..if level >= 5 { 14 } else { 12 } {
         let x = -0.91 + (n % 5) as f32 * 0.405 + (n / 5) as f32 * 0.09;
         let y = 0.264 + (n / 5) as f32 * 0.175;
         log(b, v(x, y, 0.26 - (n % 3) as f32 * 0.057), 1.30, 0.13, OAK);
@@ -460,19 +476,27 @@ fn skiff(b: &mut Batch, at: Vec3, length: f32, beam: f32, stripe: Tint) {
     }
 }
 
-fn yard(b: &mut Batch) {
-    footing(b, 2.68, 1.75);
+fn yard(b: &mut Batch, level: u8) {
+    let lift = if level >= 6 { 0.25 } else { 0.0 };
+    footing(b, 2.68, if level >= 5 { 2.08 } else { 1.75 });
     for x in [-1.13, 1.13] {
         for z in [-0.69, 0.58] {
-            b.slab(v(x, 0.82, z), v(0.14, 1.34, 0.15), OAK);
-            b.beam(v(x, 1.06, z), v(x * 0.74, 1.48, z), 0.086, PINE);
+            b.slab(v(x, 0.82 + lift * 0.5, z), v(0.14, 1.34 + lift, 0.15), OAK);
+            b.beam(v(x, 1.06, z), v(x * 0.74, 1.48 + lift, z), 0.086, PINE);
         }
-        b.slab(v(x, 1.48, -0.06), v(0.19, 0.14, 1.54), DARK);
+        b.slab(v(x, 1.48 + lift, -0.06), v(0.19, 0.14, 1.54), DARK);
     }
     for x in [-0.69, 0.69] {
         b.beam(v(x, 0.19, 1.33), v(x, 0.35, -0.64), 0.107, PINE);
     }
-    shingle(b, v(0.0, 1.49, -0.13), 1.34, 0.95, 0.69, [64, 95, 113]);
+    shingle(
+        b,
+        v(0.0, 1.49 + lift, -0.13),
+        1.34,
+        0.95,
+        0.69,
+        [64, 95, 113],
+    );
     skiff(b, v(0.0, 0.30, 0.37), 1.12, 0.58, [99, 136, 144]);
     b.beam(v(-0.76, 0.15, 1.06), v(-0.75, 0.68, 1.07), 0.060, PINE);
     b.beam(v(-0.75, 0.68, 1.07), v(0.70, 0.82, 0.85), 0.068, OAK);
@@ -520,10 +544,18 @@ fn weaving_rack(b: &mut Batch, at: Vec3, size: f32) {
     }
 }
 
-fn weaver(b: &mut Batch) {
+fn weaver(b: &mut Batch, level: u8) {
+    let lift = f32::from(level.saturating_sub(4)) * 0.24;
     footing(b, 2.36, 1.59);
-    wall(b, v(0.0, 0.822, -0.16), 2.14, 1.39, 1.40, [156, 124, 88]);
-    shingle(b, v(0.0, 1.52, -0.15), 1.23, 0.893, 0.60, BLUE);
+    wall(
+        b,
+        v(0.0, 0.822 + lift * 0.5, -0.16),
+        2.14,
+        1.39 + lift,
+        1.40,
+        [156, 124, 88],
+    );
+    shingle(b, v(0.0, 1.52 + lift, -0.15), 1.23, 0.893, 0.60, BLUE);
     b.slab(v(0.0, 0.77, 0.59), v(1.29, 0.70, 0.058), DARK);
     weaving_rack(b, v(0.0, 0.21, 0.86), 1.02);
     for x in [-0.85, 0.91] {
@@ -532,7 +564,7 @@ fn weaver(b: &mut Batch) {
     }
 }
 
-fn well(b: &mut Batch) {
+fn well(b: &mut Batch, level: u8) {
     footing(b, 1.96, 1.63);
     b.frustum(v(0.0, 0.171, 0.10), 0.56, 0.55, 0.39, 9, STONE);
     for n in 0..10 {
@@ -550,13 +582,21 @@ fn well(b: &mut Batch) {
     for x in [-0.69, 0.69] {
         b.beam(v(x, 0.14, -0.38), v(x, 1.38, -0.36), 0.125, OAK);
     }
-    turf(b, v(0.0, 1.27, -0.39), 0.89, 0.64, 0.41, shift(MOSS, -6));
+    turf(
+        b,
+        v(0.0, 1.27, -0.39),
+        if level >= 4 { 1.16 } else { 0.89 },
+        0.64,
+        0.41,
+        shift(MOSS, -6),
+    );
     b.beam(v(-0.74, 0.976, -0.30), v(0.78, 0.976, -0.30), 0.080, PINE);
     b.beam(v(0.21, 0.99, -0.30), v(0.23, 0.69, -0.28), 0.029, LINEN);
     b.frustum(v(0.23, 0.54, -0.28), 0.120, 0.157, 0.162, 9, OAK);
 }
 
-fn store(b: &mut Batch) {
+fn store(b: &mut Batch, level: u8) {
+    let lift = f32::from(level.saturating_sub(4)) * 0.22;
     for x in [-0.82, 0.82] {
         for z in [-0.64, 0.64] {
             b.slab(v(x, 0.28, z), v(0.16, 0.52, 0.16), OAK);
@@ -564,8 +604,22 @@ fn store(b: &mut Batch) {
         }
     }
     b.slab(v(0.0, 0.48, 0.0), v(2.02, 0.147, 1.50), PINE);
-    wall(b, v(0.0, 1.027, -0.10), 1.93, 1.05, 1.42, [104, 121, 121]);
-    shingle(b, v(0.0, 1.55, -0.11), 1.14, 0.95, 0.70, [103, 79, 66]);
+    wall(
+        b,
+        v(0.0, 1.027 + lift * 0.5, -0.10),
+        1.93,
+        1.05 + lift,
+        1.42,
+        [104, 121, 121],
+    );
+    shingle(
+        b,
+        v(0.0, 1.55 + lift, -0.11),
+        1.14,
+        0.95,
+        0.70,
+        [103, 79, 66],
+    );
     b.slab(v(0.0, 0.95, 0.645), v(0.65, 0.86, 0.082), OAK);
     for side in [-1.0, 1.0] {
         b.beam(
@@ -585,11 +639,12 @@ fn store(b: &mut Batch) {
     }
 }
 
-pub fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8) {
+fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8, level: u8) {
     use Kind::*;
     match kind {
         Fishery => match tier {
-            2 => drying_rack(b, v(0.62, 0.48, -0.43), 0.82, BLUE),
+            2 if level < 4 => drying_rack(b, v(0.62, 0.48, -0.43), 0.82, BLUE),
+            2 => {}
             3 => skiff(b, v(-0.45, 0.12, 1.02), 0.61, 0.29, RED),
             4 => shed(b, v(0.68, 0.42, -0.46), 0.55, 0.86, BLUE),
             5 => {
@@ -619,7 +674,12 @@ pub fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8) {
                     );
                 }
             }
-            3 => shed(b, v(-0.60, 0.13, -0.66), 0.61, 1.20, MOSS),
+            3 => {
+                for x in [-1.04, 0.12] {
+                    b.beam(v(x, 0.13, -0.91), v(x, 1.33, -0.91), 0.11, OAK);
+                }
+                panel_roof(b, v(-0.46, 1.38, -0.82), 1.30, 0.56, 0.17, MOSS);
+            }
             5 => wooden_rail(b, v(0.0, 0.13, 1.20), 2.50),
             _ => {
                 for x in [-1.12, 1.13] {
@@ -643,19 +703,21 @@ pub fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8) {
                 b.slab(v(0.20, 2.51, -0.568), v(0.38, 0.044, 0.020), GOLD);
             }
             5 => wooden_rail(b, v(0.0, 0.24, 1.24), 2.41),
-            _ => shingle(b, v(0.0, 2.15, -0.28), 0.71, 0.45, 0.31, BLUE),
+            _ => {
+                for x in [-1.20, 1.20] {
+                    b.beam(v(x, 1.61, 0.73), v(x * 0.67, 1.78, 0.62), 0.11, OAK);
+                }
+            }
         },
         Smokehouse => match tier {
             2 => drying_rack(b, v(0.89, 0.17, -0.52), 0.66, [192, 143, 84]),
             3 => shed(b, v(0.86, 0.15, -0.57), 0.50, 1.38, [91, 97, 86]),
-            4 => {
-                b.slab(v(-0.74, 2.33, -0.34), v(0.262, 0.52, 0.271), STONE);
-                b.slab(v(-0.74, 2.63, -0.34), v(0.38, 0.101, 0.40), OAK);
-            }
+            4 => {}
             5 => awning(b, [153, 97, 75], 1.10),
             _ => {
-                b.slab(v(0.55, 1.87, -0.18), v(0.28, 0.80, 0.29), shift(STONE, -23));
-                b.slab(v(0.55, 2.31, -0.17), v(0.36, 0.085, 0.35), DARK);
+                b.beam(v(0.83, 0.15, 0.88), v(0.83, 1.19, 0.88), 0.084, OAK);
+                b.beam(v(1.23, 0.15, 0.88), v(1.23, 1.19, 0.88), 0.061, OAK);
+                panel_roof(b, v(1.03, 1.22, 0.63), 0.50, 0.62, 0.15, [143, 91, 71]);
             }
         },
         Weaver => match tier {
@@ -663,9 +725,9 @@ pub fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8) {
             3 => awning(b, BLUE, 1.24),
             4 => shed(b, v(0.79, 0.13, -0.74), 0.59, 1.40, RED),
             5 => {
-                b.slab(v(0.0, 1.93, 0.27), v(0.72, 0.48, 0.56), LINEN);
-                b.slab(v(0.0, 1.96, 0.556), v(0.41, 0.22, 0.044), DARK);
-                shingle(b, v(0.0, 2.16, 0.23), 0.53, 0.44, 0.32, BLUE);
+                let y = 1.40 + f32::from(level.saturating_sub(4)) * 0.19;
+                b.slab(v(0.0, y, 0.57), v(0.61, 0.22, 0.05), LINEN);
+                b.slab(v(0.0, y, 0.606), v(0.47, 0.15, 0.036), BLUE);
             }
             _ => {
                 for (x, color) in [(-0.89, BLUE), (0.9, RED)] {
@@ -676,18 +738,19 @@ pub fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8) {
             }
         },
         Longhouse | FeastHall => match tier {
-            2 => wooden_rail(b, v(0.22, 0.119, 1.12), 1.87),
+            2 => {
+                super::upgrades::bench(b, v(-0.98, 0.15, 0.93), 0.69);
+                if kind == FeastHall {
+                    super::upgrades::bench(b, v(0.97, 0.15, 1.0), 0.63);
+                }
+            }
             3 => awning(b, if kind == FeastHall { RED } else { MOSS }, 1.06),
             4 => {
                 let x = if kind == FeastHall { 0.79 } else { 0.86 };
                 b.slab(v(x, 0.80, -0.62), v(0.64, 1.27, 0.84), PINE);
                 turf(b, v(x, 1.45, -0.58), 0.41, 0.59, 0.37, MOSS);
             }
-            5 => {
-                b.slab(v(0.04, 1.58, 0.47), v(0.64, 0.46, 0.43), PINE);
-                b.slab(v(0.04, 1.60, 0.697), v(0.26, 0.15, 0.041), GOLD);
-                shingle(b, v(0.04, 1.86, 0.43), 0.44, 0.39, 0.28, [138, 92, 60]);
-            }
+            5 => {}
             _ => {
                 for x in [-1.10, 1.10] {
                     b.beam(v(x, 0.06, 1.16), v(x, 1.80, 1.12), 0.089, DARK);
@@ -696,20 +759,34 @@ pub fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8) {
                 }
             }
         },
-        Storehouse | Well => match tier {
-            2 => wooden_rail(b, v(-0.04, 0.17, 1.11), 1.61),
-            3 => shed(b, v(0.8, 0.12, -0.64), 0.54, 1.02, MOSS),
+        Well => match tier {
+            2 => super::upgrades::bench(b, v(-0.65, 0.16, 0.89), 0.72),
+            3 => tank(b, v(0.50, 0.155, 0.82), 0.80, 0.50, 0.25, PINE, BLUE),
+            4 => {
+                for x in [-1.04, 1.04] {
+                    b.beam(v(x, 0.15, 0.02), v(x, 1.28, 0.02), 0.092, OAK);
+                }
+            }
+            5 => tank(b, v(-0.55, 0.155, 0.84), 0.71, 0.46, 0.22, PINE, BLUE),
+            _ => {
+                for x in [-1.04, 1.04] {
+                    brooch(b, v(x, 0.97, 0.092), 0.12, GOLD);
+                }
+            }
+        },
+        Storehouse => match tier {
+            2 => super::upgrades::bench(b, v(-0.81, 0.14, 0.91), 0.65),
+            3 => shed(b, v(0.80, 0.12, -0.64), 0.54, 1.02, MOSS),
             4 => awning(b, [101, 122, 117], 1.03),
             5 => {
-                let y = if kind == Storehouse { 2.12 } else { 1.60 };
-                b.slab(v(-0.33, y, -0.37), v(0.70, 0.51, 0.66), PINE);
-                b.slab(v(-0.33, y, -0.025), v(0.38, 0.17, 0.067), LINEN);
-                shingle(b, v(-0.33, y + 0.28, -0.37), 0.48, 0.47, 0.30, BLUE);
+                let y = 1.42 + f32::from(level.saturating_sub(4)) * 0.18;
+                b.slab(v(0.0, y, 0.635), v(0.57, 0.21, 0.052), DARK);
+                b.slab(v(0.0, y, 0.675), v(0.45, 0.15, 0.032), LINEN);
             }
             _ => {
-                for x in [-0.91, 0.91] {
+                for x in [-1.07, 1.07] {
                     b.slab(v(x, 0.56, 1.10), v(0.096, 0.93, 0.097), OAK);
-                    b.gem(v(x, 1.03, 1.13), 0.13, 0.16, 0.13, 0.3, GOLD);
+                    brooch(b, v(x, 1.03, 1.16), 0.13, GOLD);
                 }
             }
         },
@@ -717,7 +794,7 @@ pub fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8) {
     }
 }
 
-fn wooden_rail(b: &mut Batch, at: Vec3, width: f32) {
+pub(super) fn wooden_rail(b: &mut Batch, at: Vec3, width: f32) {
     for x in [-0.5, -0.21, 0.21, 0.5] {
         b.beam(
             at + v(x * width, 0.0, 0.0),
@@ -734,12 +811,12 @@ fn wooden_rail(b: &mut Batch, at: Vec3, width: f32) {
     );
 }
 
-fn shed(b: &mut Batch, at: Vec3, half: f32, h: f32, color: Tint) {
+pub(super) fn shed(b: &mut Batch, at: Vec3, half: f32, h: f32, color: Tint) {
     wall(b, at + Vec3::Y * h * 0.52, half * 1.67, h, 0.43, PINE);
     shingle(b, at + Vec3::Y * h, half, 0.37, 0.27, color);
 }
 
-fn awning(b: &mut Batch, color: Tint, y: f32) {
+pub(super) fn awning(b: &mut Batch, color: Tint, y: f32) {
     for x in [-1.09, 1.09] {
         b.beam(v(x, 0.16, 1.25), v(x, y, 1.25), 0.099, PINE);
     }

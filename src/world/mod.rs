@@ -1,13 +1,16 @@
 mod actors;
+mod architecture;
 mod buildings;
 mod clothes;
 mod construction;
 mod japan;
 mod landscape;
-mod late_upgrades;
+mod lanterns;
+mod market_buildings;
 mod mesh;
 pub(crate) mod motion;
 mod nordic;
+mod oasis;
 mod pets;
 pub use clothes::dress as dress_nili;
 pub(crate) use motion::stop as route_position;
@@ -25,7 +28,10 @@ use bevy::{
     core_pipeline::tonemapping::Tonemapping,
     pbr::{CascadeShadowConfigBuilder, DirectionalLightShadowMap},
     prelude::*,
-    render::{camera::ScalingMode, mesh::skinning::SkinnedMeshInverseBindposes},
+    render::{
+        camera::ScalingMode,
+        mesh::{MeshAabb, skinning::SkinnedMeshInverseBindposes},
+    },
     window::PrimaryWindow,
 };
 
@@ -95,14 +101,15 @@ pub struct Art {
     matte: Handle<StandardMaterial>,
     sea: Handle<StandardMaterial>,
     water: Handle<StandardMaterial>,
-    sea_mix: Option<(Weather, Weather, f32)>,
+    sea_mix: Option<(Weather, Weather, f32, bool)>,
     gold: Handle<StandardMaterial>,
-    kinds: HashMap<(Region, Kind, u8), Handle<Mesh>>,
-    additions: HashMap<(Region, Kind, u8, u8), Handle<Mesh>>,
+    kinds: HashMap<(Region, Kind, u8), (Handle<Mesh>, f32)>,
     work: Parts,
     hulls: [[Handle<Mesh>; 3]; Region::ALL.len()],
     sails: [[Handle<Mesh>; 3]; Region::ALL.len()],
     temple_bell: Handle<Mesh>,
+    doorway: [Handle<Mesh>; Region::ALL.len()],
+    lantern_material: Handle<StandardMaterial>,
     house: Handle<Scene>,
     store: Handle<Scene>,
     tower: Handle<Scene>,
@@ -110,6 +117,14 @@ pub struct Art {
     stone: Handle<Scene>,
     chapter: Option<usize>,
     world_version: Option<u32>,
+}
+
+impl Art {
+    pub(crate) fn roof_height(&self, region: Region, kind: Kind, level: u8) -> f32 {
+        self.kinds
+            .get(&(region, kind, level))
+            .map_or(2.10, |(_, height)| *height)
+    }
 }
 
 pub fn setup(
@@ -200,8 +215,12 @@ pub fn setup(
         hulls,
         sails,
         temple_bell: meshes.add(japan::bell()),
+        doorway: Region::ALL.map(|region| meshes.add(lanterns::doorway(region))),
+        lantern_material: materials.add(StandardMaterial {
+            unlit: true,
+            ..default()
+        }),
         kinds: HashMap::new(),
-        additions: HashMap::new(),
         work: Parts::prepare(&mut meshes, &mut materials),
         house: scene("embedded://models/villages/aegean.glb", 0),
         store: scene("embedded://models/villages/aegean.glb", 1),
@@ -345,8 +364,15 @@ pub fn sync(
     } else {
         (Weather::Clear, Weather::Clear, 1.0)
     };
-    if art.sea_mix != Some(weather) {
-        art.sea_mix = Some(weather);
+    let night = ch.shift.night();
+    let sea_mix = (
+        weather.0,
+        weather.1,
+        weather.2,
+        night && game.panel != Panel::Wardrobe,
+    );
+    if art.sea_mix != Some(sea_mix) {
+        art.sea_mix = Some(sea_mix);
         if let Some(material) = materials.get_mut(&art.water) {
             let tint = |weather| match weather {
                 Weather::Storm => v(0.56, 0.71, 0.87),
@@ -356,8 +382,20 @@ pub fn sync(
                 Weather::Heat => v(0.97, 1.0, 0.86),
                 _ => Vec3::ONE,
             };
-            let [r, g, b] = tint(weather.0).lerp(tint(weather.1), weather.2).to_array();
+            let moon = if sea_mix.3 {
+                v(0.46, 0.62, 0.80)
+            } else {
+                Vec3::ONE
+            };
+            let [r, g, b] = (tint(weather.0).lerp(tint(weather.1), weather.2) * moon).to_array();
             material.base_color = Color::srgb(r, g, b);
+        }
+        if let Some(material) = materials.get_mut(&art.sea) {
+            material.base_color = if sea_mix.3 {
+                Color::srgb(0.48, 0.62, 0.79)
+            } else {
+                Color::WHITE
+            };
         }
     }
     if art.chapter != Some(town.chapter) {
@@ -400,6 +438,16 @@ pub fn sync(
                     Transform::default(),
                     bevy::pbr::NotShadowCaster,
                 ));
+            }
+            if night {
+                lanterns::place(
+                    parent,
+                    &mut meshes,
+                    &mut materials,
+                    &art.matte,
+                    ch.layout,
+                    region,
+                );
             }
             if region == Region::Greece {
                 let bank = cols as f32 * LOT_STEP * 0.5;
@@ -444,67 +492,54 @@ pub fn sync(
                     let Some(building) = building else { continue };
                     let at = lot_position(i, cols);
                     let work = game.work[i].filter(|_| game.view == View::Street);
-                    let before = work.map_or(building.level, |work| work.from);
                     let kind = building.kind;
-                    if before > 0 {
-                        let mesh = building_mesh(&mut art, &mut meshes, region, kind, before);
-                        parent.spawn((
-                            Mesh3d(mesh),
-                            MeshMaterial3d(art.matte.clone()),
-                            Transform::from_translation(at),
-                        ));
-                        if kind == Kind::Temple {
-                            parent.spawn((
-                                TempleBell(i),
-                                Mesh3d(art.temple_bell.clone()),
-                                MeshMaterial3d(art.matte.clone()),
-                                Transform::from_translation(at + japan::BELL_HOOK),
-                            ));
+                    let prior = work.map_or(0, |site| site.from);
+                    for (level, part) in [(prior, Part::Prior), (building.level, Part::Structure)] {
+                        if level == 0 {
+                            continue;
                         }
-                    }
-                    if let Some(work) = work {
-                        let mesh = if before == 0 {
-                            building_mesh(&mut art, &mut meshes, region, kind, building.level)
-                        } else {
-                            art.additions
-                                .entry((region, kind, before, building.level))
-                                .or_insert_with(|| {
-                                    meshes.add(construction::addition(
-                                        region,
-                                        kind,
-                                        before,
-                                        building.level,
-                                    ))
-                                })
-                                .clone()
-                        };
-                        parent.spawn((
+                        let mesh = building_mesh(&mut art, &mut meshes, region, kind, level);
+                        let hidden = work.is_some() && matches!(part, Part::Structure);
+                        let mut model = parent.spawn((
                             Mesh3d(mesh),
                             MeshMaterial3d(art.matte.clone()),
                             Transform::from_translation(at),
-                            Assembly {
-                                at,
-                                work,
-                                rest: 1.0,
-                                part: Part::Structure,
+                            if hidden {
+                                Visibility::Hidden
+                            } else {
+                                Visibility::Inherited
                             },
                         ));
-                        art.work.spawn(parent, at, work, &art.matte);
-                    }
-                    if kind == Kind::House && region == Region::Greece {
-                        let at = at + v(0.0, 0.0, -0.24);
-                        let mut shell = parent.spawn((
-                            SceneRoot(art.house.clone()),
-                            Transform::from_translation(at).with_scale(Vec3::splat(0.765)),
-                        ));
-                        if let Some(work) = work.filter(|w| w.from == 0) {
-                            shell.insert(Assembly {
-                                at,
-                                work,
-                                rest: 0.765,
-                                part: Part::Structure,
-                            });
+                        if let Some(work) = work {
+                            model.insert(Assembly { at, work, part });
                         }
+                        model.with_children(|model| {
+                            if night {
+                                model.spawn((
+                                    Mesh3d(art.doorway[region as usize].clone()),
+                                    MeshMaterial3d(art.lantern_material.clone()),
+                                    Transform::from_xyz(1.14, 0.064, 1.13),
+                                    bevy::pbr::NotShadowCaster,
+                                ));
+                            }
+                            if kind == Kind::Temple {
+                                model.spawn((
+                                    TempleBell(i),
+                                    Mesh3d(art.temple_bell.clone()),
+                                    MeshMaterial3d(art.matte.clone()),
+                                    Transform::from_translation(japan::BELL_HOOK),
+                                ));
+                            }
+                            if kind == Kind::House && region == Region::Greece {
+                                model.spawn((
+                                    SceneRoot(art.house.clone()),
+                                    buildings::house_transform(level),
+                                ));
+                            }
+                        });
+                    }
+                    if let Some(work) = work {
+                        art.work.spawn(parent, at, work, &art.matte);
                     }
                 }
             });
@@ -522,14 +557,28 @@ fn building_mesh(
     art.kinds
         .entry((region, kind, level))
         .or_insert_with(|| {
-            meshes.add(match region {
-                Region::Greece => buildings::model(kind, level),
-                Region::Rome => roman::model(kind, level),
-                Region::Japan => japan::model(kind, level),
-                Region::Nordic => nordic::model(kind, level),
-            })
+            let mesh = model(region, kind, level);
+            let mut height = mesh
+                .compute_aabb()
+                .map_or(1.5, |bounds| bounds.center.y + bounds.half_extents.y);
+            if region == Region::Greece && kind == Kind::House {
+                let base = buildings::house_transform(level);
+                height = height.max(base.translation.y + 2.944 * base.scale.y);
+            }
+            (meshes.add(mesh), height)
         })
+        .0
         .clone()
+}
+
+fn model(region: Region, kind: Kind, level: u8) -> Mesh {
+    match region {
+        Region::Greece => buildings::model(kind, level),
+        Region::Rome => roman::model(kind, level),
+        Region::Japan => japan::model(kind, level),
+        Region::Nordic => nordic::model(kind, level),
+        Region::Oasis => oasis::model(kind, level),
+    }
 }
 
 pub use construction::animate as animate_construction;
@@ -582,6 +631,7 @@ pub fn animate(
     window: Single<&Window, With<PrimaryWindow>>,
     time: Res<Time>,
     mut ambient: ResMut<AmbientLight>,
+    mut background: ResMut<ClearColor>,
     mut rigs: ParamSet<(
         CameraRig,
         Query<(&mut Transform, &mut DirectionalLight), With<Sun>>,
@@ -600,6 +650,7 @@ pub fn animate(
     let t = game.clock;
     let playing = game.view == View::Street;
     let wardrobe = game.panel == Panel::Wardrobe;
+    let night = chapter.shift.night() && !wardrobe;
     let showcase = v(quay + 0.08, 0.137, 4.70);
     let lives = if let Phase::Open(day) = &town.phase {
         Some(day)
@@ -612,7 +663,7 @@ pub fn animate(
         Phase::Open(day) => 0.13 + (day.seconds / chapter.day_seconds()) * 0.74,
         Phase::Report(_) => 0.87,
     };
-    let sunset = if wardrobe {
+    let sunset = if wardrobe || night {
         0.0
     } else if playing {
         ((clock - 0.61) * 3.65).clamp(0.0, 1.0)
@@ -698,10 +749,34 @@ pub fn animate(
             -1.01 + clock * 0.39,
             0.0,
         );
-        sun.color = Color::srgb(1.0, 0.94 - sunset * 0.19, 0.83 - sunset * 0.25);
-        sun.illuminance = (12_400.0 - sunset * 4_500.0) * bright;
+        if night {
+            let first_light = ((clock - 0.71) * 4.2).clamp(0.0, 0.67);
+            sun.color = Color::srgb(0.57 + first_light * 0.33, 0.71 + first_light * 0.16, 1.0);
+            sun.illuminance = (2_850.0 + first_light * 2_350.0) * (0.62 + bright * 0.38);
+        } else {
+            sun.color = Color::srgb(1.0, 0.94 - sunset * 0.19, 0.83 - sunset * 0.25);
+            sun.illuminance = (12_400.0 - sunset * 4_500.0) * bright;
+        }
     }
-    ambient.brightness = (510.0 - sunset * 146.0) * (0.49 + bright * 0.51);
+    let exposure = 0.49 + bright * 0.51;
+    ambient.color = if night {
+        Color::srgb(0.68, 0.78, 1.0)
+    } else {
+        Color::srgb_u8(231, 230, 252)
+    };
+    let backdrop = if night {
+        Color::srgb_u8(44, 63, 92)
+    } else {
+        Color::srgb_u8(119, 176, 178)
+    };
+    if background.0 != backdrop {
+        background.0 = backdrop;
+    }
+    ambient.brightness = if night {
+        405.0 * exposure
+    } else {
+        (510.0 - sunset * 146.0) * exposure
+    };
     let cursor = if town.planning() || game.job.is_some() {
         Some(game.selected)
     } else {
@@ -964,4 +1039,47 @@ pub fn pick(
         })
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .map(|(lot, _)| lot)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::MAX_LEVEL;
+    use bevy::render::mesh::VertexAttributeValues;
+
+    #[test]
+    fn every_regional_building_has_six_distinct_models_that_fit_its_plot() {
+        for region in Region::ALL {
+            for kind in Kind::ALL.into_iter().filter(|kind| {
+                CHAPTERS
+                    .iter()
+                    .any(|chapter| chapter.region == region && chapter.allowed().contains(kind))
+            }) {
+                let mut previous = None;
+                for level in 1..=MAX_LEVEL {
+                    let mesh = model(region, kind, level);
+                    let extent = mesh.compute_aabb().unwrap();
+                    let tag = (region, kind, level);
+                    assert!(
+                        (extent.center.x.abs() + extent.half_extents.x) <= LOT_STEP / 2.0 + 0.05,
+                        "{tag:?}"
+                    );
+                    assert!(
+                        extent.center.z.abs() + extent.half_extents.z < 1.56,
+                        "{tag:?}"
+                    );
+                    assert!(extent.center.y + extent.half_extents.y < 3.80, "{tag:?}");
+                    let Some(VertexAttributeValues::Float32x3(vertices)) =
+                        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                    else {
+                        panic!("Missing model positions for {tag:?}");
+                    };
+                    assert!(vertices.iter().flatten().all(|n| n.is_finite()), "{tag:?}");
+                    assert_ne!(previous.as_ref(), Some(vertices), "{tag:?}");
+                    previous = Some(vertices.clone());
+                }
+            }
+            assert!(lanterns::doorway(region).count_vertices() > 0);
+        }
+    }
 }

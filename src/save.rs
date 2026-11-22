@@ -4,7 +4,7 @@ use bevy::prelude::Resource;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    campaign::CHAPTERS,
+    campaign::{CHAPTERS, previous_harbor},
     coach::ISLANDS,
     cosmetics::{Cosmetic, Wardrobe},
     model::{MAX_LEVEL, Origin, Phase, Town, is_open},
@@ -25,6 +25,8 @@ pub struct Campaign {
     version: u32,
     pub records: Vec<Record>,
     pub town: Option<Town>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    moored: Vec<Town>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tutorial: Option<Town>,
     pub music: bool,
@@ -40,6 +42,7 @@ impl Default for Campaign {
             version: VERSION,
             records: vec![Record::default(); CHAPTERS.len()],
             town: None,
+            moored: Vec::new(),
             tutorial: None,
             music: true,
             sounds: true,
@@ -92,7 +95,21 @@ impl Campaign {
                 }
             }
         }
-        for town in progress.town.iter_mut().chain(&mut progress.tutorial) {
+        let current = progress.town.as_ref().map(|town| town.chapter);
+        let mut seen = [false; crate::campaign::CHAPTER_COUNT];
+        progress.moored.retain(|town| {
+            if Some(town.chapter) == current || !valid_town(town) || seen[town.chapter] {
+                return false;
+            }
+            seen[town.chapter] = true;
+            true
+        });
+        for town in progress
+            .town
+            .iter_mut()
+            .chain(&mut progress.tutorial)
+            .chain(&mut progress.moored)
+        {
             let chapter = town.chapter;
             let adjust = |visits: &mut [crate::model::Visit]| {
                 for (index, visit) in visits.iter_mut().enumerate() {
@@ -104,6 +121,9 @@ impl Campaign {
             };
             if let Phase::Open(day) = &mut town.phase {
                 adjust(&mut day.visits);
+                if day.supplied.is_none() {
+                    day.supplied = Some(std::array::from_fn(|lot| day.stock_capacity(lot)));
+                }
             }
             adjust(&mut town.last_visits);
         }
@@ -127,7 +147,16 @@ impl Campaign {
     }
 
     pub fn unlocked(&self, chapter: usize) -> bool {
-        chapter < CHAPTERS.len() && (chapter == 0 || self.records[chapter - 1].stars > 0)
+        let cleared = |index| {
+            self.records
+                .get(index)
+                .is_some_and(|record: &Record| record.stars > 0)
+        };
+        chapter < CHAPTERS.len()
+            && (chapter == 0
+                || cleared(chapter)
+                || previous_harbor(chapter).is_some_and(cleared)
+                || chapter.checked_sub(1).is_some_and(cleared))
     }
 
     pub fn active_town(&self) -> Option<&Town> {
@@ -147,8 +176,30 @@ impl Campaign {
             self.tutorial = Some(town);
         } else {
             self.tutorial = None;
-            self.town = Some(town);
+            let chapter = town.chapter;
+            if let Some(prior) = self.town.replace(town)
+                && prior.chapter != chapter
+                && !matches!(&prior.phase, Phase::Report(result) if result.stars > 0)
+            {
+                self.moored.retain(|town| town.chapter != prior.chapter);
+                self.moored.push(prior);
+            }
         }
+    }
+
+    pub fn in_progress(&self, chapter: usize) -> bool {
+        self.town.as_ref().is_some_and(|town| {
+            town.chapter == chapter
+                && !matches!(&town.phase, Phase::Report(result) if result.stars > 0)
+        }) || self.moored.iter().any(|town| town.chapter == chapter)
+    }
+
+    pub fn take_moored(&mut self, chapter: usize) -> Option<Town> {
+        let index = self
+            .moored
+            .iter()
+            .position(|town| town.chapter == chapter)?;
+        Some(self.moored.swap_remove(index))
     }
 
     pub fn leave_tutorial(&mut self) -> bool {
@@ -174,10 +225,14 @@ impl Campaign {
     }
 
     pub fn travel_bonus(&self, next: usize) -> u32 {
-        next.checked_sub(1)
-            .and_then(|prior| self.records.get(prior))
+        [previous_harbor(next), next.checked_sub(1)]
+            .into_iter()
+            .flatten()
+            .filter_map(|prior| self.records.get(prior))
             .filter(|record| record.stars > 0)
-            .map_or(0, |record| travel_bonus(next, record.best_income))
+            .map(|record| travel_bonus(next, record.best_income))
+            .max()
+            .unwrap_or(0)
     }
 
     pub fn available_stars(&self) -> u16 {
@@ -206,6 +261,55 @@ impl Campaign {
 mod japan_progress_tests {
     use super::*;
     use crate::campaign::{JAPAN_START, NORDIC_START};
+
+    #[test]
+    fn finishing_twelve_harbors_opens_the_next_region_and_the_bonus_route() {
+        use crate::campaign::{CORE_HARBORS, REGION_SIZE, Region, next_harbor};
+        let mut save = Campaign::default();
+        for region in Region::ALL {
+            let start = region.start();
+            let last = start + CORE_HARBORS - 1;
+            assert!(!save.unlocked(last + 1));
+            let onward = next_harbor(last);
+            assert_eq!(
+                onward,
+                (region != Region::Oasis).then_some(start + REGION_SIZE)
+            );
+            assert!(onward.is_none_or(|index| !save.unlocked(index)));
+            for chapter in start..=last {
+                assert!(save.unlocked(chapter));
+                save.record(chapter, 8, 1);
+            }
+            save.record_income(last, 1450);
+            assert!(save.unlocked(last + 1));
+            assert!(!save.unlocked(last + 2));
+            if let Some(index) = onward {
+                assert!(save.unlocked(index));
+                assert!(save.travel_bonus(index) > 0);
+            }
+            assert_eq!(next_harbor(start + REGION_SIZE - 1), None);
+        }
+    }
+
+    #[test]
+    fn switching_routes_keeps_an_unfinished_harbor_and_market_after_reloading() {
+        use crate::campaign::{CORE_HARBORS, REGION_SIZE};
+        let mut save = Campaign::default();
+        save.record(CORE_HARBORS - 1, 8, 1);
+        let bonus = CORE_HARBORS;
+        let mut rome = Town::new(REGION_SIZE, &CHAPTERS[REGION_SIZE]);
+        assert!(rome.open(&CHAPTERS[REGION_SIZE]));
+        rome.tick(&CHAPTERS[REGION_SIZE], 15.0);
+        save.enter_town(rome, false);
+        save.enter_town(Town::new(bonus, &CHAPTERS[bonus]), false);
+        assert!(save.in_progress(REGION_SIZE));
+        let bytes = serde_json::to_vec(&save).unwrap();
+        let mut resumed = Campaign::decode(bytes.as_slice()).unwrap();
+        let town = resumed.take_moored(REGION_SIZE).unwrap();
+        assert!(matches!(&town.phase, Phase::Open(day) if day.seconds == 15.0));
+        resumed.enter_town(town, false);
+        assert!(resumed.in_progress(bonus));
+    }
 
     #[test]
     fn an_old_campaign_opens_japan_after_rome_and_keeps_outfits_locked_until_their_islands() {

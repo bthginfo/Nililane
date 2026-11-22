@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    campaign::{Goal, REGION_SIZE, Region},
+    campaign::{CORE_HARBORS, Goal, REGION_SIZE, Region, previous_harbor},
     coach,
     layout::{lot_col, lot_row},
     model::Town,
@@ -161,8 +161,8 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
     let ch = &CHAPTERS[game.chart];
     let region = Region::of(game.chart);
     let offset = region.start();
-    let second = game.chart - offset >= 12;
-    let start = offset + if second { 12 } else { 0 };
+    let second = game.chart - offset >= CORE_HARBORS;
+    let start = offset + if second { CORE_HARBORS } else { 0 };
     let mut node = frame_node(Val::Percent(95.0), 10.0, 19.0);
     node.max_width = Val::Px(1190.0);
     dark_scrim(p).with_children(|cover| {
@@ -176,7 +176,12 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
                     icon(left, hud, "chart", 47.0);
                     label(left, hud, "Die Hafenreisen", 41.0, Face::Serif, SAND);
                 });
-                let completed = save.records[offset..offset + REGION_SIZE]
+                let page_size = if second {
+                    REGION_SIZE - CORE_HARBORS
+                } else {
+                    CORE_HARBORS
+                };
+                let completed = save.records[start..start + page_size]
                     .iter()
                     .filter(|r| r.stars > 0)
                     .count();
@@ -184,7 +189,7 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
                     label(
                         info,
                         hud,
-                        format!("{completed} von {REGION_SIZE} Häfen"),
+                        format!("{completed} von {page_size} Häfen"),
                         18.0,
                         Face::Bold,
                         GOLD,
@@ -230,7 +235,7 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
                         pages,
                         hud,
                         Action::ChartPage(false),
-                        "Häfen 1–12",
+                        "Hauptreise",
                         "",
                         "LB",
                         if !second {
@@ -244,8 +249,8 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
                         pages,
                         hud,
                         Action::ChartPage(true),
-                        "Häfen 13–24",
-                        "",
+                        "Bonusroute",
+                        "star",
                         "RB",
                         if second {
                             Style::Selected
@@ -318,14 +323,19 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
                     ..column(2.0)
                 })
                 .with_children(|caption| {
-                    label(
-                        caption,
-                        hud,
-                        format!("{}  ·  {}", ch.district, ch.difficulty),
-                        15.0,
-                        Face::Bold,
-                        GOLD,
-                    );
+                    caption.spawn(row(5.0)).with_children(|row| {
+                        if ch.shift.night() {
+                            icon(row, hud, "moon", 21.0);
+                        }
+                        label(
+                            row,
+                            hud,
+                            format!("{}  ·  {}", ch.district, ch.difficulty),
+                            15.0,
+                            Face::Bold,
+                            GOLD,
+                        );
+                    });
                     label(caption, hud, ch.name, 27.0, Face::Serif, SAND);
                     label(
                         caption,
@@ -363,11 +373,16 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
                     }
                 });
                 let message = if save.unlocked(game.chart) {
-                    ch.greeting.to_owned()
+                    format!(
+                        "{} · {} von {}",
+                        ch.greeting,
+                        game.chart - start + 1,
+                        CORE_HARBORS
+                    )
                 } else {
                     format!(
                         "Schließe {} ab, um diesen Hafen freizuschalten.",
-                        CHAPTERS[game.chart - 1].district
+                        CHAPTERS[previous_harbor(game.chart).unwrap_or(0)].district
                     )
                 };
                 label(info, hud, message, 17.0, Face::Body, MUTED);
@@ -398,10 +413,7 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
                     Style::Quiet,
                     false,
                 );
-                let continuing = save.town.as_ref().is_some_and(|t| {
-                    t.chapter == game.chart
-                        && !matches!(t.phase, Phase::Report(ref r) if r.stars > 0)
-                });
+                let continuing = save.in_progress(game.chart);
                 button(
                     actions,
                     hud,
@@ -451,9 +463,17 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
                         "Tag {}  ·  {}",
                         town.day,
                         if town.planning() {
-                            "Planen"
+                            if ch.shift.night() {
+                                "Nacht vorbereiten"
+                            } else {
+                                "Planen"
+                            }
                         } else {
-                            "Der Tag läuft"
+                            if ch.shift.night() {
+                                "Nachtbetrieb"
+                            } else {
+                                "Der Tag läuft"
+                            }
                         }
                     ),
                     15.0,
@@ -478,17 +498,30 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
                     ..default()
                 })
                 .insert(BackgroundColor(LINE));
-            icon(summary, hud, weather_icon(weather), 30.0);
+            icon(
+                summary,
+                hud,
+                if ch.shift.night() {
+                    "moon"
+                } else {
+                    weather_icon(weather)
+                },
+                30.0,
+            );
             summary.spawn(column(0.0)).with_children(|sky| {
-                label(sky, hud, weather.name(), 17.0, Face::Bold, SAND);
                 label(
                     sky,
                     hud,
-                    format!("{} · {} Plätze", ch.layout.shore.name(), ch.layout.count()),
-                    14.0,
-                    Face::Body,
-                    MUTED,
+                    if ch.shift.night() && weather == Weather::Clear {
+                        "Klare Nacht"
+                    } else {
+                        weather.name()
+                    },
+                    17.0,
+                    Face::Bold,
+                    SAND,
                 );
+                label(sky, hud, ch.shift.hours(), 14.0, Face::Body, MUTED);
             });
         });
         if matches!(town.phase, Phase::Open(_)) {
@@ -500,7 +533,7 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
                 .with_children(|r| {
                     r.spawn((
                         Dynamic::Clock,
-                        Text::new("07:00"),
+                        Text::new(ch.shift.clock(0.0)),
                         TextColor(GOLD),
                         TextFont {
                             font: hud.fonts[1].clone(),
@@ -770,7 +803,11 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
                             actions,
                             hud,
                             Action::Open,
-                            "Tag starten",
+                            if ch.shift.night() {
+                                "Nacht starten"
+                            } else {
+                                "Tag starten"
+                            },
                             "sun",
                             "Y",
                             if step.is_none() {
@@ -901,11 +938,14 @@ pub fn goal(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, goal: Goal) {
                     Goal::Bell(_) => "temple_bell",
                     Goal::Catch(_) => "fishery",
                     Goal::Voyages(_) => "sea_trade",
-                    Goal::CargoIncome(_) => "coin",
+                    Goal::CargoIncome(_) | Goal::CaravanIncome(_) => "coin",
+                    Goal::Caravans(_) | Goal::SpiceRoutes(_) => "caravan",
                     Goal::Route(job, _) => job.icon(),
                     Goal::RouteVariety(_) => "nili",
                     Goal::FerryDay(_) => "ferry",
                     Goal::GoodDay(_) => "mood",
+                    Goal::Specials(_) => "star",
+                    Goal::Residents(_) => "house",
                 };
                 row.spawn(row_node()).with_children(|line| {
                     line.spawn((
@@ -924,6 +964,11 @@ pub fn goal(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, goal: Goal) {
                 row.spawn((
                     Dynamic::Goal(goal),
                     Text::new(format!("{} / {need}", have.min(need))),
+                    TextLayout::new_with_no_wrap(),
+                    Node {
+                        flex_shrink: 0.0,
+                        ..default()
+                    },
                     TextFont {
                         font: hud.fonts[1].clone(),
                         font_size: 16.0,

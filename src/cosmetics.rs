@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::campaign::{JAPAN_START, NORDIC_START, Region};
+use crate::campaign::{JAPAN_START, NORDIC_START, OASIS_START, Region};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Category {
@@ -72,10 +72,13 @@ pub enum Cosmetic {
     BraidBand,
     AmberBrooch,
     WovenBag,
+    LapisRobe,
+    DuneWrap,
+    GlassPendant,
 }
 
 impl Cosmetic {
-    pub const ALL: [Self; 40] = [
+    pub const ALL: [Self; 43] = [
         Self::Sea,
         Self::Saffron,
         Self::Toga,
@@ -116,6 +119,9 @@ impl Cosmetic {
         Self::BraidBand,
         Self::AmberBrooch,
         Self::WovenBag,
+        Self::LapisRobe,
+        Self::DuneWrap,
+        Self::GlassPendant,
     ];
 
     pub fn name(self) -> &'static str {
@@ -160,6 +166,9 @@ impl Cosmetic {
             "Flechtband",
             "Bernsteinfibel",
             "Webtasche",
+            "Lapisgewand",
+            "Dünentuch",
+            "Glasanhänger",
         ][self as usize]
     }
 
@@ -205,13 +214,16 @@ impl Cosmetic {
             "wear_braid",
             "wear_amber_brooch",
             "wear_woven_bag",
+            "wear_lapis",
+            "wear_dune_wrap",
+            "wear_glass_pendant",
         ][self as usize]
     }
 
     pub fn cost(self) -> u16 {
         [
             3, 6, 16, 4, 12, 9, 4, 5, 5, 6, 7, 4, 5, 8, 6, 3, 4, 3, 6, 4, 4, 5, 5, 6, 4, 6, 8, 4,
-            6, 7, 5, 7, 4, 6, 8, 4, 6, 6, 5, 7,
+            6, 7, 5, 7, 4, 6, 8, 4, 6, 6, 5, 7, 5, 6, 8,
         ][self as usize]
     }
 
@@ -230,7 +242,8 @@ impl Cosmetic {
             | Self::Haori
             | Self::FjordTunic
             | Self::DyedCloak
-            | Self::WinterCoat => Category::Garment,
+            | Self::WinterCoat
+            | Self::LapisRobe => Category::Garment,
             Self::Straw
             | Self::Laurel
             | Self::Petasos
@@ -244,7 +257,8 @@ impl Cosmetic {
             | Self::Kanzashi
             | Self::WoolHood
             | Self::SailorsCap
-            | Self::BraidBand => Category::Head,
+            | Self::BraidBand
+            | Self::DuneWrap => Category::Head,
             _ => Category::Accessory,
         }
     }
@@ -267,6 +281,9 @@ impl Cosmetic {
             Self::BraidBand => return Some(NORDIC_START + 14),
             Self::AmberBrooch => return Some(NORDIC_START + 4),
             Self::WovenBag => return Some(NORDIC_START + 19),
+            Self::LapisRobe => return Some(OASIS_START),
+            Self::DuneWrap => return Some(OASIS_START + 4),
+            Self::GlassPendant => return Some(OASIS_START + 15),
             _ => return None,
         };
         Some(JAPAN_START + island)

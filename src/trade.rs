@@ -73,7 +73,7 @@ impl Voyage {
             && self.departed_day <= town.day
             && (0.0..chapter.day_seconds()).contains(&self.departed_at)
             && self.arrival >= town.day
-            && (16..=58).contains(&self.silver)
+            && (16..=76).contains(&self.silver)
     }
 }
 
@@ -91,7 +91,7 @@ pub enum Departure {
 impl Departure {
     pub fn hint(self) -> &'static str {
         match self {
-            Self::Daylight => "Geht tagsüber bis kurz vor Sonnenuntergang",
+            Self::Daylight => "Während der Öffnungszeit bis kurz vor Schluss",
             Self::Boatyard => "Hier braucht es ein Bootshaus",
             Self::Upgrade => "Ab Bootshaus Stufe 2",
             Self::AtSea => "Ein Schiff ist noch unterwegs",
@@ -103,6 +103,14 @@ impl Departure {
 }
 
 impl Town {
+    pub fn voyage_provisions(&self, lot: usize, route: SailingRoute) -> u16 {
+        route.provisions() - u16::from(self.neighboring(lot, Kind::Cooperage, 1))
+    }
+
+    pub fn voyage_silver(&self, lot: usize, route: SailingRoute, yard_level: u8) -> u32 {
+        route.silver(yard_level) + u32::from(self.support(lot, Kind::SignalTower, 2)) * 3
+    }
+
     pub fn trade_source(
         &self,
         chapter: &Chapter,
@@ -128,7 +136,7 @@ impl Town {
         let Phase::Open(day) = &self.phase else {
             return Err(Departure::Daylight);
         };
-        if day.seconds + 6.0 >= chapter.day_seconds() {
+        if day.seconds + 1.0 >= chapter.day_seconds() {
             return Err(Departure::Daylight);
         }
         if day.route.is_some() {
@@ -140,7 +148,7 @@ impl Town {
             .filter(|&source| {
                 distance(lot, source) <= 3
                     && self.lots[source].is_some_and(|b| b.kind == Kind::Smokehouse)
-                    && day.stock[source] >= route.provisions()
+                    && day.stock[source] >= self.voyage_provisions(lot, route)
             })
             .max_by_key(|&source| (day.stock[source], std::cmp::Reverse(distance(lot, source))))
             .ok_or(Departure::Provisions)
@@ -156,16 +164,18 @@ impl Town {
         let level = self.lots[lot]
             .expect("a departure requires a boatyard")
             .level;
+        let provisions = self.voyage_provisions(lot, route);
+        let silver = self.voyage_silver(lot, route, level);
         let Phase::Open(day) = &mut self.phase else {
             return Err(Departure::Daylight);
         };
-        day.stock[source] -= route.provisions();
+        day.stock[source] -= provisions;
         let voyage = Voyage {
             route,
             departed_day: self.day,
             departed_at: day.seconds,
             arrival: self.day + route.days(),
-            silver: route.silver(level),
+            silver,
         };
         self.voyage = Some(voyage);
         Ok(voyage)

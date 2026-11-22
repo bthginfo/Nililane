@@ -21,7 +21,7 @@ pub(crate) struct Sky {
     cloud: Handle<StandardMaterial>,
     rain: Handle<StandardMaterial>,
     waves: Handle<StandardMaterial>,
-    weather: Option<(Weather, Weather, f32)>,
+    weather: Option<(Weather, Weather, f32, bool)>,
 }
 
 pub fn setup(
@@ -157,17 +157,27 @@ pub fn animate(
         _ => 1.45,
     };
     let cloud_count = coverage(before).lerp(coverage(after), blend);
-    if sky.weather != Some(weather) {
-        sky.weather = Some(weather);
+    let night = CHAPTERS[town.chapter].shift.night() && game.panel != crate::game::Panel::Wardrobe;
+    let weather_key = (before, after, blend, night);
+    if sky.weather != Some(weather_key) {
+        sky.weather = Some(weather_key);
         if let Some(mat) = materials.get_mut(&sky.cloud) {
             let shade = 1.0 - rain * 0.47 - (cloud_count - 1.0) * 0.019;
-            mat.base_color = Color::srgb(shade, shade + rain * 0.065, shade + rain * 0.09);
+            mat.base_color = if night {
+                Color::srgb(shade * 0.40, shade * 0.52, shade * 0.69)
+            } else {
+                Color::srgb(shade, shade + rain * 0.065, shade + rain * 0.09)
+            };
         }
         if let Some(mat) = materials.get_mut(&sky.rain) {
             mat.base_color = Color::srgba(0.79, 0.91, 0.96, rain * 0.72);
         }
         if let Some(mat) = materials.get_mut(&sky.waves) {
-            mat.base_color = Color::srgb(1.0 - w * 0.19, 1.0 - w * 0.11, 1.0);
+            mat.base_color = if night {
+                Color::srgb(0.51 - w * 0.10, 0.67 - w * 0.11, 0.81)
+            } else {
+                Color::srgb(1.0 - w * 0.19, 1.0 - w * 0.11, 1.0)
+            };
         }
     }
     let t = game.clock;

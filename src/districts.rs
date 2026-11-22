@@ -9,6 +9,7 @@ use crate::model::{
 
 const GREEK_TRADE: Chapter = Chapter {
     region: Region::Greece,
+    shift: crate::campaign::Shift::Day,
     name: "",
     district: "",
     difficulty: "Anspruchsvoll",
@@ -105,18 +106,18 @@ pub(super) const GREEK_LATE: [Chapter; 12] = [
         ..GREEK_TEMPLE
     },
     Chapter {
-        name: "Rast im Pinienwind",
+        name: "Tonkrüge im Pinienwind",
         district: "Skopelos",
-        greeting: "Der Wind treibt die Boote hinter die Felsen. In der Stoa finden Gäste Schutz.",
+        greeting: "Der Wind treibt die Boote hinter die Felsen. Die Töpfer tragen ihre Krüge unter die Stoa.",
         hint: "Bei Wind, Regen oder Sturm kann Nili den Kai räumen.",
         par: 18,
         spring: 0,
         weather: &[Wind, Cloud, Storm, Heat, Rain, Feast],
         locals: &[Shade, Bread, Shade, Meze, Pottery, Shade],
         guests: &[
-            Shade, Meze, Bed, Shade, Oil, Offering, Bread, Shade, Pottery,
+            Pottery, Meze, Bed, Shade, Oil, Offering, Bread, Pottery, Pottery,
         ],
-        goals: [Serve(Shade, 111), Route(Job::Quay, 5), Route(Job::Shade, 7)],
+        goals: [Upgrade(Stoa, 3), Serve(Pottery, 76), Route(Job::Quay, 5)],
         ..GREEK_TEMPLE
     },
     Chapter {
@@ -144,14 +145,20 @@ pub(super) const GREEK_LATE: [Chapter; 12] = [
         ..GREEK_TEMPLE
     },
     Chapter {
-        name: "Die Abende von Serifos",
+        name: "Ein Tisch für Serifos",
         district: "Serifos",
-        greeting: "Mara zählt die freien Betten, während am Kai die Abendfähre anlegt.",
+        greeting: "Mara serviert die Kräuter vom Hochbeet. Am Kai legt die Abendfähre an.",
         hint: "Bei Hitze hilft ein zweiter Brunnen. Tagsüber kann Nili Wasser bringen.",
         par: 27,
         spring: 0,
-        guests: &[Bed, Meze, Bed, Bread, Meze, Bed, Offering, Pottery, Shade],
-        goals: [Serve(Bed, 145), Route(Job::Welcome, 7), Water(19)],
+        guests: &[
+            Meze, Meze, DyedCloth, Bread, Meze, Bed, Offering, Pottery, Shade,
+        ],
+        goals: [
+            Pair(Taverna, HerbGarden, 1),
+            Serve(Meze, 103),
+            Route(Job::Welcome, 7),
+        ],
         ..GREEK_TEMPLE
     },
     Chapter {
@@ -225,6 +232,7 @@ const ALL_ROMAN: &[crate::model::Kind] = &[
 
 const ROME_PORT: Chapter = Chapter {
     region: Region::Rome,
+    shift: crate::campaign::Shift::Day,
     name: "",
     district: "",
     difficulty: "Mittel",
@@ -481,11 +489,11 @@ pub(super) const ROMAN: [Chapter; 24] = [
     Chapter {
         name: "Fenster zur Hafenmauer",
         district: "Puteoli",
-        greeting: "Aus dem Gasthaus sieht Flavia die Frachter. Einige Reisende bleiben über Nacht.",
-        hint: "Mit zwei Gasthäusern finden mehr Reisende ein Bett. Prüfe vor dem Ausbau, ob das Wasser reicht.",
+        greeting: "Flavia hängt den Plan für den Markttag aus. Die Frachter bringen Stoffe und Wachstafeln.",
+        hint: "Baue das Gasthaus neben einen Brunnen. Vergleiche im Tagesplan die Wünsche der Gäste, bevor du Angebote auswählst.",
         par: 23,
         guests: &[Bed, Bath, Trade, Bed, Bread, Meze, Bed, Pottery, Trade],
-        goals: [Upgrade(Inn, 4), Serve(Bed, 202), Serve(Trade, 146)],
+        goals: [Pair(Inn, Well, 1), Specials(42), Serve(Trade, 126)],
         ..ROME_FINAL
     },
     Chapter {

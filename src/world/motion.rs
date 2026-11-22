@@ -256,7 +256,7 @@ mod tests {
                 let route = Route::new(
                     Job::Water,
                     false,
-                    Stop::Quay,
+                    (Stop::Quay, None),
                     point,
                     Stop::Quay,
                     0.0,

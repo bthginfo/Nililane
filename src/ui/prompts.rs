@@ -3,7 +3,7 @@ use crate::{
     errands::{RouteStage, Stop},
     layout::lot_row,
     model::{Favor, SERVICES, Town, distance},
-    world::{Hippo, StreetCamera, lot_position, route_position},
+    world::{Art, Hippo, StreetCamera, lot_position, route_position},
 };
 
 use super::*;
@@ -212,6 +212,7 @@ pub(super) fn spawn(p: &mut ChildSpawnerCommands, hud: &Hud) {
 #[derive(Clone, Copy)]
 enum Point {
     Lot(usize),
+    Stock(usize),
     Stop(Stop),
     Street([f32; 2]),
     Nili,
@@ -228,6 +229,20 @@ struct MapSign {
 fn map_signs(town: &Town, game: &Game) -> Vec<MapSign> {
     let chapter = &CHAPTERS[town.chapter];
     let mut signs = Vec::new();
+    let stock = if let Phase::Open(day) = &town.phase
+        && let Some(nili) = day.nili
+        && let Some(lot) = crate::world::motion::nearby_lot(town, nili.position, chapter.layout)
+        && let Some(service) = town.lots[lot].and_then(|b| b.kind.service())
+    {
+        Some(MapSign {
+            point: Point::Stock(lot),
+            title: "",
+            icon: service_icon(service),
+            action: day.route.is_none().then(|| game.lot_action(town, lot)),
+        })
+    } else {
+        None
+    };
     if let Phase::Open(day) = &town.phase
         && let Some((route, nili)) = day.manual_route()
     {
@@ -248,6 +263,7 @@ fn map_signs(town: &Town, game: &Game) -> Vec<MapSign> {
             },
             action: can_work.then_some(Action::DoErrand),
         });
+        signs.extend(stock);
         return signs;
     }
     if let Some(job) = game.job {
@@ -309,6 +325,7 @@ fn map_signs(town: &Town, game: &Game) -> Vec<MapSign> {
         });
         return signs;
     }
+    signs.extend(stock);
     if let Some(done) = game.delivery() {
         let (title, icon) = done.route.reward();
         signs.push(MapSign {
@@ -460,6 +477,7 @@ pub fn update(
     game: Res<Game>,
     save: Res<Campaign>,
     hud: Res<Hud>,
+    art: Res<Art>,
     scale: Res<UiScale>,
     window: Single<&Window, With<PrimaryWindow>>,
     camera: Query<(&Camera, &GlobalTransform), With<StreetCamera>>,
@@ -494,6 +512,15 @@ pub fn update(
             };
             let place = match sign.point {
                 Point::Lot(lot) => plot(lot),
+                Point::Stock(lot) => {
+                    let mut at = lot_position(lot, chapter.layout.width());
+                    let Some(building) = town.lots[lot] else {
+                        continue;
+                    };
+                    at.y += art.roof_height(chapter.region, building.kind, building.level) + 0.30;
+                    at.z += 0.40;
+                    at
+                }
                 Point::Stop(Stop::Parcel(i)) => plot(usize::from(i)),
                 Point::Stop(stop) => route_position(stop, chapter.layout) + Vec3::Y * 1.1,
                 Point::Street([x, z]) => Vec3::new(x, 0.78, z),
@@ -505,16 +532,27 @@ pub fn update(
             let Ok(point) = camera.world_to_viewport(transform, place) else {
                 continue;
             };
-            let at = point / scale.0 - Vec2::new(WIDTH * 0.5, HEIGHT + 3.0);
-            if at.x < safe[0] + 8.0
-                || at.x + WIDTH > size.x - safe[2] - if manual { 12.0 } else { 350.0 }
-                || at.y < safe[1] + if manual { 48.0 } else { 109.0 }
-                || at.y + HEIGHT > size.y - safe[3] - if manual { 192.0 } else { 145.0 }
-                || active.iter().flatten().any(|p| {
-                    let delta = (p.at - at).abs();
+            let mut at = point / scale.0 - Vec2::new(WIDTH * 0.5, HEIGHT + 3.0);
+            let left = safe[0] + 8.0;
+            let top = safe[1] + if manual { 48.0 } else { 109.0 };
+            let edge = size.x - safe[2] - 12.0 - WIDTH;
+            let bottom = size.y - safe[3] - HEIGHT - if manual { 192.0 } else { 145.0 };
+            let in_rail = !manual && at.y < safe[1] + 337.0;
+            let right = edge - if in_rail { 337.0 } else { 0.0 };
+            let overlaps = |point: Vec2| {
+                active.iter().flatten().any(|p| {
+                    let delta = (p.at - point).abs();
                     delta.x < WIDTH + 6.0 && delta.y < HEIGHT + 8.0
                 })
-            {
+            };
+            if matches!(sign.point, Point::Stock(_)) {
+                at.x = at.x.clamp(left, right.max(left));
+                at.y = at.y.clamp(top, bottom.max(top));
+                if overlaps(at) {
+                    at.y = (at.y - HEIGHT - 10.0).max(top);
+                }
+            }
+            if at.x < left || at.x > right || at.y < top || at.y > bottom || overlaps(at) {
                 continue;
             }
             active[filled] = Some(Projected { sign, at });
@@ -565,10 +603,27 @@ pub fn update(
         }
     }
     for (tag, mut label) in &mut labels {
-        if let Some(p) = active[tag.0]
-            && label.0 != p.sign.title
-        {
-            label.0 = p.sign.title.into();
+        if let Some(p) = active[tag.0] {
+            let text = match p.sign.point {
+                Point::Stock(lot) => save.active_town().and_then(|town| {
+                    let Phase::Open(day) = &town.phase else {
+                        return None;
+                    };
+                    let service = town.lots[lot]?.kind.service()?;
+                    let capacity = day.stock_capacity(lot);
+                    Some(format!(
+                        "{}/{} {}",
+                        day.stock[lot],
+                        capacity,
+                        stock_unit(service, capacity)
+                    ))
+                }),
+                _ => None,
+            };
+            let next = text.as_deref().unwrap_or(p.sign.title);
+            if label.0 != next {
+                next.clone_into(&mut label.0);
+            }
         }
     }
 }

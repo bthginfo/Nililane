@@ -23,6 +23,7 @@ const COAST: &[crate::model::Kind] = &[
 
 const LAGOON: Chapter = Chapter {
     region: Region::Nordic,
+    shift: crate::campaign::Shift::Day,
     name: "",
     district: "",
     difficulty: "Sanft",

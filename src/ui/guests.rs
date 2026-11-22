@@ -638,6 +638,9 @@ fn guest_card(
                         "Flavia", "Gaius", "Livia", "Felix", "Tertia", "Lucius", "Junia", "Marius",
                     ],
                     Region::Japan => ["Aki", "Hana", "Sora", "Haru", "Yui", "Ren", "Mio", "Nao"],
+                    Region::Oasis => [
+                        "Nura", "Bahir", "Soraya", "Rima", "Dalia", "Samir", "Zahra", "Ilyas",
+                    ],
                     Region::Nordic => [
                         "Liv", "Leif", "Eira", "Tora", "Signe", "Astrid", "Rune", "Inga",
                     ],
