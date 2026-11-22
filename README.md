@@ -1,4 +1,4 @@
-# Nililane 2.1
+# Nililane 2.2
 
 Nililane ist ein 3D-Straßenmanagementspiel in Rust und Bevy. Mit dem Nilpferd Nili
 reist du zuerst durch das antike Griechenland und danach durch das antike
@@ -6,7 +6,7 @@ Rom. Du planst die Gasse am Morgen, versorgst Nachbarn und Fährgäste und hilfs
 tagsüber dort, wo sich die Lieferungen stauen. Auf der Kampagnenkarte erkennst
 du die Größe des nächsten Hafens schon vor der Überfahrt.
 
-**[Nililane 2.1.0 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/4e7a819712b6376bcd631aa47c20cffe3f5c5818/Nililane-2.1.0.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/4e7a819712b6376bcd631aa47c20cffe3f5c5818/Nililane-2.1.0.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.1.0)
+**[Nililane 2.2.0 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/6f7ec7fb58b839ed0763f5cd529a4797eb2f354b/Nililane-2.2.0.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/6f7ec7fb58b839ed0763f5cd529a4797eb2f354b/Nililane-2.2.0.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.2.0)
 
 ![Nili mit Bewohnern und dem ausgebauten Wohnhof in Naxos](docs/bilder/naxos.jpg)
 
@@ -21,7 +21,7 @@ Gasse und die Sternrekorde mitzunehmen. Nililane läuft offline und öffnet sich
 
 Kopple den Xbox-Controller über die Android-Bluetooth-Einstellungen oder
 schließe ihn per USB an. Unter **Erste Reise** führt Nili dich durch den
-ersten Bau, die Eröffnung der Gasse und eine Hafenbitte. Im Haupt- und Pausenmenü
+ersten Bau, den Brotpreis, den Tagesstart und eine Hafenbitte. Im Haupt- und Pausenmenü
 gibt es eine bebilderte **Spielhilfe**. Unter **Einstellungen** kannst du
 die Oberfläche vergrößern sowie Musik und Spielklänge separat schalten.
 
@@ -31,8 +31,8 @@ die Oberfläche vergrößern sowie Musik und Spielklänge separat schalten.
 | A | Bestätigen, Grundstück öffnen oder Nili helfen lassen |
 | B | Zurück, während des Spiels pausieren |
 | X | Aufträge ansehen |
-| Y | Tag eröffnen, während des Tages zwischen 1× und 2× wechseln |
-| RB | Hafenbuch mit Nachfrage und Vorräten öffnen |
+| Y | Tag starten, während des Tages zwischen 1× und 2× wechseln |
+| RB | Hafenplan mit Wetter, Nachfrage und Vorräten öffnen |
 | View (Taste mit zwei Rechtecken) | Gästebuch direkt öffnen |
 | Rechten Stick drücken (R3) | Ab Amorgos Nilis Touren öffnen |
 | Rechter Stick, LT und RT | Kamera schwenken und zoomen |
@@ -43,6 +43,21 @@ Touch und Maus wählen Bauplätze und Schaltflächen. Mit der Tastatur bedienen
 Pfeiltasten oder WASD die Auswahl, Enter bestätigt, Escape geht zurück.
 X, Y, P, Q und E entsprechen X, Y, Start, LB und RB. N öffnet Nilis Touren.
 F öffnet das Gästebuch.
+
+## Neu in 2.2
+
+- Nili markiert den nächsten Schritt auf der Insel. Auf Naxos zeigen Bilder
+  die Reihenfolge vom ersten Bauplatz bis zum Tagesstart. Auf Amorgos führt
+  Nili vom Brunnen zur ersten Wasserlieferung.
+- Die Baukarten zeigen Kosten und Ertrag. In der Preiswahl siehst du für jede
+  Stufe, wie viele der erwarteten Gäste genug Geld haben.
+- Sprechblasen und Schilder zeigen leere Auslagen, offene Hafenbitten und
+  mögliche Ziele für Nilis Touren. Die Aufträge erhalten bei Fortschritt
+  einen aktualisierten Balken und bei Erfüllung ein Häkchen.
+- Die Spielhilfe erklärt Steuerung und Abläufe mit Symbolen und kurzen
+  Sätzen. Die Begrüßungen und Tipps aller 48 Häfen sind überarbeitet.
+
+![Markierter Bauplatz auf Naxos mit den Symbolen für Backstube, Preiswahl und Tagesstart](docs/bilder/einstieg.jpg)
 
 ## Neu in 2.1
 
@@ -74,7 +89,7 @@ F öffnet das Gästebuch.
   Neubauten und Ausbauten direkt auf dem Grundstück.
 - **Lebendige Gassen.** Griechische und römische Gäste tragen unterschiedliche
   Kleidung, gehen mit animierten Schritten und folgen dem Weg zum Laden.
-  Im Hafenbuch sagen einzelne Gäste, was sie gefunden oder vermisst haben.
+  Im Gästebuch sagen die Gäste, was sie gefunden oder vermisst haben.
 
 ## Die Reise
 
@@ -87,11 +102,11 @@ F öffnet das Gästebuch.
 - Die 15 Gebäudetypen lassen sich bis Stufe 4 ausbauen. Für Läden stehen
   drei Preise zur Wahl. Die Ausbauvorschau benennt die sichtbare Erweiterung
   und zeigt, wie sich Wasser, Vorräte und Bewohnerzahlen verändern.
-- Im Hafenbuch stehen Nachfrage, Vorräte, Zufriedenheit und die Vorhersage
-  für drei Tage. Nordwind, Regen und Sturm beeinflussen die See, den
-  Fährverkehr und die Wasserreserven. Mit Hafenbeschlüssen kannst du
+- Im Hafenplan stehen Nachfrage, Vorräte, Zufriedenheit und die Vorhersage
+  für drei Tage. Wind, Regen und Sturm beeinflussen die See, den
+  Fährverkehr und die Wasserreserven. Mit dem Hafenplan kannst du
   Wasser holen, zusätzliche Fährgäste einladen oder Nachbarn bevorzugen.
-- Am Hafen warten drei Aufträge. Richttag und Hafenbitten bringen
+- Am Hafen warten drei Aufträge. Ein zügiger Abschluss und Hafenbitten bringen
   Zusatzsterne. Nach dem Abschluss kannst du bleiben, weiterreisen
   oder einen Hafen für mehr Sterne erneut besuchen.
 - Bauentscheidungen, laufende Tage und Sternrekorde werden lokal gespeichert.

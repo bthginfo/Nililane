@@ -32,11 +32,11 @@ impl Job {
 
     pub fn name(self) -> &'static str {
         match self {
-            Self::Freight => "Eilfracht",
-            Self::Water => "Wasserlauf",
-            Self::Welcome => "Gästelotse",
-            Self::Shade => "Schattentour",
-            Self::Quay => "Treibgut bergen",
+            Self::Freight => "Nachschub bringen",
+            Self::Water => "Wasser bringen",
+            Self::Welcome => "Gäste begleiten",
+            Self::Shade => "Schatten schaffen",
+            Self::Quay => "Kai räumen",
         }
     }
 
@@ -52,35 +52,31 @@ impl Job {
 
     pub fn purpose(self) -> &'static str {
         match self {
-            Self::Freight => "Füllt einen Laden mit 4 Portionen auf. Vom Speicher gibt es 6.",
-            Self::Water => "Bringt 4 Portionen und 2 Krüge Reserve vom Brunnen zu einer Werkstatt.",
-            Self::Welcome => {
-                "Begleitet zwei Fährgäste mit üblichem Budget zu einem Betrieb deiner Wahl."
-            }
-            Self::Shade => "Bringt Olivenzweige für 5 zusätzliche Rast- oder Badeplätze.",
-            Self::Quay => {
-                "Räumt nach Wind oder Regen den Kai. Fährgäste laufen heute zwei Plätze weiter."
-            }
+            Self::Freight => "+4 Vorrat · +6 vom Speicher",
+            Self::Water => "+4 Vorrat · +2 Krüge",
+            Self::Welcome => "+2 Gäste mit normalem Budget",
+            Self::Shade => "+5 Rast- oder Badeplätze",
+            Self::Quay => "+2 Plätze Laufweite vom Kai",
         }
     }
 
     pub fn requirements(self) -> &'static str {
         match self {
-            Self::Freight => "Baue zuerst einen Laden.",
-            Self::Water => "Braucht eine Wasserquelle und einen Betrieb, der Wasser nutzt.",
-            Self::Welcome => "Braucht einen Betrieb als Ziel für die Fährgäste.",
-            Self::Shade => "Braucht einen Olivenhain und eine Stoa oder Therme.",
-            Self::Quay => "Verfügbar bei Wind, Regen und Sturm.",
+            Self::Freight => "Du brauchst einen Laden.",
+            Self::Water => "Du brauchst eine Quelle und einen Laden mit Wasserbedarf.",
+            Self::Welcome => "Du brauchst einen Laden als Ziel.",
+            Self::Shade => "Du brauchst einen Hain und eine Stoa oder Therme.",
+            Self::Quay => "Geht bei Wind, Regen oder Sturm.",
         }
     }
 
     pub fn delivered(self) -> &'static str {
         match self {
-            Self::Freight => "Nili hat den Laden beliefert.",
+            Self::Freight => "Der Nachschub ist da.",
             Self::Water => "Nili hat frisches Wasser gebracht.",
             Self::Welcome => "Die Fährgäste sind auf dem Weg zum Laden.",
-            Self::Shade => "Nili hat mehr Schattenplätze eingerichtet.",
-            Self::Quay => "Der Kai ist frei. Gäste laufen jetzt weiter.",
+            Self::Shade => "Die neuen Schattenplätze sind fertig.",
+            Self::Quay => "Der Kai ist frei. Fährgäste kommen weiter.",
         }
     }
 
@@ -187,14 +183,23 @@ pub enum Blocked {
 }
 
 impl Blocked {
+    pub fn symbol(self) -> &'static str {
+        match self {
+            Self::Morning => "sun",
+            Self::Busy | Self::Late => "guest_wait",
+            Self::Done => "check",
+            Self::Limit | Self::Requirements => "lock",
+        }
+    }
+
     pub fn label(self, job: Job) -> &'static str {
         match self {
-            Self::Morning => "Starte zuerst den Hafentag.",
+            Self::Morning => "Starte zuerst den Tag.",
             Self::Busy => "Nili ist noch unterwegs.",
-            Self::Done => "Diese Tour ist heute erledigt.",
-            Self::Limit => "Nilis Touren sind für heute ausgeschöpft.",
+            Self::Done => "Für heute erledigt.",
+            Self::Limit => "Heute sind alle Touren vergeben.",
             Self::Requirements => job.requirements(),
-            Self::Late => "Für diese Strecke ist es heute zu spät.",
+            Self::Late => "Dafür ist es heute zu spät.",
         }
     }
 }

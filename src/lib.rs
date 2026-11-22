@@ -1,4 +1,5 @@
 mod campaign;
+mod coach;
 mod controls;
 mod errands;
 mod game;
@@ -76,6 +77,7 @@ pub fn run() {
                 world::animate,
                 world::animate_people,
                 ui::update_reactions,
+                ui::update_prompts,
                 world::animate_construction,
                 world::animate_weather,
             )
@@ -167,6 +169,11 @@ fn embed_assets(app: &App) {
         "ui/grove.png",
         "ui/guide.png",
         "ui/guest_book.png",
+        "ui/pad_dpad.png",
+        "ui/pad_view.png",
+        "ui/pause.png",
+        "ui/sunset.png",
+        "ui/budget.png",
         "ui/guest_down.png",
         "ui/guest_empty.png",
         "ui/guest_happy.png",

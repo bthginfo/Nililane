@@ -6,6 +6,7 @@ use bevy::{
 
 use crate::{
     campaign::{CHAPTERS, REGION_SIZE, Region},
+    coach::{self, Step},
     controls::{self, Controls, Direction},
     errands::{Job, Route},
     layout::{lot_col, lot_id, lot_row},
@@ -62,6 +63,9 @@ pub enum Action {
     Sounds,
     LargeUi,
     Plot,
+    Coach(Step),
+    SelectLot(usize),
+    LookAtLot(usize),
     Goals,
     Forecast,
     Feedback,
@@ -120,6 +124,7 @@ pub struct Game {
     pub review_reason: Option<Miss>,
     pub return_to_guests: bool,
     pub job: Option<Job>,
+    pub saw_prices: bool,
     pub focus: Option<Action>,
     pub dirty: bool,
     pub world_version: u32,
@@ -190,6 +195,7 @@ impl Default for Game {
             review_reason: None,
             return_to_guests: false,
             job: None,
+            saw_prices: false,
             focus: None,
             dirty: true,
             world_version: 0,
@@ -312,6 +318,14 @@ pub fn frame(
     let live = game.view == View::Street && game.panel == Panel::None;
     if live && game.job.is_none() && window.focused {
         let before = save.town.as_ref().and_then(day_feedback);
+        let previous_step = save.town.as_ref().and_then(|town| {
+            coach::next(
+                town,
+                &CHAPTERS[town.chapter],
+                game.selected,
+                game.saw_prices,
+            )
+        });
         let dispatched = save.town.as_ref().and_then(active_route);
         let completed_day = save.town.as_mut().is_some_and(|town| {
             town.tick(
@@ -331,6 +345,17 @@ pub fn frame(
             game.show(Panel::Report);
             game.save(&save);
             return;
+        }
+        let step = save.town.as_ref().and_then(|town| {
+            coach::next(
+                town,
+                &CHAPTERS[town.chapter],
+                game.selected,
+                game.saw_prices,
+            )
+        });
+        if previous_step != step {
+            game.dirty = true;
         }
         let after = save.town.as_ref().and_then(day_feedback);
         if let (Some((time_before, sales_before)), Some((time_after, sales_after))) =
@@ -428,7 +453,7 @@ pub fn frame(
         if controls.got(controls::A) {
             let action = if game.job.is_some() {
                 Action::Dispatch
-            } else if can_aid(town, game.selected) {
+            } else if town.can_aid(game.selected) {
                 Action::Aid
             } else {
                 Action::Plot
@@ -496,7 +521,7 @@ pub fn frame(
                 if lot == game.selected {
                     let action = if game.job.is_some() {
                         Action::Dispatch
-                    } else if can_aid(town, lot) {
+                    } else if town.can_aid(lot) {
                         Action::Aid
                     } else {
                         Action::Plot
@@ -544,22 +569,17 @@ fn select(game: &mut Game, lot: usize) {
     }
 }
 
-pub fn can_aid(town: &Town, lot: usize) -> bool {
-    let Phase::Open(day) = &town.phase else {
-        return false;
-    };
-    day.seconds >= 8.0
-        && day.route.is_none()
-        && day.favor_at.is_none()
-        && town.lots[lot].is_some_and(|b| day.favor.allows(b.kind))
-}
-
 fn start(chapter: usize, game: &mut Game, save: &mut Campaign) {
     if !save.unlocked(chapter) {
         return;
     }
-    save.town = Some(Town::new(chapter, &CHAPTERS[chapter]));
-    game.selected = if chapter == 0 { 2 } else { 1 };
+    let rule = &CHAPTERS[chapter];
+    let town = Town::new(chapter, rule);
+    game.saw_prices = false;
+    game.selected = coach::next(&town, rule, 1, false)
+        .and_then(Step::lot)
+        .unwrap_or(1);
+    save.town = Some(town);
     game.chart = chapter;
     game.job = None;
     game.work.fill(None);
@@ -579,7 +599,13 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
         Action::Resume => {
             let Some(town) = &save.town else { return };
             game.chart = town.chapter;
-            game.selected = 1;
+            game.selected = if town.planning() {
+                coach::next(town, &CHAPTERS[town.chapter], 1, game.saw_prices)
+                    .and_then(Step::lot)
+                    .unwrap_or(1)
+            } else {
+                1
+            };
             game.job = None;
             game.transition(
                 View::Street,
@@ -730,11 +756,40 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
             if let Some(town) = &save.town {
                 game.build_page = 0;
                 game.return_to_guests = false;
+                if town.planning() && coach::recommended_price(town, game.selected).is_some() {
+                    game.saw_prices = true;
+                }
                 game.show(if town.lots[game.selected].is_none() && town.planning() {
                     Panel::Build
                 } else {
                     Panel::Details
                 });
+            }
+        }
+        Action::Coach(step) => {
+            let Some(town) = &save.town else { return };
+            let chapter = &CHAPTERS[town.chapter];
+            if coach::next(town, chapter, game.selected, game.saw_prices) == Some(step) {
+                if let Some(lot) = step.lot() {
+                    select(game, lot);
+                }
+                match step {
+                    Step::Build(_, _) | Step::Price(_) => apply(Action::Plot, game, save),
+                    Step::StartDay => apply(Action::Open, game, save),
+                    Step::Aid(_, _) => apply(Action::Aid, game, save),
+                    Step::Water(_) => apply(Action::ChooseJob(Job::Water), game, save),
+                    Step::Arrivals | Step::Evening => {}
+                }
+            }
+        }
+        Action::SelectLot(lot) | Action::LookAtLot(lot) => {
+            let Some(town) = &save.town else { return };
+            if !CHAPTERS[town.chapter].layout.contains(lot) {
+                return;
+            }
+            select(game, lot);
+            if matches!(action, Action::LookAtLot(_)) {
+                apply(Action::Plot, game, save);
             }
         }
         Action::Nili => {
@@ -902,9 +957,16 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                     ),
                     Action::Open | Action::NextDay => {
                         game.speed = 1;
+                        if edit == Action::NextDay
+                            && let Some(lot) =
+                                coach::next(town, chapter, game.selected, game.saw_prices)
+                                    .and_then(Step::lot)
+                        {
+                            select(game, lot);
+                        }
                         game.show(Panel::None);
                     }
-                    Action::HarborPlan(_) => game.focus = Some(edit),
+                    Action::HarborPlan(_) | Action::Price(_) => game.focus = Some(edit),
                     _ => {}
                 }
                 game.dirty = true;

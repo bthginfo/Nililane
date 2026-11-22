@@ -428,10 +428,7 @@ pub(super) fn book(
             label(
                 r,
                 hud,
-                hint.map_or(
-                    "Einzelne Stimmen erscheinen beim nächsten Hafentag.",
-                    Miss::hint,
-                ),
+                hint.map_or("Neue Stimmen gibt’s am nächsten Spieltag.", Miss::hint),
                 17.0,
                 Face::Body,
                 SAND,
@@ -441,17 +438,39 @@ pub(super) fn book(
 }
 
 fn waiting(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town) {
-    card(p, Node {
-        align_items: AlignItems::Center,
-        padding: UiRect::all(Val::Px(12.0)),
-        ..row(16.0)
-    }, CARD).with_children(|welcome| {
+    card(
+        p,
+        Node {
+            align_items: AlignItems::Center,
+            padding: UiRect::all(Val::Px(12.0)),
+            ..row(16.0)
+        },
+        CARD,
+    )
+    .with_children(|welcome| {
         chapter_picture(welcome, hud, town.chapter, Val::Px(180.0), Val::Px(94.0));
         welcome.spawn(column(5.0)).with_children(|words| {
-            label(words, hud, "Die ersten Gäste kommen bald", 24.0, Face::Serif, SAND);
-            label(words, hud, "Sprechblasen zeigen den Wunsch und das Ergebnis. Die Rückmeldungen bleiben bis zum nächsten Hafentag hier.", 16.0, Face::Body, MUTED);
+            label(
+                words,
+                hud,
+                "Die ersten Gäste kommen gleich",
+                24.0,
+                Face::Serif,
+                SAND,
+            );
+            label(
+                words,
+                hud,
+                "Tippe eine Sprechblase an, um die Rückmeldung zu sehen.",
+                16.0,
+                Face::Body,
+                MUTED,
+            );
             words.spawn(row(12.0)).with_children(|legend| {
-                for (symbol, caption) in [("guest_happy", "Wunsch erfüllt"), ("guest_down", "Wunsch offen")] {
+                for (symbol, caption) in [
+                    ("guest_happy", "Wunsch erfüllt"),
+                    ("guest_down", "Wunsch offen"),
+                ] {
                     legend.spawn(row(4.0)).with_children(|mark| {
                         icon(mark, hud, symbol, 27.0);
                         label(mark, hud, caption, 16.0, Face::Bold, SAND);
@@ -636,10 +655,10 @@ fn guest_card(
             icon(identity, hud, service_icon(visit.wants), 38.0);
         });
         let quote = match verdict {
-            Verdict::Pleased => "Ich habe gefunden, was ich wollte.",
-            Verdict::Missed(Miss::NoShop) => "Das hätte ich hier gern gefunden.",
+            Verdict::Pleased => "Genau das habe ich gesucht!",
+            Verdict::Missed(Miss::NoShop) => "Das hätte ich gern hier gekauft.",
             Verdict::Missed(Miss::Walk) => "Der Weg zum Laden war mir zu weit.",
-            Verdict::Missed(Miss::Price) => "Das war für meinen Beutel zu teuer.",
+            Verdict::Missed(Miss::Price) => "Das war mir zu teuer.",
             Verdict::Missed(Miss::Empty) => "Die Auslage war schon leer.",
         };
         label(
@@ -657,13 +676,10 @@ fn guest_card(
                 .and_then(|lot| town.lots[usize::from(lot)])
                 .filter(|b| b.kind.service() == Some(visit.wants))
                 .map(|b| b.price.coins(visit.wants));
-            let budget = format!(
-                "Budget bis {budget} {}",
-                Region::of(town.chapter).currency()
-            );
+            let budget = format!("Bis zu {budget} {}", Region::of(town.chapter).currency());
             let price = price.map_or_else(
                 || budget.clone(),
-                |price| format!("Preis jetzt {price}  ·  {budget}"),
+                |price| format!("Preis {price}  ·  {budget}"),
             );
             label(c, hud, price, 15.5, Face::Bold, GOLD);
         }
@@ -717,7 +733,7 @@ pub(super) fn evening_hint(town: &Town, tally: &Tally) -> (String, &'static str)
     if let Some((count, service, reason)) = most {
         (
             format!(
-                "{} · {} · {} offen. {}",
+                "{} · {} · {} Gäste. {}",
                 service.name(),
                 reason.label(),
                 count,
@@ -726,14 +742,10 @@ pub(super) fn evening_hint(town: &Town, tally: &Tally) -> (String, &'static str)
             reason_icon(reason),
         )
     } else if tally.responses() == tally.served_total() && tally.responses() > 0 {
-        (
-            "Alle Wünsche wurden erfüllt. Im Gästebuch kannst du die Rückmeldungen nachlesen."
-                .into(),
-            "guest_happy",
-        )
+        ("Alle Wünsche erfüllt.".into(), "guest_happy")
     } else {
         (
-            "Schau ins Gästebuch, bevor du morgen weiterplanst.".into(),
+            "Die Rückmeldungen stehen im Gästebuch.".into(),
             "guest_book",
         )
     }

@@ -330,6 +330,41 @@ def make_icon(name):
         empty_crate(a)
     elif name == "guest_book":
         guest_book(a)
+    elif name == "pad_dpad":
+        a.box((10, 10, 86, 86), "#1C363A", 17)
+        a.poly([(38, 16), (58, 16), (58, 38), (80, 38), (80, 58),
+                (58, 58), (58, 80), (38, 80), (38, 58), (16, 58), (16, 38),
+                (38, 38)], "#71A4A0")
+        for tips in [[(48, 22), (42, 30), (54, 30)], [(48, 74), (42, 66), (54, 66)],
+                     [(22, 48), (30, 42), (30, 54)], [(74, 48), (66, 42), (66, 54)]]:
+            a.poly(tips, CREAM)
+        a.oval((42, 42, 54, 54), INK)
+    elif name == "pad_view":
+        a.box((9, 16, 89, 80), "#1C363A", 14)
+        a.box((28, 26, 63, 53), CREAM, 5)
+        a.box((33, 31, 58, 48), "#1C363A", 2)
+        a.box((39, 39, 73, 64), CREAM, 4)
+        a.box((44, 44, 68, 59), "#1C363A", 2)
+    elif name == "sunset":
+        a.poly([(12, 65), (82, 65), (66, 84), (31, 84)], BLUE)
+        a.oval((20, 25, 76, 80), TERRA)
+        a.oval((25, 25, 71, 72), GOLD)
+        a.box((12, 56, 82, 80), SEA)
+        a.line([(17, 56), (77, 56)], CREAM, 4)
+        a.line([(25, 66), (65, 66)], "#9CC2AE", 3)
+        a.line([(37, 74), (72, 74)], BLUE, 3)
+    elif name == "pause":
+        a.box((10, 10, 86, 86), "#1C363A", 22)
+        a.box((30, 25, 42, 70), CREAM, 4)
+        a.box((54, 25, 66, 70), CREAM, 4)
+    elif name == "budget":
+        a.poly([(19, 61), (23, 48), (36, 33), (34, 21), (62, 21),
+                (60, 33), (72, 47), (79, 62), (75, 75), (45, 82), (25, 74)], "#B77E56")
+        a.poly([(52, 25), (60, 32), (74, 49), (77, 68), (64, 77),
+                (49, 79), (54, 69), (52, 56)], DEEP)
+        a.line([(34, 34), (63, 34)], CREAM, 4)
+        a.oval((32, 46, 59, 73), GOLD)
+        a.line([(47, 51), (39, 58), (53, 59), (45, 67)], CREAM, 3)
     elif name == "mood":
         a.oval((13, 13, 83, 83), "#6AA58F")
         a.oval((32, 34, 40, 44), INK)
@@ -356,7 +391,7 @@ def make_icon(name):
 
 ICONS = ("house well bakery grove potter stoa taverna inn bread olive meze bed coin star "
          "sun water wind ferry chart book guide hammer lock check nili storehouse press shrine aqueduct baths forum villa mood cloud rain storm "
-         "guest_happy guest_mixed guest_down guest_wait guest_steps guest_empty guest_book").split()
+         "guest_happy guest_mixed guest_down guest_wait guest_steps guest_empty guest_book pad_dpad pad_view sunset pause budget").split()
 for item in ICONS:
     make_icon(item)
 

@@ -1,8 +1,9 @@
 use super::*;
 use crate::{
     campaign::{Chapter, REGION_SIZE, Region},
+    coach::{self, Step},
     errands::Job,
-    model::{HarborPlan, MAX_LEVEL, Price, Report, SERVICES, Town},
+    model::{Building, HarborPlan, MAX_LEVEL, Price, Report, SERVICES, Town},
 };
 
 pub fn street_panel(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town) {
@@ -54,47 +55,84 @@ fn modal(
 }
 
 fn brief(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter) {
+    let region = Region::of(town.chapter);
     let heading = format!(
-        "{}  ·  HAFEN {}  ·  {}  ·  {} BAUPLÄTZE",
-        Region::of(town.chapter).name().to_uppercase(),
-        town.chapter - Region::of(town.chapter).start() + 1,
-        chapter.district.to_uppercase(),
-        chapter.layout.count()
+        "{}  ·  HAFEN {} / {}",
+        region.name().to_uppercase(),
+        town.chapter - region.start() + 1,
+        REGION_SIZE
     );
-    modal(p, hud, 850.0, &heading, chapter.name, "ferry", |page| {
-        page.spawn(Node {
-            align_items: AlignItems::Stretch,
-            ..row(20.0)
-        })
-        .with_children(|row| {
-            chapter_picture(row, hud, town.chapter, Val::Px(230.0), Val::Px(112.0));
-            label(row, hud, chapter.greeting, 20.0, Face::Body, SAND);
-        });
-        hint(
-            page,
-            hud,
+    modal(
+        p,
+        hud,
+        850.0,
+        &heading,
+        chapter.name,
+        region.icon(),
+        |page| {
             if town.chapter == 0 {
-                "Nili zeigt dir die ersten Schritte. Mit dem Steuerkreuz wechselst du den Bauplatz. A öffnet seine Aktionen, Y startet den Tag."
+                page.spawn(row(10.0)).with_children(|steps| {
+                    for (i, (art, word, pad)) in [
+                        ("bakery", "Backstube bauen", "A"),
+                        ("coin", "Brotpreis wählen", "A"),
+                        ("sun", "Tag starten", "Y"),
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    {
+                        if i > 0 {
+                            label(steps, hud, "›", 25.0, Face::Bold, GOLD);
+                        }
+                        card(
+                            steps,
+                            Node {
+                                flex_grow: 1.0,
+                                flex_basis: Val::Px(0.0),
+                                min_height: Val::Px(137.0),
+                                align_items: AlignItems::Center,
+                                justify_content: JustifyContent::Center,
+                                padding: UiRect::all(Val::Px(8.0)),
+                                ..column(5.0)
+                            },
+                            CARD,
+                        )
+                        .with_children(|tile| {
+                            icon(tile, hud, art, 61.0);
+                            label(tile, hud, word, 19.0, Face::Bold, SAND);
+                            key(tile, hud, pad, false);
+                        });
+                    }
+                });
             } else {
-                chapter.hint
-            },
-            "nili",
-        );
-        button(
-            page,
-            hud,
-            Action::Back,
-            if town.chapter == 0 {
-                "Tutorial beginnen"
-            } else {
-                "An Land gehen"
-            },
-            "ferry",
-            "A",
-            Style::Primary,
-            false,
-        );
-    });
+                page.spawn(row(16.0)).with_children(|intro| {
+                    chapter_picture(intro, hud, town.chapter, Val::Px(230.0), Val::Px(112.0));
+                    intro.spawn(column(7.0)).with_children(|words| {
+                        label(words, hud, chapter.greeting, 20.0, Face::Body, SAND);
+                        metric(
+                            words,
+                            hud,
+                            "hammer",
+                            format!("{} Bauplätze", chapter.layout.count()),
+                        );
+                    });
+                });
+            }
+            button(
+                page,
+                hud,
+                Action::Back,
+                if town.chapter == 0 {
+                    "Los geht’s"
+                } else {
+                    "An Land gehen"
+                },
+                if town.chapter == 0 { "nili" } else { "ferry" },
+                "A",
+                Style::Primary,
+                false,
+            );
+        },
+    );
 }
 
 fn nili(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter) {
@@ -103,87 +141,66 @@ fn nili(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter)
     } else {
         0
     };
-    let heading = format!("{} VON {} TOUREN ERLEDIGT", used, Job::limit(town.chapter));
-    modal(
-        p,
-        hud,
-        905.0,
-        &heading,
-        "Nilis Hafenrunden",
-        "nili",
-        |page| {
-            let available: Vec<_> = Job::ALL
-                .into_iter()
-                .filter(|job| job.unlocked(town.chapter))
-                .collect();
-            for jobs in available.chunks(2) {
-                page.spawn(Node {
-                    align_items: AlignItems::Stretch,
-                    ..row(8.0)
-                })
-                .with_children(|choices| {
-                    for &job in jobs {
-                        let preview = super::job_preview(town, chapter, job);
-                        button_shell(
-                            choices,
-                            Action::ChooseJob(job),
-                            Style::Quiet,
-                            preview.is_err(),
-                            Node {
-                                flex_grow: 1.0,
-                                flex_basis: Val::Px(0.0),
-                                min_height: Val::Px(96.0),
-                                padding: UiRect::all(Val::Px(10.0)),
-                                ..column(5.0)
-                            },
-                        )
-                        .with_children(|card| {
-                            card.spawn(row(7.0)).with_children(|top| {
-                                icon(top, hud, job.icon(), 31.0);
-                                label(top, hud, job.name(), 21.0, Face::Bold, SAND);
-                            });
-                            label(card, hud, job.purpose(), 16.0, Face::Body, SAND);
-                            if let Err(reason) = preview {
-                                label(card, hud, reason.label(job), 15.0, Face::Body, MUTED);
-                            } else {
-                                label(
-                                    card,
-                                    hud,
-                                    "Ziel auf der Insel wählen",
-                                    15.0,
-                                    Face::Bold,
-                                    GOLD,
-                                );
-                            }
-                        });
-                    }
-                    if jobs.len() == 1 {
-                        choices.spawn(Node {
+    let heading = format!("{} / {} TOUREN HEUTE", used, Job::limit(town.chapter));
+    modal(p, hud, 905.0, &heading, "Nilis Touren", "nili", |page| {
+        let available: Vec<_> = Job::ALL
+            .into_iter()
+            .filter(|job| job.unlocked(town.chapter))
+            .collect();
+        for jobs in available.chunks(2) {
+            page.spawn(Node {
+                align_items: AlignItems::Stretch,
+                ..row(8.0)
+            })
+            .with_children(|choices| {
+                for &job in jobs {
+                    let preview = super::job_preview(town, chapter, job);
+                    button_shell(
+                        choices,
+                        Action::ChooseJob(job),
+                        Style::Quiet,
+                        preview.is_err(),
+                        Node {
                             flex_grow: 1.0,
                             flex_basis: Val::Px(0.0),
-                            ..default()
+                            min_height: Val::Px(96.0),
+                            padding: UiRect::all(Val::Px(10.0)),
+                            ..column(5.0)
+                        },
+                    )
+                    .with_children(|card| {
+                        card.spawn(row(7.0)).with_children(|top| {
+                            icon(top, hud, job.icon(), 31.0);
+                            label(top, hud, job.name(), 21.0, Face::Bold, SAND);
                         });
-                    }
-                });
-            }
-            hint(
-                page,
-                hud,
-                "Jede Tour geht einmal am Tag. Wähle den Auftrag und danach den Zielbauplatz. Während der Auswahl wartet der Hafen.",
-                "guide",
-            );
-            button(
-                page,
-                hud,
-                Action::Back,
-                "Zurück zum Hafen",
-                "",
-                "B",
-                Style::Quiet,
-                false,
-            );
-        },
-    );
+                        label(card, hud, job.purpose(), 16.0, Face::Body, SAND);
+                        if let Err(reason) = preview {
+                            metric(card, hud, reason.symbol(), reason.label(job));
+                        } else {
+                            metric(card, hud, "check", "Ziel wählen");
+                        }
+                    });
+                }
+                if jobs.len() == 1 {
+                    choices.spawn(Node {
+                        flex_grow: 1.0,
+                        flex_basis: Val::Px(0.0),
+                        ..default()
+                    });
+                }
+            });
+        }
+        button(
+            page,
+            hud,
+            Action::Back,
+            "Zurück zum Hafen",
+            "",
+            "B",
+            Style::Quiet,
+            false,
+        );
+    });
 }
 
 fn build(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, chapter: &Chapter) {
@@ -192,6 +209,9 @@ fn build(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, chap
         town.coins,
         Region::of(town.chapter).currency().to_uppercase()
     );
+    let guide = coach::next(town, chapter, game.selected, game.saw_prices);
+    let before = town.production(chapter);
+    let mut preview = town.clone();
     modal(
         p,
         hud,
@@ -228,9 +248,10 @@ fn build(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, chap
                 .with_children(|choices| {
                     for &kind in group {
                         let afford = town.coins >= kind.cost();
-                        let suggested = town.chapter == 0
-                            && town.count(Kind::Bakery) == 0
-                            && kind == Kind::Bakery;
+                        let suggested = guide == Some(Step::Build(game.selected, kind));
+                        let building = Building::new(kind);
+                        preview.lots[game.selected] = Some(building);
+                        let after = preview.production(chapter);
                         button_shell(
                             choices,
                             Action::Build(kind),
@@ -255,7 +276,7 @@ fn build(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, chap
                                 ..row(4.0)
                             })
                             .with_children(|head| {
-                                icon(head, hud, kind_icon(kind), 49.0);
+                                icon(head, hud, kind_icon(kind), 51.0);
                                 head.spawn(row(4.0)).with_children(|cost| {
                                     icon(cost, hud, "coin", 23.0);
                                     label(
@@ -269,7 +290,59 @@ fn build(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, chap
                                 });
                             });
                             label(item, hud, kind.name(), 21.0, Face::Bold, SAND);
-                            label(item, hud, kind.note(), 15.0, Face::Body, MUTED);
+                            let (art, effect) = if let Some(service) = kind.service() {
+                                (
+                                    service_icon(service),
+                                    stock_text(service, after.stock[game.selected]),
+                                )
+                            } else if kind.water_source() {
+                                (
+                                    "water",
+                                    format!("+{} Krüge", after.water.saturating_sub(before.water)),
+                                )
+                            } else {
+                                match kind {
+                                    Kind::Grove => (
+                                        "olive",
+                                        format!(
+                                            "+{} Oliven",
+                                            after.olives.saturating_sub(before.olives)
+                                        ),
+                                    ),
+                                    Kind::Storehouse => {
+                                        let shops = before
+                                            .stock
+                                            .iter()
+                                            .zip(after.stock)
+                                            .filter(|&(old, new)| new > *old)
+                                            .count();
+                                        (
+                                            "bread",
+                                            match shops {
+                                                0 => "Für nahe Läden".into(),
+                                                1 => "+1 für 1 Laden".into(),
+                                                _ => format!("+1 je Laden ({shops})"),
+                                            },
+                                        )
+                                    }
+                                    _ => ("house", format!("+{} Nachbarn", building.residents())),
+                                }
+                            };
+                            metric(item, hud, art, effect);
+                            if !afford {
+                                label(
+                                    item,
+                                    hud,
+                                    format!("Fehlen noch {}", kind.cost() - town.coins),
+                                    15.0,
+                                    Face::Body,
+                                    MUTED,
+                                );
+                            } else if suggested {
+                                metric(item, hud, "check", "Nili empfiehlt");
+                            } else if let Some((art, subtitle)) = building_link(kind) {
+                                metric(item, hud, art, subtitle);
+                            }
                         });
                     }
                 });
@@ -295,18 +368,11 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
             p,
             hud,
             620.0,
-            "HAFEN GEÖFFNET",
+            "DER TAG LÄUFT",
             "Freier Bauplatz",
             "hammer",
             |page| {
-                label(
-                    page,
-                    hud,
-                    "Am nächsten Morgen können hier Arbeiter anrücken.",
-                    20.0,
-                    Face::Body,
-                    SAND,
-                );
+                metric(page, hud, "sun", "Morgen kannst du hier bauen.");
                 button(
                     page,
                     hud,
@@ -336,80 +402,68 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
         b.kind.name(),
         kind_icon(b.kind),
         |page| {
-            label(page, hud, b.kind.note(), 20.0, Face::Body, SAND);
+            let before = town.production(chapter);
             if let Some(service) = b.kind.service() {
                 let stock = match &town.phase {
                     Phase::Open(day) => day.stock[lot],
-                    _ => town.production(chapter).stock[lot],
+                    _ => before.stock[lot],
                 };
-                hint(
-                    page,
-                    hud,
-                    &format!(
-                        "{stock} Portionen {}  ·  {} {currency} je Verkauf",
-                        service.name(),
-                        b.price.coins(service)
-                    ),
-                    service_icon(service),
-                );
-                if let Phase::Open(day) = &town.phase {
-                    if day.stock[lot] == 0 && Job::Freight.plan(town, chapter, lot).is_ok() {
-                        button(
-                            page,
-                            hud,
-                            Action::ChooseJob(Job::Freight),
-                            "Nili mit Nachschub schicken",
-                            "guest_empty",
-                            "",
-                            Style::Quiet,
-                            false,
-                        );
-                    }
-                    if game.return_to_guests {
-                        label(
-                            page,
-                            hud,
-                            "Preise und Ausbauten kannst du morgen in der Planung ändern.",
-                            16.0,
-                            Face::Body,
-                            MUTED,
-                        );
-                    }
-                }
-                if town.planning() {
-                    label(page, hud, "Preis pro Besuch", 17.0, Face::Bold, GOLD);
-                    page.spawn(row(9.0)).with_children(|prices| {
-                        for price in Price::ALL {
-                            button(
-                                prices,
-                                hud,
-                                Action::Price(price),
-                                &format!("{}  ·  {}", price.label(), price.coins(service)),
-                                if price == b.price { "check" } else { "" },
-                                "",
-                                if price == b.price {
-                                    Style::Primary
-                                } else {
-                                    Style::Quiet
-                                },
-                                false,
-                            );
-                        }
-                    });
-                }
-            }
-            if town.planning() {
-                if let Some(estimate) = upgrade_estimate(town, chapter, lot) {
-                    let appearance = expansion(b.kind, b.level + 1, Region::of(town.chapter));
-                    label(
+                page.spawn(row(20.0)).with_children(|stats| {
+                    metric(
+                        stats,
+                        hud,
+                        service_icon(service),
+                        stock_text(service, stock),
+                    );
+                    metric(
+                        stats,
+                        hud,
+                        "coin",
+                        format!("{} {currency} pro Verkauf", b.price.coins(service)),
+                    );
+                });
+                if let Phase::Open(day) = &town.phase
+                    && day.stock[lot] == 0
+                    && Job::Freight.plan(town, chapter, lot).is_ok()
+                {
+                    button(
                         page,
                         hud,
-                        format!("Nächster Ausbau · {appearance}"),
-                        17.0,
-                        Face::Bold,
-                        GOLD,
+                        Action::ChooseJob(Job::Freight),
+                        "Nachschub bringen",
+                        "guest_empty",
+                        "",
+                        Style::Quiet,
+                        false,
                     );
-                    label(page, hud, estimate, 16.0, Face::Body, MUTED);
+                }
+                if town.planning() {
+                    price_cards(page, hud, town, chapter, lot, service, b.price);
+                }
+            } else {
+                let (art, effect) = match b.kind {
+                    Kind::House | Kind::Villa => ("house", format!("{} Nachbarn", b.residents())),
+                    Kind::Well | Kind::Aqueduct => {
+                        ("water", format!("{} Krüge auf der Insel", before.water))
+                    }
+                    Kind::Grove => ("olive", format!("{} Oliven auf der Insel", before.olives)),
+                    _ => (
+                        "bread",
+                        format!("+{} Vorrat je Laden in Reichweite", b.level),
+                    ),
+                };
+                metric(page, hud, art, effect);
+            }
+            if let Some((art, text)) = building_link(b.kind) {
+                metric(page, hud, art, text);
+            }
+            if town.planning() {
+                if let Some((art, from, to, unit)) = upgrade_estimate(town, chapter, lot) {
+                    let appearance = expansion(b.kind, b.level + 1, Region::of(town.chapter));
+                    page.spawn(row(18.0)).with_children(|next| {
+                        metric(next, hud, "hammer", appearance);
+                        metric(next, hud, art, format!("{from} → {to} {unit}"));
+                    });
                 }
                 line(page, LINE);
                 page.spawn(Node {
@@ -433,7 +487,7 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                         actions,
                         hud,
                         Action::Demolish,
-                        "Rückbau",
+                        "Abreißen",
                         "",
                         "",
                         Style::Danger,
@@ -466,6 +520,128 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
     );
 }
 
+fn building_link(kind: Kind) -> Option<(&'static str, &'static str)> {
+    Some(match kind {
+        Kind::Bakery | Kind::Potter | Kind::Inn => ("water", "Mehr mit Wasser"),
+        Kind::Baths => ("aqueduct", "Mehr am Aquädukt"),
+        Kind::Grove => ("stoa", "Schatten am Wohnhof"),
+        Kind::Taverna => ("bread", "Brot + Oliven"),
+        Kind::Press => ("olive", "Braucht Oliven"),
+        Kind::Shrine => ("potter", "Mehr mit Schalen"),
+        Kind::Aqueduct => ("well", "Mehr am Brunnen"),
+        Kind::Forum => ("ferry", "Kürzere Wege"),
+        Kind::Villa => ("budget", "Größere Budgets"),
+        _ => return None,
+    })
+}
+
+fn metric(p: &mut ChildSpawnerCommands, hud: &Hud, art: &str, text: impl Into<String>) {
+    p.spawn(row(5.0)).with_children(|row| {
+        icon(row, hud, art, 24.0);
+        label(row, hud, text, 16.0, Face::Body, SAND);
+    });
+}
+
+fn price_cards(
+    p: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    town: &Town,
+    chapter: &Chapter,
+    lot: usize,
+    service: Service,
+    current: Price,
+) {
+    let visits = town.visit_plan(chapter);
+    let budgets: Vec<_> = visits
+        .iter()
+        .filter(|visit| visit.wants == service)
+        .map(|visit| visit.budget)
+        .collect();
+    let suggested = coach::recommended_price(town, lot);
+    p.spawn(Node {
+        align_items: AlignItems::Stretch,
+        ..row(9.0)
+    })
+    .with_children(|prices| {
+        for price in Price::ALL {
+            let affordable = budgets
+                .iter()
+                .filter(|&&budget| price as u8 <= budget as u8)
+                .count();
+            button_shell(
+                prices,
+                Action::Price(price),
+                if price == current || Some(price) == suggested {
+                    Style::Selected
+                } else {
+                    Style::Quiet
+                },
+                false,
+                Node {
+                    flex_grow: 1.0,
+                    flex_basis: Val::Px(0.0),
+                    min_width: Val::Px(0.0),
+                    padding: UiRect::all(Val::Px(9.0)),
+                    ..column(5.0)
+                },
+            )
+            .with_children(|choice| {
+                choice
+                    .spawn(Node {
+                        justify_content: JustifyContent::SpaceBetween,
+                        ..row(4.0)
+                    })
+                    .with_children(|head| {
+                        label(head, hud, price.label(), 19.0, Face::Bold, SAND);
+                        if current == price {
+                            icon(head, hud, "check", 24.0);
+                        } else if Some(price) == suggested {
+                            icon(head, hud, "nili", 27.0);
+                        }
+                    });
+                metric(choice, hud, "coin", price.coins(service).to_string());
+                metric(
+                    choice,
+                    hud,
+                    "budget",
+                    if budgets.is_empty() {
+                        "Heute keine Nachfrage".to_owned()
+                    } else {
+                        format!("{affordable} von {} können zahlen", budgets.len())
+                    },
+                );
+                meter(
+                    choice,
+                    affordable as f32 / budgets.len().max(1) as f32,
+                    GOLD,
+                );
+            });
+        }
+    });
+}
+
+fn meter(p: &mut ChildSpawnerCommands, fraction: f32, fill: Color) {
+    p.spawn((
+        Node {
+            height: Val::Px(4.0),
+            ..default()
+        },
+        BackgroundColor(JADE),
+        BorderRadius::all(Val::Px(3.0)),
+    ))
+    .with_children(|track| {
+        track.spawn((
+            Node {
+                width: Val::Percent(100.0 * fraction.clamp(0.0, 1.0)),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+            BackgroundColor(fill),
+            BorderRadius::all(Val::Px(3.0)),
+        ));
+    });
+}
+
 fn expansion(kind: Kind, tier: u8, region: Region) -> &'static str {
     let names = match kind {
         Kind::House if region == Region::Greece => ["Balkon", "Dachpergola", "Schattenterrasse"],
@@ -491,7 +667,11 @@ fn expansion(kind: Kind, tier: u8, region: Region) -> &'static str {
     names[usize::from(tier - 2)]
 }
 
-fn upgrade_estimate(town: &Town, chapter: &Chapter, lot: usize) -> Option<String> {
+fn upgrade_estimate(
+    town: &Town,
+    chapter: &Chapter,
+    lot: usize,
+) -> Option<(&'static str, u16, u16, &'static str)> {
     let building = town.lots[lot]?;
     if building.level >= MAX_LEVEL {
         return None;
@@ -504,25 +684,28 @@ fn upgrade_estimate(town: &Town, chapter: &Chapter, lot: usize) -> Option<String
     preview.lots[lot] = Some(next);
     let before = town.production(chapter);
     let after = preview.production(chapter);
-    let (from, to, unit) = if building.residents() > 0 {
-        (building.residents(), next.residents(), "Nachbarn")
+    Some(if building.residents() > 0 {
+        ("house", building.residents(), next.residents(), "Nachbarn")
     } else if building.kind.water_source() {
-        (before.water, after.water, "Wasserkrüge")
+        ("water", before.water, after.water, "Krüge")
     } else if building.kind == Kind::Grove {
-        (before.olives, after.olives, "Olivenportionen")
+        ("olive", before.olives, after.olives, "Oliven")
     } else if building.kind == Kind::Storehouse {
         (
+            "bread",
             u16::from(building.level),
             u16::from(next.level),
-            "Zusatzportionen pro Laden in Reichweite",
+            "mehr je Laden",
         )
     } else {
-        (before.stock[lot], after.stock[lot], "Portionen")
-    };
-    Some(format!(
-        "Stufe {} bei diesem Tagesplan  ·  {from} → {to} {unit}",
-        next.level
-    ))
+        let service = building.kind.service()?;
+        (
+            service_icon(service),
+            before.stock[lot],
+            after.stock[lot],
+            stock_unit(service, 2),
+        )
+    })
 }
 
 fn goals(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter) {
@@ -534,7 +717,6 @@ fn goals(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter
         "Aufträge",
         "book",
         |page| {
-            label(page, hud, chapter.greeting, 19.0, Face::Body, SAND);
             for task in chapter.goals {
                 super::screens::goal(page, hud, town, task);
             }
@@ -547,23 +729,26 @@ fn goals(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter
                 label(
                     page,
                     hud,
-                    "Die Zufriedenheit zählt am Abend, sobald mindestens 12 Gäste zurückgemeldet haben.",
+                    "Die Wertung zählt ab 12 Gästestimmen.",
                     16.0,
                     Face::Body,
                     MUTED,
                 );
             }
-            label(
-                page,
-                hud,
-                format!(
-                    "Zusatzsterne für Abschluss bis Tag {} und {} erfüllte Hafenbitten.",
-                    chapter.par, chapter.favor_goal
-                ),
-                17.0,
-                Face::Body,
-                MUTED,
-            );
+            page.spawn(row(16.0)).with_children(|stars| {
+                metric(
+                    stars,
+                    hud,
+                    "star",
+                    format!("Abschluss bis Tag {}", chapter.par),
+                );
+                metric(
+                    stars,
+                    hud,
+                    "nili",
+                    format!("{} Hafenbitten", chapter.favor_goal),
+                );
+            });
             button(
                 page,
                 hud,
@@ -582,18 +767,18 @@ fn forecast(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, c
     let books = [
         ("Vorräte", "storehouse"),
         ("Gästebuch", "guest_book"),
-        ("Tagesplan", "sun"),
+        ("Wetter", "cloud"),
     ];
     modal(
         p,
         hud,
         900.0,
         if town.planning() && game.ledger_page == 1 && town.feedback().is_some() {
-            "GESTRIGE RÜCKMELDUNGEN"
+            "STIMMEN VON GESTERN"
         } else {
             chapter.district
         },
-        "Das Hafenbuch",
+        "Hafenplan",
         if game.ledger_page == 1 {
             "guest_book"
         } else {
@@ -698,7 +883,7 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
             hud,
             "water",
             &format!("{}/{}", production.used_water, production.water),
-            "Wasser genutzt",
+            "Wasser gebraucht",
         );
         if chapter.allowed().contains(&Kind::Grove) {
             super::screens::stat(
@@ -706,7 +891,7 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
                 hud,
                 "olive",
                 &format!("{}/{}", production.used_olives, production.olives),
-                "Oliven genutzt",
+                "Oliven gebraucht",
             );
         }
     });
@@ -739,32 +924,51 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
                     CARD,
                 )
                 .with_children(|tile| {
-                    icon(tile, hud, service_icon(service), 30.0);
+                    let short = supply[i] < predicted[i];
+                    tile.spawn(Node {
+                        justify_content: JustifyContent::SpaceBetween,
+                        ..row(4.0)
+                    })
+                    .with_children(|top| {
+                        icon(top, hud, service_icon(service), 33.0);
+                        if short {
+                            icon(top, hud, "guest_empty", 23.0);
+                        } else if predicted[i] > 0 {
+                            icon(top, hud, "check", 22.0);
+                        }
+                    });
                     label(tile, hud, service.name(), 17.0, Face::Bold, SAND);
                     label(
                         tile,
                         hud,
                         format!(
                             "{} {}",
-                            predicted[i],
-                            if live { "noch erwartet" } else { "gefragt" }
+                            supply[i],
+                            if live { "auf Lager" } else { "bereit" }
                         ),
-                        15.0,
-                        Face::Body,
-                        MUTED,
+                        16.0,
+                        Face::Bold,
+                        if short { GOLD } else { SAND },
                     );
                     label(
                         tile,
                         hud,
                         format!(
                             "{} {}",
-                            supply[i],
-                            if town.planning() { "bereit" } else { "übrig" }
+                            predicted[i],
+                            if live { "noch erwartet" } else { "erwartet" }
                         ),
-                        16.0,
-                        Face::Bold,
-                        if supply[i] < predicted[i] { GOLD } else { SAND },
+                        15.0,
+                        Face::Body,
+                        MUTED,
                     );
+                    if predicted[i] > 0 {
+                        meter(
+                            tile,
+                            f32::from(supply[i]) / f32::from(predicted[i]),
+                            if short { GOLD } else { MUTED },
+                        );
+                    }
                 });
             }
             for _ in group.len()..columns {
@@ -779,59 +983,80 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
 }
 
 fn day_plan(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter) {
-    let weather = town.weather(chapter);
-    page.spawn(row(10.0)).with_children(|days| {
+    page.spawn(Node {
+        align_items: AlignItems::Stretch,
+        ..row(9.0)
+    })
+    .with_children(|days| {
         for (index, name) in ["Heute", "Morgen", "Übermorgen"].into_iter().enumerate() {
-            let forecast = town.weather_ahead(chapter, index);
+            let weather = town.weather_ahead(chapter, index);
             card(
                 days,
                 Node {
                     flex_grow: 1.0,
                     flex_basis: Val::Px(0.0),
-                    padding: UiRect::all(Val::Px(8.0)),
-                    ..row(7.0)
+                    padding: UiRect::all(Val::Px(9.0)),
+                    ..column(4.0)
                 },
-                CARD,
+                if index == 0 { JADE } else { CARD },
             )
             .with_children(|day| {
-                icon(day, hud, weather_icon(forecast), 34.0);
-                day.spawn(column(0.0)).with_children(|caption| {
-                    label(caption, hud, name, 14.0, Face::Body, MUTED);
-                    label(caption, hud, forecast.name(), 19.0, Face::Bold, SAND);
+                day.spawn(row(7.0)).with_children(|top| {
+                    icon(top, hud, weather_icon(weather), 44.0);
+                    top.spawn(column(0.0)).with_children(|caption| {
+                        label(caption, hud, name, 15.0, Face::Body, MUTED);
+                        label(caption, hud, weather.name(), 20.0, Face::Bold, SAND);
+                    });
                 });
+                if weather.ferry_change() != 0 {
+                    metric(
+                        day,
+                        hud,
+                        "ferry",
+                        format!("{:+} Fährgäste", weather.ferry_change()),
+                    );
+                }
+                if weather.rainfall() > 0 {
+                    metric(day, hud, "water", format!("+{} Krüge", weather.rainfall()));
+                }
+                if weather == Weather::Heat {
+                    metric(day, hud, "water", "+1 Krug Bedarf je Laden");
+                }
+                if weather == Weather::Feast {
+                    metric(day, hud, "budget", "Größere Budgets");
+                }
+                if matches!(weather, Weather::Clear | Weather::Cloud) {
+                    metric(day, hud, "ferry", "Fähre nach Plan");
+                }
             });
         }
     });
-    hint(page, hud, weather.note(), weather_icon(weather));
     let favor = town.next_favor(chapter);
     let done = matches!(&town.phase, Phase::Open(day) if day.favor_at.is_some());
-    hint(
-        page,
-        hud,
-        &if done {
-            "Nili hat die Hafenbitte erfüllt.".to_owned()
-        } else {
-            format!("{} · {}", favor.name(), favor.note())
-        },
-        "nili",
-    );
+    if done {
+        metric(page, hud, "check", "Hafenbitte erfüllt");
+    } else {
+        page.spawn(row(16.0)).with_children(|r| {
+            metric(r, hud, "nili", favor.name());
+            metric(r, hud, "bread", favor.note());
+        });
+    }
     if chapter.harbor_plans() {
-        label(
-            page,
-            hud,
-            "Hafenbeschluss für heute",
-            19.0,
-            Face::Bold,
-            GOLD,
-        );
+        label(page, hud, "Heutiger Hafenplan", 18.0, Face::Bold, GOLD);
         page.spawn(row(8.0)).with_children(|choices| {
             for choice in HarborPlan::ALL {
+                let art = match choice {
+                    HarborPlan::Regular => "sun",
+                    HarborPlan::Ferry => "ferry",
+                    HarborPlan::Water => "water",
+                    HarborPlan::Neighbors => "house",
+                };
                 button(
                     choices,
                     hud,
                     Action::HarborPlan(choice),
                     choice.name(),
-                    "",
+                    art,
                     "",
                     if town.harbor == choice {
                         Style::Primary
@@ -842,7 +1067,24 @@ fn day_plan(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
                 );
             }
         });
-        label(page, hud, town.harbor.note(), 18.0, Face::Body, MUTED);
+        page.spawn(row(14.0))
+            .with_children(|effects| match town.harbor {
+                HarborPlan::Regular => {
+                    metric(effects, hud, "check", "Fähre und Wasser wie geplant")
+                }
+                HarborPlan::Ferry => {
+                    metric(effects, hud, "ferry", "+3 Fährgäste");
+                    metric(effects, hud, "water", "−2 Krüge");
+                }
+                HarborPlan::Water => {
+                    metric(effects, hud, "water", "+4 Krüge");
+                    metric(effects, hud, "ferry", "−2 Fährgäste");
+                }
+                HarborPlan::Neighbors => {
+                    metric(effects, hud, "house", "+1 Besuch je Wohnhof oder Villa");
+                    metric(effects, hud, "ferry", "−2 Fährgäste");
+                }
+            });
     }
 }
 
@@ -935,9 +1177,9 @@ fn evening(
                     page,
                     hud,
                     if ending {
-                        "Flavia und Gaius stoßen auf dem Forum mit Nili an. In der Kampagnenkarte stehen alle 48 Häfen und deine erreichten Sterne."
+                        "Nili, Flavia und Gaius feiern mit dir auf dem Forum."
                     } else {
-                        "Der nächste Hafen ist auf der Kampagnenkarte freigeschaltet. Deine Sterne sind im Logbuch eingetragen."
+                        "Der nächste Hafen ist frei."
                     },
                     19.0,
                     Face::Body,
@@ -1095,7 +1337,7 @@ pub fn options(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign) {
         label(
             page,
             hud,
-            "Nililane speichert beim Bauen, nach Entscheidungen und regelmäßig während des Tages.",
+            "Dein Fortschritt wird automatisch gespeichert.",
             17.0,
             Face::Body,
             MUTED,
@@ -1176,7 +1418,7 @@ pub fn replace(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                 page,
                 hud,
                 format!(
-                    "Du möchtest nach {}. Deine abgeschlossenen Kapitel und Sterne bleiben im Inselbuch. Die laufende Gasse wird durch den neuen Hafen ersetzt.",
+                    "Wenn du nach {} reist, endet der laufende Hafen. Deine Sterne bleiben gespeichert.",
                     CHAPTERS[game.chart].district
                 ),
                 19.0,
@@ -1226,8 +1468,8 @@ fn hint(p: &mut ChildSpawnerCommands, hud: &Hud, content: &str, image: &str) {
 }
 
 pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
-    const PAGES: [&str; 6] = ["Bedienung", "Tageslauf", "Waren", "Nili", "Reisen", "Rom"];
-    modal(p, hud, 985.0, "", "Nilis Spielhilfe", "guide", |page| {
+    const PAGES: [&str; 6] = ["Steuerung", "Dein Tag", "Waren", "Nili", "Reisen", "Rom"];
+    modal(p, hud, 985.0, "", "Spielhilfe", "guide", |page| {
         page.spawn(row(7.0)).with_children(|tabs| {
             for (i, name) in PAGES.iter().enumerate() {
                 button(
@@ -1246,126 +1488,120 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                 );
             }
         });
-        let details = match game.guide {
-            0 => [
-                (
-                    "hammer",
-                    "Bauplatz und Fokus",
-                    "Steuerkreuz oder linker Stick wählen. A bestätigt. B geht zurück. Gold markiert den Bauplatz und die gewählte Schaltfläche.",
-                ),
-                (
-                    "sun",
-                    "Direkt zur Aktion",
-                    "Y öffnet die Gasse und wechselt danach das Tempo. X zeigt Aufträge, RB das Hafenbuch. Drück den rechten Stick für Nilis Touren. Start öffnet das Menü.",
-                ),
-                (
-                    "chart",
-                    "Die Aussicht",
-                    "Rechter Stick schwenkt, LT und RT zoomen, LB setzt die Ansicht zurück. Maus und Touch wählen Bauplätze und Schaltflächen direkt.",
-                ),
-            ],
-            1 => [
-                (
-                    "hammer",
-                    "Morgen planen",
-                    "Wähle einen Platz aus und baue. Bei einem fertigen Gebäude kannst du Preise festlegen, ausbauen und zurückbauen.",
-                ),
-                (
-                    "guest_book",
-                    "Gäste verstehen",
-                    "Die Gesichter und Symbole über Gästen zeigen, ob ihr Wunsch erfüllt wurde. Tippe die Sprechblase an oder öffne mit View das Gästebuch. Beim Lesen wartet der Tag.",
-                ),
-                (
-                    "sun",
-                    "Abend auswerten",
-                    "Nach Sonnenuntergang kommen Verkäufe und sechs Münzen Hafengabe in die Kasse. Morgen kannst du mit dem Ertrag weiterbauen.",
-                ),
-            ],
-            2 => [
-                (
-                    "water",
-                    "Wasser und Oliven",
-                    "Ein Brunnen versorgt Backstuben, Töpfereien und Häuser für Gäste. Nahe Werkstätten werden zuerst bedient. Bei Hitze brauchen sie mehr Wasser.",
-                ),
-                (
-                    "meze",
-                    "Eine kleine Lieferkette",
-                    "Haine geben Oliven und Schatten. Tavernen brauchen zwei Laibe und zwei Olivenportionen für ihre volle Auslage. Der nächste Ofen liefert zuerst.",
-                ),
-                (
-                    "coin",
-                    "Laufwege und Preise",
-                    "Gäste vergleichen Entfernung und Angebot. Manche können nur günstige Waren bezahlen. Nachbarn laufen bis vier Plätze, die Reichweite der Fähre hängt von der Insel ab.",
-                ),
-            ],
-            3 => [
-                (
-                    "nili",
-                    "Nili hilft",
-                    "Wenn die Hafenglocke ertönt, wähle den Ort aus der Hafenbitte. Drücke A, sobald Nili hilft angezeigt wird. Jede Lieferung bringt sechs Münzen und zwei Ansehen.",
-                ),
-                (
-                    "well",
-                    "Nilis Touren",
-                    "Ab Amorgos öffnet der rechte Stick Nilis Touren. Wähle einen Auftrag und markiere das Ziel. Plane vorab, welcher Laden später Nachschub braucht.",
-                ),
-                (
-                    "star",
-                    "Am richtigen Ort",
-                    "Für Wasser braucht Nili eine Quelle. Für Schatten sammelt er Zweige im Hain. Nach Unwetter macht er den Kai frei. Jede Tour geht einmal pro Tag.",
-                ),
-            ],
-            4 => [
-                (
-                    "chart",
-                    "Hafen für Hafen",
-                    "Jeder Hafen hat drei Aufträge. Erfülle sie bis zu einer Abendabrechnung, um den nächsten Hafen freizuschalten.",
-                ),
-                (
-                    "star",
-                    "Drei Sterne",
-                    "Ein Stern gehört dem Abschluss, einer dem Richttag und einer den Hafenbitten. Du kannst nach dem Richttag in Ruhe weiterspielen.",
-                ),
-                (
-                    "book",
-                    "Alles im Logbuch",
-                    "Ein laufender Hafen wird automatisch gespeichert. Abgeschlossene Häfen und ihre besten Ergebnisse stehen dauerhaft auf der Kampagnenkarte.",
-                ),
-            ],
-            _ => [
-                (
-                    "aqueduct",
-                    "Wasser nach Rom",
-                    "Brunnen speisen Aquädukte. Ein Aquädukt nahe der Therme erhöht die Zahl der Badeplätze. Regen füllt die Zisterne.",
-                ),
-                (
-                    "forum",
-                    "Wege zum Forum",
-                    "Läden nahe am Forum sind für Fährgäste einen Bauplatz weiter erreichbar. Mit Villen wachsen Besucherzahl und Budgets.",
-                ),
-                (
-                    "mood",
-                    "Zufriedenheit prüfen",
-                    "Das Hafenbuch zeigt den Anteil erfüllter Wünsche. Prüfe dort, ob Preis, Weg, Vorrat oder fehlende Läden die Ursache sind.",
-                ),
-            ],
-        };
-        for (image, title, words) in details {
-            card(
-                page,
-                Node {
-                    padding: UiRect::all(Val::Px(11.0)),
-                    ..row(11.0)
-                },
-                CARD,
-            )
-            .with_children(|tile| {
-                icon(tile, hud, image, 48.0);
-                tile.spawn(column(2.0)).with_children(|text| {
-                    label(text, hud, title, 20.0, Face::Bold, GOLD);
-                    label(text, hud, words, 17.0, Face::Body, SAND);
-                });
-            });
+        if game.guide == 0 {
+            controls_guide(page, hud);
+        } else {
+            let cards: &[(&str, &str, &str, &str)] = match game.guide {
+                1 => &[
+                    (
+                        "hammer",
+                        "coin",
+                        "Morgens bauen und Preise wählen",
+                        "Wähle einen Bauplatz oder ein fertiges Gebäude.",
+                    ),
+                    (
+                        "ferry",
+                        "guest_happy",
+                        "Tagsüber Gäste beobachten",
+                        "Tippe auf eine Sprechblase oder öffne das Gästebuch.",
+                    ),
+                    (
+                        "sunset",
+                        "coin",
+                        "Abends kommt Geld in die Kasse",
+                        "Du bekommst die Einnahmen und 6 Münzen vom Hafen.",
+                    ),
+                ],
+                2 => &[
+                    (
+                        "well",
+                        "bakery",
+                        "Wasser füllt die Regale",
+                        "Läden in der Nähe bekommen zuerst Wasser. Bei Hitze brauchen sie mehr.",
+                    ),
+                    (
+                        "olive",
+                        "meze",
+                        "2 Laibe + 2 Olivenportionen für die Taverne",
+                        "Ein Ofen direkt nebenan bringt eine Portion Meze extra.",
+                    ),
+                    (
+                        "storehouse",
+                        "bread",
+                        "Speicher helfen Läden in der Nähe",
+                        "Der Bonus reicht bis zu zwei Bauplätze weit.",
+                    ),
+                    (
+                        "house",
+                        "budget",
+                        "Weg und Budget zählen",
+                        "Nachbarn laufen bis zu vier Plätze. Fährgäste laufen je nach Insel weiter.",
+                    ),
+                ],
+                3 => &[
+                    (
+                        "nili",
+                        "star",
+                        "Hafenbitte erfüllen",
+                        "Wähle den markierten Ort. Du bekommst 6 Münzen und 2 Ansehen.",
+                    ),
+                    (
+                        "water",
+                        "bakery",
+                        "Tour wählen und Ziel markieren",
+                        "Für Wasser und Schatten braucht Nili eine Quelle oder einen Hain.",
+                    ),
+                    (
+                        "wind",
+                        "ferry",
+                        "Bei Wind, Regen und Sturm den Kai räumen",
+                        "Fährgäste laufen dann zwei Plätze weiter.",
+                    ),
+                ],
+                4 => &[
+                    (
+                        "book",
+                        "chart",
+                        "Alle Aufträge erfüllen",
+                        "Am Abend schaltest du den nächsten Hafen frei.",
+                    ),
+                    (
+                        "sunset",
+                        "star",
+                        "Bis zu drei Sterne je Hafen",
+                        "Je ein Stern für Abschluss, Tempo und Hafenbitten.",
+                    ),
+                    (
+                        "check",
+                        "chart",
+                        "Automatisch gespeichert",
+                        "Auf der Karte siehst du deinen Fortschritt.",
+                    ),
+                ],
+                _ => &[
+                    (
+                        "well",
+                        "aqueduct",
+                        "Brunnen speisen das Aquädukt",
+                        "Eine Therme in der Nähe bekommt mehr Badeplätze.",
+                    ),
+                    (
+                        "forum",
+                        "ferry",
+                        "Das Forum hilft Fährgästen",
+                        "Läden in der Nähe sind vom Kai einen Platz weiter erreichbar.",
+                    ),
+                    (
+                        "villa",
+                        "budget",
+                        "Villen bringen mehr Nachbarn",
+                        "Viele kommen mit größerem Budget.",
+                    ),
+                ],
+            };
+            for &(from, to, title, words) in cards {
+                guide_card(page, hud, from, to, title, words);
+            }
         }
         button(
             page,
@@ -1378,4 +1614,76 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
             false,
         );
     });
+}
+
+fn guide_card(
+    p: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    from: &str,
+    to: &str,
+    title: &str,
+    words: &str,
+) {
+    card(
+        p,
+        Node {
+            padding: UiRect::axes(Val::Px(11.0), Val::Px(5.0)),
+            ..row(12.0)
+        },
+        CARD,
+    )
+    .with_children(|tile| {
+        tile.spawn(row(3.0)).with_children(|pair| {
+            icon(pair, hud, from, 40.0);
+            label(pair, hud, "›", 22.0, Face::Bold, MUTED);
+            icon(pair, hud, to, 40.0);
+        });
+        tile.spawn(column(1.0)).with_children(|text| {
+            label(text, hud, title, 19.0, Face::Bold, SAND);
+            label(text, hud, words, 16.0, Face::Body, MUTED);
+        });
+    });
+}
+
+fn controls_guide(p: &mut ChildSpawnerCommands, hud: &Hud) {
+    let keys = [
+        ("", "pad_dpad", "Bauplatz oder Feld wählen"),
+        ("A", "hammer", "Öffnen und bestätigen"),
+        ("B", "", "Zurück"),
+        ("Y", "sun", "Tag starten oder Tempo wechseln"),
+        ("X", "book", "Aufträge"),
+        ("View", "guest_book", "Gästebuch"),
+        ("RB", "cloud", "Wetter und Vorräte"),
+        ("R3", "nili", "Rechten Stick drücken · Nilis Touren"),
+        ("R-Stick", "chart", "Kamera bewegen"),
+        ("LT / RT", "", "Rein- und rauszoomen"),
+        ("LB", "", "Kamera zurücksetzen"),
+        ("Start", "pause", "Pause"),
+    ];
+    for pair in keys.as_chunks::<2>().0 {
+        p.spawn(row(8.0)).with_children(|r| {
+            for &(pad, art, caption) in pair {
+                card(
+                    r,
+                    Node {
+                        flex_grow: 1.0,
+                        flex_basis: Val::Px(0.0),
+                        min_height: Val::Px(42.0),
+                        padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)),
+                        ..row(7.0)
+                    },
+                    CARD,
+                )
+                .with_children(|tile| {
+                    if !pad.is_empty() {
+                        key(tile, hud, pad, false);
+                    }
+                    if !art.is_empty() {
+                        icon(tile, hud, art, 26.0);
+                    }
+                    label(tile, hud, caption, 16.0, Face::Body, SAND);
+                });
+            }
+        });
+    }
 }

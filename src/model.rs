@@ -110,32 +110,6 @@ impl Kind {
         }
     }
 
-    pub fn note(self) -> &'static str {
-        match self {
-            Self::House => "Mehr Nachbarn bringen mehr Besuche am Vormittag.",
-            Self::Well => "Frisches Wasser für Backstuben, Töpfereien und Gasthäuser.",
-            Self::Bakery => "Backt Brot. Mit Wasser werden mehr Laibe fertig.",
-            Self::Grove => "Liefert Oliven und spendet Höfen in der Nähe Schatten.",
-            Self::Potter => {
-                "Brennt bemalte Schalen. Mit Wasser kann der Ton besser geformt werden."
-            }
-            Self::Stoa => "Unter dem Säulendach rasten Nachbarn und Fährgäste.",
-            Self::Taverna => "Verwandelt frisches Brot und Oliven in reichlich Meze.",
-            Self::Inn => "Heißt Reisende willkommen. Mit Wasser sind mehr Betten bereit.",
-            Self::Storehouse => {
-                "Erhöht den fertigen Vorrat benachbarter Läden bis zu zwei Plätze entfernt."
-            }
-            Self::Press => "Presst Oliven zu Öl. Ein Hain direkt nebenan erhöht den Ertrag.",
-            Self::Shrine => "Mit bemalten Schalen aus der Töpferei entstehen mehr Weihegaben.",
-            Self::Aqueduct => {
-                "Führt Wasser über die Straße. Neben einem Brunnen fließt mehr Wasser."
-            }
-            Self::Baths => "Warmes Bad für die Stadt. Ein nahes Aquädukt bringt mehr Badeplätze.",
-            Self::Forum => "Bietet Marktstände und verkürzt für Fährgäste den Weg zu nahen Läden.",
-            Self::Villa => "Bringt mehr Nachbarn mit größerem Budget auf die Straße.",
-        }
-    }
-
     pub fn cost(self) -> u32 {
         match self {
             Self::House => 21,
@@ -194,8 +168,8 @@ impl Price {
     pub fn label(self) -> &'static str {
         match self {
             Self::Fair => "Günstig",
-            Self::Regular => "Üblich",
-            Self::Fine => "Fein",
+            Self::Regular => "Normal",
+            Self::Fine => "Hoch",
         }
     }
 
@@ -269,31 +243,26 @@ pub enum Weather {
 impl Weather {
     pub fn name(self) -> &'static str {
         match self {
-            Self::Clear => "Klar",
-            Self::Cloud => "Wolkig",
+            Self::Clear => "Sonne",
+            Self::Cloud => "Wolken",
             Self::Storm => "Sturm",
-            Self::Wind => "Nordwind",
+            Self::Wind => "Wind",
             Self::Heat => "Hitze",
             Self::Feast => "Festtag",
-            Self::Rain => "Platzregen",
+            Self::Rain => "Regen",
         }
     }
 
-    pub fn note(self) -> &'static str {
+    pub fn ferry_change(self) -> i16 {
         match self {
-            Self::Cloud => "Wolken ziehen über den Hafen. Die Fähre bleibt im Fahrplan.",
-            Self::Storm => {
-                "Hohe Wellen halten fünf Fährgäste zurück. Regen bringt fünf Krüge Wasser."
-            }
-            Self::Clear => "Ruhige See. Die Fähre kommt wie angekündigt.",
-            Self::Wind => "Weniger Fährgäste legen heute an.",
-            Self::Heat => "Werkstätten brauchen mehr Wasser. Schattige Höfe laden zum Bleiben ein.",
-            Self::Feast => "Die Fähre bringt zusätzliche Gäste mit höheren Budgets.",
-            Self::Rain => {
-                "Vier Krüge Regenwasser füllen die Zisterne. Die Fähre bringt weniger Gäste."
-            }
+            Self::Wind => -2,
+            Self::Rain => -3,
+            Self::Storm => -5,
+            Self::Feast => 4,
+            _ => 0,
         }
     }
+
     pub fn swell(self) -> f32 {
         match self {
             Self::Clear | Self::Heat => 0.18,
@@ -304,7 +273,7 @@ impl Weather {
         }
     }
 
-    fn rainfall(self) -> u16 {
+    pub fn rainfall(self) -> u16 {
         match self {
             Self::Rain => 4,
             Self::Storm => 5,
@@ -323,19 +292,17 @@ pub enum Favor {
 impl Favor {
     pub fn name(self) -> &'static str {
         match self {
-            Self::Jugs => "Krüge für Kleio",
-            Self::Shade => "Ein kühler Platz",
-            Self::Cargo => "Eilkorb vom Kai",
+            Self::Jugs => "Wasser verteilen",
+            Self::Shade => "Schatten spenden",
+            Self::Cargo => "Ware vom Kai holen",
         }
     }
 
     pub fn note(self) -> &'static str {
         match self {
-            Self::Jugs => {
-                "Zur Wasserstelle. Nili füllt die Vorräte naher Werkstätten und Bäder auf."
-            }
-            Self::Shade => "Zum Hain, zur Stoa oder zur Therme. Zusätzliche Rast- und Badeplätze.",
-            Self::Cargo => "Zu einem Laden. Nili bringt ihm drei frische Vorräte.",
+            Self::Jugs => "+2 Vorrat für Läden an der Quelle",
+            Self::Shade => "+2 Plätze je Stoa und Therme",
+            Self::Cargo => "+3 Vorrat für einen Laden",
         }
     }
 
@@ -376,12 +343,10 @@ impl Miss {
 
     pub fn hint(self) -> &'static str {
         match self {
-            Self::NoShop => "Für diesen Wunsch braucht die Gasse einen passenden Laden.",
-            Self::Walk => "Ein zweiter Laden näher an Wohnhöfen oder Kai erreicht mehr Menschen.",
-            Self::Price => {
-                "Wähle einen günstigeren Preis. Im Grundstücksmenü steht der Betrag pro Verkauf."
-            }
-            Self::Empty => "Schick Nili mit Nachschub oder plane für morgen einen Ausbau.",
+            Self::NoShop => "Baue einen Laden mit diesem Angebot.",
+            Self::Walk => "Baue näher bei den Wohnhöfen oder am Kai.",
+            Self::Price => "Stell morgen den Preis niedriger ein.",
+            Self::Empty => "Schick Nili mit Nachschub oder bau den Laden aus.",
         }
     }
 }
@@ -558,23 +523,10 @@ impl HarborPlan {
 
     pub fn name(self) -> &'static str {
         match self {
-            Self::Regular => "Wie gewohnt",
+            Self::Regular => "Normal",
             Self::Ferry => "Fährtag",
             Self::Water => "Wasserfahrt",
             Self::Neighbors => "Nachbarschaft",
-        }
-    }
-
-    pub fn note(self) -> &'static str {
-        match self {
-            Self::Regular => "Fährgäste und Vorräte wie angekündigt.",
-            Self::Ferry => "Drei Gäste mehr. Der Hafen gibt zwei Krüge Wasser an die Fähre.",
-            Self::Water => {
-                "Vier zusätzliche Krüge Wasser. Zwei Plätze im Boot bleiben für die Ladung frei."
-            }
-            Self::Neighbors => {
-                "Ein zusätzlicher Besuch je Hof. Zwei Fährtickets gehen an die Nachbarinsel."
-            }
         }
     }
 }
@@ -724,13 +676,9 @@ impl Town {
             .flatten()
             .map(|b| self.home_visits(*b))
             .sum();
-        let ferry = match self.weather(chapter) {
-            Weather::Wind => chapter.ferry.saturating_sub(2),
-            Weather::Feast => chapter.ferry + 4,
-            Weather::Rain => chapter.ferry.saturating_sub(3),
-            Weather::Storm => chapter.ferry.saturating_sub(5),
-            _ => chapter.ferry,
-        };
+        let ferry = chapter
+            .ferry
+            .saturating_add_signed(self.weather(chapter).ferry_change());
         let ferry = match self.harbor {
             HarborPlan::Regular => ferry,
             HarborPlan::Ferry => ferry + 3,
@@ -1050,20 +998,27 @@ impl Town {
         Ok(route)
     }
 
-    pub fn aid(&mut self, lot: usize) -> bool {
-        let Some(b) = self.lots.get(lot).copied().flatten() else {
+    pub fn can_aid(&self, lot: usize) -> bool {
+        let Phase::Open(day) = &self.phase else {
             return false;
         };
+        day.seconds >= 8.0
+            && day.route.is_none()
+            && day.favor_at.is_none()
+            && self
+                .lots
+                .get(lot)
+                .and_then(|b| *b)
+                .is_some_and(|b| day.favor.allows(b.kind))
+    }
+
+    pub fn aid(&mut self, lot: usize) -> bool {
+        if !self.can_aid(lot) {
+            return false;
+        }
         let Phase::Open(day) = &mut self.phase else {
             return false;
         };
-        if day.seconds < 8.0
-            || day.route.is_some()
-            || day.favor_at.is_some()
-            || !day.favor.allows(b.kind)
-        {
-            return false;
-        }
         match day.favor {
             Favor::Jugs => {
                 for (neighbor, building) in self.lots.iter().enumerate() {

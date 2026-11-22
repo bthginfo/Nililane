@@ -16,7 +16,7 @@ Hippogrove aus Waldwinkel. [Hippogrove-Revision](https://github.com/bthginfo/Hip
   Skelett. `construction.rs` steuert Gerüst, Ausbauteile und Staub.
   `sky.rs` zeichnet Wolken, Regenschlieren und Sturmwellen.
 - Die Bildtafeln und Spielsymbole in `ui/` kommen aus `art/make_ui.py`.
-  Dazu gehören die Gesichter, Fußspuren und das Gästebuch aus 2.1.
+  Dazu gehören die Gästehinweise, das Gästebuch, die Controller-Symbole und das Budgetsymbol.
   `art/make_audio.py` erzeugt das Meeresrauschen und die Klangmotive
   für Bau, Ausbau, Verkauf, Hafenglocke und Nilis Hilfe sowie das Regenbett und
   die römische Musik mit Leier, Flöte und Rahmentrommel.

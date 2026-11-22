@@ -1,13 +1,12 @@
-# Spielreview und Abnahme · Nililane 2.1
+# Spielreview und Abnahme · Nililane 2.2
 
 ## Einstieg als neuer Spieler
 
-Naxos führt durch Bauen, Preiswahl, Tagesstart und die erste Hafenbitte. Der
-Wasserlauf von Amorgos zeigt anschließend Nilis neue Touren. Das Menü erklärt
-bei jeder Aufgabe die Voraussetzungen und den Nutzen. Die Zeit bleibt bei
-der Zielwahl stehen. Auf der Insel markieren ein Ring und das HUD das Ziel.
-Nili nimmt die Fracht sichtbar auf, und der Fortschritt steht neben dem
-Tourensymbol.
+Auf Naxos markiert Nili den Bauplatz und zeigt mit drei Bildern den Weg vom
+Ofen über den Brotpreis zum Tagesstart. Die erste Hafenbitte erscheint über
+dem passenden Gebäude. Amorgos zeigt danach den Brunnen und die erste
+Wassertour. Bei der Zielwahl pausiert der Tag. Schilder auf der Insel zeigen
+geeignete Ziele, das Tourensymbol zeigt anschließend Nilis Fortschritt.
 
 ## Veröffentlichung
 
@@ -37,10 +36,12 @@ im Offline-Paket. Die README führt zur APK und ihrer SHA-256-Prüfsumme.
 
 ## Oberfläche und Bedienung
 
-Die Kampagnenkarte ergänzt die Hafenbilder um Größe, Küstenform und die
-beiden Parzellenreihen. Im Grundstücksmenü stehen der nächste sichtbare
-Ausbau und seine Wirkung. Bei gezoomter Kamera folgt der Ausschnitt
-der Auswahl am Rand.
+Die Kampagnenkarte zeigt Größe und Küstenform. Im Baumenü stehen Kosten
+und Ertrag neben den Gebäudebildern. Die Preisstufen zeigen, wie viele
+erwartete Gäste genug Geld haben. Der Ausbau zeigt Vorrat oder Kapazität
+vorher und nachher. Wetterkarten zeigen Änderungen bei Wasser und
+Fährgästen. Die Texte in allen 48 Häfen sind kürzer. Die Spielhilfe
+verbindet Controller-Symbole mit kurzen Hinweisen und bebilderten Abläufen.
 
 Die Zufriedenheitskarte zeigt Anteil und Anzahl erfüllter Wünsche. Die
 Gesichter, Warenbilder und Texte tauchen über den Gästen auf, sobald sie
@@ -64,7 +65,7 @@ während des Tages berücksichtigt die noch anstehenden Wünsche.
 
 ## Prüfungen
 
-- Formatierung, Clippy mit Warnungen als Fehler und elf Rust-Tests.
+- Formatierung, Clippy mit Warnungen als Fehler und 13 Rust-Tests einschließlich der ersten Schritte auf Naxos und Amorgos.
 - Gerenderte Stichproben in Griechenland und Rom im Querformat. In Kythnos
   öffnete ein Tipp auf die Sprechblase die passende Stimme. Der Preisfilter
   führte zur Stoa und die Zurück-Taste zur ausgewählten Rückmeldung.
@@ -77,6 +78,12 @@ während des Tages berücksichtigt die noch anstehenden Wünsche.
   aus 2.0 fortgesetzt. Simulierte Gamepad-Eingaben öffneten mit View das
   Gästebuch tagsüber und in der Abendabrechnung. B führte zur Abrechnung
   zurück, A zum nächsten Morgen. Die Gästestimmen blieben gespeichert.
+- Für 2.2 hat die Installation über 2.1 den Spielstand bytegenau erhalten.
+  Im Android-15-Emulator im 4:3-Format führten simulierte Gamepad-Eingaben
+  durch den bebilderten Einstieg, den Bau der Backstube, den günstigen
+  Brotpreis, den Tagesstart und die erste Hafenbitte. In der Desktop-Prüfung
+  lieferte Nili auf Amorgos einmal Wasser an die markierte Backstube.
+  Die Vorratskarten von Capua blieben in der großen UI lesbar.
 - APK-Signatur v2 und v3, 16-KiB-Ausrichtung beider Bibliotheken und
   SHA-256-Abgleich des GitHub-Downloads.
 - Der Test auf einem physischen Android-Tablet steht noch aus.

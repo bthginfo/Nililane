@@ -1,6 +1,7 @@
 mod bubbles;
 mod guests;
 mod panels;
+mod prompts;
 mod screens;
 
 use std::collections::HashMap;
@@ -10,7 +11,7 @@ use bevy::{prelude::*, ui::FocusPolicy, window::PrimaryWindow};
 use crate::{
     campaign::CHAPTERS,
     controls::{Direction, insets},
-    game::{Action, Game, Panel, View, can_aid},
+    game::{Action, Game, Panel, View},
     model::{Kind, MAX_LEVEL, Phase, Service, Weather},
     save::Campaign,
 };
@@ -79,6 +80,9 @@ pub(crate) struct RouteBar;
 pub(crate) struct GoalBar(crate::campaign::Goal);
 
 #[derive(Component)]
+pub(crate) struct GoalBadge(crate::campaign::Goal, &'static str);
+
+#[derive(Component)]
 pub(crate) struct ToastBox;
 
 pub fn setup(mut hud: ResMut<Hud>, assets: Res<AssetServer>) {
@@ -87,7 +91,7 @@ pub fn setup(mut hud: ResMut<Hud>, assets: Res<AssetServer>) {
         assets.load("embedded://fonts/DMSans-Bold.ttf"),
         assets.load("embedded://fonts/DMSerifText-Regular.ttf"),
     ];
-    let icons = "house well bakery grove potter stoa taverna inn bread olive meze bed coin star sun water wind ferry chart book guide hammer lock check nili title_fade storehouse press shrine aqueduct baths forum villa mood cloud rain storm guest_book guest_down guest_empty guest_happy guest_mixed guest_steps guest_wait";
+    let icons = "house well bakery grove potter stoa taverna inn bread olive meze bed coin star sun water wind ferry chart book guide hammer lock check nili title_fade storehouse press shrine aqueduct baths forum villa mood cloud rain storm guest_book guest_down guest_empty guest_happy guest_mixed guest_steps guest_wait pad_dpad pad_view sunset pause budget";
     for key in icons
         .split_whitespace()
         .map(str::to_owned)
@@ -135,9 +139,13 @@ pub fn draw(
                         if matches!(town.phase, Phase::Open(_)) {
                             bubbles::spawn(base, &hud);
                         }
+                        prompts::spawn(base, &hud);
                         screens::street(base, &hud, &game, town);
                     } else {
                         panels::street_panel(base, &hud, &game, town);
+                        if matches!(town.phase, Phase::Open(_)) {
+                            prompts::pause_chip(base, &hud);
+                        }
                     }
                 }
             }
@@ -208,6 +216,10 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
         (View::Street, Panel::Nili) => {
             let town = save.town.as_ref()?;
             let chapter = &CHAPTERS[town.chapter];
+            let guide = crate::coach::next(town, chapter, game.selected, game.saw_prices);
+            if matches!(guide, Some(crate::coach::Step::Water(_))) {
+                return Some(Action::ChooseJob(crate::errands::Job::Water));
+            }
             crate::errands::Job::ALL
                 .into_iter()
                 .find(|&job| job_preview(town, chapter, job).is_ok())
@@ -216,23 +228,24 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
         (View::Street, Panel::Build) => {
             let town = save.town.as_ref()?;
             let chapter = &CHAPTERS[town.chapter];
-            let starter = if town.chapter == 0
-                && town.count(Kind::Bakery) == 0
-                && town.coins >= Kind::Bakery.cost()
-            {
-                Some(Kind::Bakery)
-            } else {
-                build_set(chapter, game.build_page)
+            let available = build_set(chapter, game.build_page);
+            let starter = match crate::coach::next(town, chapter, game.selected, game.saw_prices) {
+                Some(crate::coach::Step::Build(_, kind)) if available.contains(&kind) => Some(kind),
+                _ => available
                     .iter()
                     .copied()
-                    .find(|kind| kind.cost() <= town.coins)
+                    .find(|kind| kind.cost() <= town.coins),
             };
             starter.map_or(Action::Back, Action::Build)
         }
         (View::Street, Panel::Details) => {
             let town = save.town.as_ref()?;
             match town.lots[game.selected] {
-                Some(b) if town.planning() && b.kind.service().is_some() => Action::Price(b.price),
+                Some(b) if town.planning() && b.kind.service().is_some() => {
+                    let price =
+                        crate::coach::recommended_price(town, game.selected).unwrap_or(b.price);
+                    Action::Price(price)
+                }
                 Some(b)
                     if town.planning() && b.level < MAX_LEVEL && b.upgrade_cost() <= town.coins =>
                 {
@@ -258,6 +271,7 @@ pub(crate) struct Root;
 
 pub use bubbles::update as update_reactions;
 pub use guests::refresh as refresh_guest_summary;
+pub use prompts::update as update_prompts;
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn refresh(
@@ -286,10 +300,16 @@ pub fn refresh(
         ),
     >,
     mut goals: Query<
-        (&GoalBar, &mut Node),
-        (Without<DynamicBar>, Without<Root>, Without<RouteBar>),
+        (&GoalBar, &mut Node, &mut BackgroundColor),
+        (
+            Without<DynamicBar>,
+            Without<Root>,
+            Without<RouteBar>,
+            Without<ButtonAction>,
+        ),
     >,
     mut route_bar: Query<&mut Node, (With<RouteBar>, Without<Root>)>,
+    mut badges: Query<(&GoalBadge, &mut ImageNode)>,
 ) {
     let factor = if save.large_ui { 1.105 } else { 1.0 };
     let actual = (window.width() / 1280.0)
@@ -317,10 +337,19 @@ pub fn refresh(
         let focused = game.focus.or(hud.first) == Some(button.action) && !button.disabled;
         let hovered = *input != Interaction::None && !button.disabled;
         outline.color = if focused { GOLD } else { Color::NONE };
-        (fill.0, border.0) = if button.disabled {
-            (DEEP, CARD)
-        } else if matches!(button.style, Style::Speech) {
+        (fill.0, border.0) = if matches!(button.style, Style::Speech) {
             (if hovered { PAPER } else { SAND }, PAPER)
+        } else if button.disabled {
+            (DEEP, CARD)
+        } else if matches!(button.style, Style::Danger) {
+            (
+                RUST,
+                if hovered {
+                    PAPER
+                } else {
+                    Color::srgb(0.61, 0.35, 0.29)
+                },
+            )
         } else if focused {
             (
                 if matches!(button.style, Style::Primary) {
@@ -344,8 +373,7 @@ pub fn refresh(
                 Style::Primary => (GOLD, PAPER),
                 Style::Quiet => (CARD, LINE),
                 Style::Selected => (JADE, LINE),
-                Style::Danger => (RUST, Color::srgb(0.61, 0.35, 0.29)),
-                Style::Speech => (SAND, PAPER),
+                Style::Danger | Style::Speech => unreachable!(),
             }
         };
     }
@@ -387,8 +415,12 @@ pub fn refresh(
                 }
             }
             Dynamic::Stock(lot) => {
-                if let Some(day) = day {
-                    let value = format!("{} Portionen übrig", day.stock[*lot]);
+                if let (Some(day), Some(service)) = (
+                    day,
+                    town.and_then(|town| town.lots[*lot])
+                        .and_then(|b| b.kind.service()),
+                ) {
+                    let value = stock_text(service, day.stock[*lot]);
                     if text.0 != value {
                         text.0 = value;
                     }
@@ -443,11 +475,22 @@ pub fn refresh(
         }
     }
     if let Some(town) = town {
-        for (goal, mut fill) in &mut goals {
+        for (goal, mut fill, mut color) in &mut goals {
             let (have, need) = shown_goal(town, goal.0);
             let width = Val::Percent(have.min(need) as f32 / need as f32 * 100.0);
             if fill.width != width {
                 fill.width = width;
+            }
+            let next = if have >= need { MUTED } else { GOLD };
+            if color.0 != next {
+                color.0 = next;
+            }
+        }
+        for (badge, mut icon) in &mut badges {
+            let (have, need) = shown_goal(town, badge.0);
+            let next = &hud.pictures[if have >= need { "check" } else { badge.1 }];
+            if icon.image != *next {
+                icon.image = next.clone();
             }
         }
     }
@@ -588,19 +631,32 @@ fn card<'p>(p: &'p mut ChildSpawnerCommands, node: Node, color: Color) -> Entity
 }
 
 fn key(p: &mut ChildSpawnerCommands, hud: &Hud, name: &str, bright: bool) {
+    if name == "View" {
+        icon(p, hud, "pad_view", 31.0);
+        return;
+    }
+    let accent = match name {
+        "A" => Some(Color::srgb(0.55, 0.81, 0.58)),
+        "B" => Some(Color::srgb(0.97, 0.63, 0.57)),
+        "X" => Some(Color::srgb(0.60, 0.78, 0.98)),
+        "Y" => Some(GOLD),
+        _ => None,
+    };
     p.spawn((
         Node {
             min_width: Val::Px(28.0),
-            height: Val::Px(27.0),
+            height: Val::Px(28.0),
             justify_content: JustifyContent::Center,
-            padding: UiRect::horizontal(Val::Px(6.0)),
+            padding: UiRect::horizontal(Val::Px(if accent.is_some() { 3.0 } else { 6.0 })),
+            border: UiRect::all(Val::Px(if accent.is_some() { 1.5 } else { 0.0 })),
             ..row(0.0)
         },
         BackgroundColor(if bright { DARK_TEXT } else { JADE }),
-        BorderRadius::all(Val::Px(8.0)),
+        BorderColor(accent.unwrap_or(JADE)),
+        BorderRadius::all(Val::Px(if accent.is_some() { 15.0 } else { 7.0 })),
         FocusPolicy::Pass,
     ))
-    .with_children(|pill| label(pill, hud, name, 14.0, Face::Bold, SAND));
+    .with_children(|pill| label(pill, hud, name, 15.0, Face::Bold, accent.unwrap_or(SAND)));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -705,6 +761,82 @@ fn kind_icon(kind: Kind) -> &'static str {
         Kind::Baths => "baths",
         Kind::Forum => "forum",
         Kind::Villa => "villa",
+    }
+}
+
+fn stock_text(service: Service, stock: u16) -> String {
+    if stock == 0 {
+        "Leer".into()
+    } else {
+        format!("{stock} {}", stock_unit(service, stock))
+    }
+}
+
+fn stock_unit(service: Service, amount: u16) -> &'static str {
+    match service {
+        Service::Bread => {
+            if amount == 1 {
+                "Laib"
+            } else {
+                "Laibe"
+            }
+        }
+        Service::Pottery => {
+            if amount == 1 {
+                "Schale"
+            } else {
+                "Schalen"
+            }
+        }
+        Service::Shade => {
+            if amount == 1 {
+                "Rastplatz"
+            } else {
+                "Rastplätze"
+            }
+        }
+        Service::Meze => {
+            if amount == 1 {
+                "Portion Meze"
+            } else {
+                "Portionen Meze"
+            }
+        }
+        Service::Bed => {
+            if amount == 1 {
+                "Bett"
+            } else {
+                "Betten"
+            }
+        }
+        Service::Oil => {
+            if amount == 1 {
+                "Krug Öl"
+            } else {
+                "Krüge Öl"
+            }
+        }
+        Service::Offering => {
+            if amount == 1 {
+                "Gabe"
+            } else {
+                "Gaben"
+            }
+        }
+        Service::Bath => {
+            if amount == 1 {
+                "Badeplatz"
+            } else {
+                "Badeplätze"
+            }
+        }
+        Service::Trade => {
+            if amount == 1 {
+                "Marktstand"
+            } else {
+                "Marktstände"
+            }
+        }
     }
 }
 
