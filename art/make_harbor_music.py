@@ -1,228 +1,333 @@
-"""Compose the 48 loopable harbor themes and their evening arrangements. Requires NumPy and FFmpeg with libvorbis."""
+"""Render Nililane's written chamber score as loopable Vorbis recordings.
 
+Requires NumPy, pyfluidsynth, libfluidsynth, FFmpeg, and GeneralUser GS 2.0.3.
+Pass the path to the soundfont with --soundfont. The game ships the mixdowns.
+"""
+
+import argparse
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from random import Random
+import re
 from subprocess import run
-import sys
 
+import fluidsynth
 import numpy as np
 
+from harbor_scores import SCORES, Song
 
-RATE = 24000
+
+RATE = 32_000
 OUT = Path(__file__).resolve().parents[1] / "assets/audio/harbors"
+MODES = {
+    "major": (0, 2, 4, 5, 7, 9, 11),
+    "minor": (0, 2, 3, 5, 7, 8, 10),
+    "dorian": (0, 2, 3, 5, 7, 9, 10),
+    "mixolydian": (0, 2, 4, 5, 7, 9, 10),
+    "lydian": (0, 2, 4, 6, 7, 9, 11),
+}
+DEGREES = {symbol: degree for degree, symbol in enumerate("def123456789", start=-3)}
 
 
 @dataclass(frozen=True)
-class Score:
-    harbor: str
-    bpm: int
-    root: int
-    mode: str
-    meter: int
-    motif: tuple[int, ...]
+class Voice:
+    program: int
+    velocity: int
+    gate: float
+    volume: int
+    pan: int
 
 
-SCORES = [
-    Score("Naxos", 92, 50, "ionian", 4, (0, 2, 4, 3, 2, 1, 0)),
-    Score("Amorgos", 78, 45, "dorian", 3, (4, 2, 1, 3, 0, 2, -1)),
-    Score("Delos", 89, 48, "mixolydian", 4, (0, 3, 2, 5, 4, 1, 2)),
-    Score("Rhodos", 101, 52, "ionian", 4, (2, 4, 6, 5, 3, 4, 1)),
-    Score("Samos", 85, 47, "dorian", 3, (3, 5, 6, 4, 2, 0, 1)),
-    Score("Kos", 96, 50, "mixolydian", 4, (1, 3, 2, 4, 6, 5, 4)),
-    Score("Paros", 83, 53, "ionian", 3, (0, 4, 6, 2, 5, 2, 1)),
-    Score("Kythnos", 93, 48, "dorian", 4, (5, 3, 4, 2, 0, 2, 3)),
-    Score("Thera", 76, 49, "aeolian", 4, (0, 3, 5, 4, 6, 2, 1)),
-    Score("Milos", 94, 51, "mixolydian", 3, (2, 6, 4, 1, 3, 5, 2)),
-    Score("Ikaria", 88, 46, "dorian", 3, (4, 6, 3, 5, 1, 2, 0)),
-    Score("Kallisti", 80, 52, "aeolian", 4, (3, 1, 0, 4, 6, 5, 2)),
-    Score("Andros", 102, 47, "mixolydian", 4, (1, 4, 5, 6, 3, 2, 1)),
-    Score("Aigina", 86, 51, "ionian", 3, (4, 5, 2, 3, 6, 4, 0)),
-    Score("Chios", 91, 48, "dorian", 4, (2, 0, 3, 6, 4, 5, 1)),
-    Score("Epidauros", 74, 54, "aeolian", 3, (5, 3, 1, 2, 0, 4, 2)),
-    Score("Skopelos", 99, 50, "ionian", 4, (0, 5, 3, 4, 1, 3, 2)),
-    Score("Syros", 87, 45, "mixolydian", 4, (6, 4, 2, 3, 1, 5, 4)),
-    Score("Tinos", 79, 49, "dorian", 3, (3, 0, 2, 5, 4, 6, 2)),
-    Score("Serifos", 95, 53, "ionian", 4, (0, 1, 4, 2, 6, 5, 3)),
-    Score("Kea", 90, 47, "aeolian", 4, (3, 6, 5, 3, 1, 0, 4)),
-    Score("Kythira", 77, 50, "mixolydian", 3, (2, 3, 6, 4, 5, 1, 0)),
-    Score("Zakynthos", 97, 48, "dorian", 4, (0, 2, 1, 4, 3, 6, 5)),
-    Score("Korinth", 82, 51, "ionian", 4, (4, 6, 5, 2, 3, 1, 0)),
-    Score("Ostia", 88, 45, "dorian", 4, (0, 3, 5, 6, 2, 4, 1)),
-    Score("Portus", 98, 48, "mixolydian", 4, (3, 5, 2, 1, 6, 4, 1)),
-    Score("Aricia", 76, 49, "ionian", 3, (4, 1, 3, 0, 5, 3, 2)),
-    Score("Tibur", 84, 46, "aeolian", 3, (5, 4, 2, 6, 3, 1, 0)),
-    Score("Praeneste", 95, 52, "ionian", 4, (0, 4, 5, 2, 3, 6, 4)),
-    Score("Veii", 78, 47, "dorian", 4, (6, 5, 3, 2, 4, 1, 2)),
-    Score("Tusculum", 90, 50, "mixolydian", 3, (2, 4, 1, 0, 6, 3, 4)),
-    Score("Lanuvium", 87, 45, "ionian", 4, (1, 5, 6, 3, 2, 4, 0)),
-    Score("Alba Longa", 73, 48, "aeolian", 3, (3, 6, 4, 2, 0, 5, 3)),
-    Score("Fidenae", 96, 49, "dorian", 4, (0, 2, 5, 3, 6, 1, 2)),
-    Score("Gabii", 91, 53, "mixolydian", 4, (6, 3, 4, 5, 1, 2, 0)),
-    Score("Aquae Albulae", 75, 47, "ionian", 3, (0, 5, 4, 6, 2, 3, 1)),
-    Score("Lavinium", 80, 46, "aeolian", 4, (4, 2, 0, 1, 5, 3, 6)),
-    Score("Formiae", 99, 49, "mixolydian", 4, (2, 6, 3, 0, 4, 1, 3)),
-    Score("Anxur", 87, 51, "dorian", 3, (5, 1, 4, 6, 3, 2, 0)),
-    Score("Cumae", 77, 48, "aeolian", 4, (6, 4, 5, 3, 0, 2, 1)),
-    Score("Neapolis", 103, 50, "ionian", 4, (3, 2, 4, 6, 5, 0, 4)),
-    Score("Puteoli", 94, 45, "mixolydian", 4, (0, 3, 1, 5, 6, 4, 2)),
-    Score("Capua", 85, 47, "dorian", 3, (4, 0, 6, 3, 2, 5, 1)),
-    Score("Pompeii", 90, 49, "aeolian", 4, (2, 5, 1, 4, 6, 3, 0)),
-    Score("Anio", 79, 52, "ionian", 3, (1, 0, 3, 6, 2, 4, 5)),
-    Score("Trastevere", 97, 48, "mixolydian", 4, (5, 2, 6, 4, 3, 1, 0)),
-    Score("Palatin", 83, 50, "dorian", 3, (3, 4, 6, 1, 0, 2, 5)),
-    Score("Rom", 82, 45, "ionian", 4, (0, 4, 6, 5, 2, 3, 0)),
-]
+# The programs are the zero-based General MIDI numbers.
+NYLON = Voice(24, 82, 1.22, 110, 51)
+HARP = Voice(46, 81, 1.22, 99, 76)
+FLUTE = Voice(73, 75, 0.91, 104, 64)
+CLARINET = Voice(71, 69, 0.93, 103, 69)
+NYLON_BACK = Voice(24, 68, 1.38, 87, 47)
+HARP_BACK = Voice(46, 60, 1.24, 84, 84)
+BASS = Voice(32, 68, 0.88, 83, 64)
+CELLO = Voice(42, 63, 0.87, 64, 59)
+PIZZ = Voice(45, 60, 0.72, 70, 56)
+BRUSHES = Voice(40, 58, 0.9, 67, 70)
 
-SCALES = {
-    "ionian": (0, 2, 4, 5, 7, 9, 11),
-    "dorian": (0, 2, 3, 5, 7, 9, 10),
-    "mixolydian": (0, 2, 4, 5, 7, 9, 10),
-    "aeolian": (0, 2, 3, 5, 7, 8, 10),
+# Lead, answering voice, plucked accompaniment. Quiet voices also swap at dusk.
+ENSEMBLES = {
+    "lyre": (FLUTE, HARP, NYLON_BACK),
+    "reed": (CLARINET, NYLON, HARP_BACK),
+    "trail": (NYLON, FLUTE, HARP_BACK),
+    "guitar": (FLUTE, NYLON, NYLON_BACK),
+    "chamber": (CLARINET, HARP, NYLON_BACK),
+    "pavilion": (CLARINET, HARP, NYLON_BACK),
+    "courtyard": (NYLON, FLUTE, HARP_BACK),
+}
+METERS = {
+    "4/4": (8, (0, 2, 4, 6)),
+    "3/4": (6, (0, 2, 4)),
+    "6/8": (6, (0, 3)),
+    "7/8": (7, (0, 3, 5)),
 }
 
-# Eight-bar phrases land on the tonic before switching orchestration.
-PROGRESSIONS = [
-    (0, 0, 3, 3, 1, 4, 3, 0),
-    (0, 2, 5, 3, 0, 1, 4, 0),
-    (0, 6, 3, 0, 5, 3, 4, 0),
-    (0, 3, 1, 4, 5, 2, 4, 0),
-    (0, 5, 3, 2, 1, 3, 4, 0),
-    (0, 4, 5, 2, 3, 1, 4, 0),
-]
+
+@dataclass(frozen=True)
+class Measure:
+    melody: str
+    root: int
 
 
-def compose(index: int, score: Score, evening: bool = False) -> np.ndarray:
-    roman = index >= 24
-    beat = (67 if evening else 60) / score.bpm
-    bars = 16 if evening else 28
-    length = round(bars * score.meter * beat * RATE)
-    mix = np.zeros((length, 2), dtype=np.float32)
-    scale = SCALES[score.mode]
-    family = (index + 2 * (index // 8)) % len(PROGRESSIONS)
-    rng = Random(9087 + index)
-    noise = np.random.default_rng(1059 + index)
-    progression = PROGRESSIONS[family]
+def phrases(score: Song):
+    length, _ = METERS[score.meter]
+    result = []
+    for melody, chord_row in zip((score.call, score.answer, score.bridge), score.chords.split(), strict=True):
+        bars = melody.split()
+        if len(bars) != 4 or len(chord_row) != 4:
+            raise ValueError(f"{score.harbor}: a phrase needs four bars")
+        phrase = []
+        for bar, chord in zip(bars, chord_row, strict=True):
+            if len(bar) != length or not re.fullmatch(r"([def1-9][-.]*|\.)+", bar):
+                raise ValueError(f"{score.harbor}: invalid bar {bar!r} for {score.meter}")
+            phrase.append(Measure(bar, int(chord) - 1))
+        result.append(phrase)
+    return result
 
-    def pitch(step: int, octave: int = 0) -> int:
-        return score.root + scale[step % 7] + 12 * (step // 7 + octave)
 
-    def note(at, key, duration, gain, pan, instrument):
-        n = round(duration * RATE)
-        t = np.arange(n, dtype=np.float64) / RATE
-        frequency = 440 * 2 ** ((key - 69) / 12)
-        phase = 2 * np.pi * frequency * t
-        if instrument == "string":
-            hardness = 0.23 if roman else 0.41
-            body = (
-                np.sin(phase) + 0.48 * np.sin(phase * 2.001)
-                + hardness * np.sin(phase * 3.005) * np.exp(-t * 4.3)
-                + 0.10 * np.sin(phase * 5.007) * np.exp(-t * 13)
-                + 0.09 * np.sin(phase * 0.998) * np.exp(-t * 1.3)
-            ) * np.exp(-t * (3.3 if roman else 4.5))
-            attack, release = 0.025, 0.15
-        elif instrument == "wind":
-            wobble = np.sin(2 * np.pi * (4.3 + family * 0.14) * t) * np.minimum(t * 1.8, 0.29)
-            overtone = 0.29 if roman else 0.16 + family * 0.015
-            body = np.sin(phase + wobble) + overtone * np.sin(2 * phase + wobble)
-            body += 0.08 * np.sin(3 * phase + wobble) * np.exp(-t * 2)
-            body += 0.04 * np.sin(phase * 1.006)
-            attack, release = 0.106, 0.21
-        elif instrument == "drum":
-            grain = noise.uniform(-1, 1, n)
-            soft = np.convolve(grain, np.ones(9) / 9, mode="same")
-            body = (np.sin(phase / (1 + t * 3.2)) * 0.78 + soft * 0.43) * np.exp(-t * 24)
-            attack, release = 0.011, 0.08
-        else:
-            body = (
-                np.sin(phase) + 0.13 * np.sin(phase * 2.76) * np.exp(-t * 5)
-            ) * np.exp(-t * 6.9)
-            attack, release = 0.015, 0.105
-        envelope = np.minimum(t / attack, 1) ** 1.3
-        envelope *= np.clip((duration - t) / release, 0, 1) ** 1.6
-        voice = (body * envelope * gain).astype(np.float32)
-        start = round(at * beat * RATE) % length
-        left = np.sqrt(0.5 * (1 - pan))
-        right = np.sqrt(0.5 * (1 + pan))
-        stereo = voice[:, np.newaxis] * [left, right]
-        first = min(n, length - start)
-        mix[start:start + first] += stereo[:first]
-        if first < n:
-            mix[:n - first] += stereo[first:]
+def midi_pitch(score: Song, degree: int):
+    octave, interval = divmod(degree, 7)
+    return score.tonic + octave * 12 + MODES[score.mode][interval]
 
-    meter = score.meter
-    patterns = [(0, 0.75, 1.5, 2.35), (0, 0.58, 1.24, 2.12, 2.57),
-                (0, 0.9, 1.78, 2.68), (0, 0.52, 1.43, 2.22)]
-    melodic = [(0.18, 1.1, 2.33), (0.67, 1.31, 2.12), (0.14, 1.55, 2.43),
-               (0.42, 1.6, 2.56), (0.26, 1.28, 2.02), (0.55, 1.1, 2.45)]
-    for bar in range(bars):
+
+def voicing(score: Song, root: int, former: tuple[int, ...]):
+    """Keep inner parts near their preceding pitches when the harmony moves."""
+    chord = [midi_pitch(score, root + interval) % 12 for interval in (0, 2, 4)]
+    candidates = sorted(pitch for pitch in range(46, score.tonic + 3) if pitch % 12 in chord)
+    return min(
+        (
+            (low, middle, high)
+            for low, middle, high in zip(candidates, candidates[1:], candidates[2:])
+            if {low % 12, middle % 12, high % 12} == set(chord)
+        ),
+        key=lambda notes: sum(abs(a - b) for a, b in zip(notes, former))
+        + abs(notes[-1] - (score.tonic - 2)) * 0.44,
+    )
+
+
+@dataclass(frozen=True, order=True)
+class Event:
+    frame: int
+    velocity: int
+    channel: int
+    key: int
+
+
+def arrange(score: Song, evening: bool):
+    call, answer, bridge = phrases(score)
+    size, accents = METERS[score.meter]
+    bpm = score.bpm * (0.91 if evening else 1.0)
+    cell_seconds = 30 / bpm
+    # A, B and A again. The last four bars are a quiet cadence in the day version.
+    coda = answer if not evening else []
+    measures = call + answer + bridge + bridge + call + answer + coda
+    length = round(len(measures) * size * cell_seconds * RATE)
+    events = []
+    lead, reply, picking = ENSEMBLES[score.colors]
+    if evening:
+        lead, reply = reply, lead
+        picking = NYLON_BACK if picking is HARP_BACK else HARP_BACK
+    bass = PIZZ if score.colors in ("pavilion", "chamber") else BASS
+    voices = {0: lead, 1: reply, 2: picking, 3: bass, 4: CELLO, 9: BRUSHES}
+    former = (score.tonic - 12, score.tonic - 8, score.tonic - 4)
+
+    def put(channel, key, at, duration, accent=0, push=0.0):
+        voice = voices[channel]
+        start = round((at * cell_seconds + push) * RATE)
+        stop = round((at * cell_seconds + push + duration * cell_seconds) * RATE)
+        events.append(Event(start, max(29, min(112, voice.velocity + accent)), channel, key))
+        events.append(Event(stop, 0, channel, key))
+
+    for bar, measure in enumerate(measures):
+        start = bar * size
         section = bar // 8
-        phrase = bar % 8
-        home = progression[phrase] if bar < 24 else (3, 1, 4, 0)[bar - 24]
-        if section == 1 and phrase in (1, 2, 4):
-            home = (home + (2 if phrase == 2 else 3)) % 7
-        start = bar * meter
-        voicing = (0, 4, 2, 7, 2) if family % 2 == 0 else (0, 4, 7, 2, 4)
-        timing = patterns[(family + int(section == 1)) % len(patterns)]
-        for j, onset in enumerate(timing):
-            if (evening and j > 2) or (bar >= 26 and j > 1):
-                break
-            key = pitch(home + voicing[j], int(j > 0))
-            note(start + onset * meter / 3, key, beat * (1.65 + 0.25 * (j % 2)),
-                 rng.uniform(0.075, 0.108) * (1 if j == 0 else 0.84),
-                 -0.31 if j % 2 else 0.13, "string")
-        if phrase not in (3, 7) and bar < 27:
-            melody = score.motif[phrase % len(score.motif)]
-            response = score.motif[(phrase + 1 + family % 3) % len(score.motif)]
-            degrees = (melody, response, 2 * melody - response)
-            if section == 1:
-                degrees = (response, melody + 2, score.motif[(phrase + 3) % len(score.motif)])
-            for j, onset in enumerate(melodic[family]):
-                if j == 2 and (phrase + index) % 3 == 0:
-                    continue
-                color = "bell" if evening and j != 1 else (
-                    "wind" if (section + family) % 3 != 0 or j == 1 else "bell"
-                )
-                step = home + degrees[j]
-                if step > 9:
-                    step -= 7
-                key = pitch(step, 1 if evening else (2 if not roman or family % 2 else 1))
-                volume = 0.098 if color == "wind" else 0.063
-                note(start + onset * meter / 3, key, beat * (0.80 + (j == 2) * 0.49),
-                     volume * rng.uniform(0.82, 1.05), 0.34 if j != 1 else 0.19, color)
-        if not evening and 4 <= bar < 25 and (roman or family % 2 == 1):
-            note(start, 38 + family % 3, 0.29, 0.090, -0.13, "drum")
-            if (bar + family) % 3 != 2:
-                note(start + meter * 0.62, 46, 0.21, 0.047, 0.21, "drum")
-        if bar in (7, 15, 23, 27):
-            note(start + meter * 0.35, pitch(0 if bar != 15 else 4, 2),
-                 beat * 1.8, 0.071, 0.19, "string")
+        phrase_bar = bar % 4
+        chord = voicing(score, measure.root, former)
+        former = chord
+        root = midi_pitch(score, measure.root)
+        while root > 49:
+            root -= 12
+        fifth = root + 7 if root <= 45 else root - 5
+        contrasting = section == 1
+        coda_bar = section == 3
+        # Interest comes from phrasing and changing who plays, with the written melody intact.
+        first_pass = bar < 8
+        retreat = -8 if coda_bar else -3 if evening else 0
+        phrase_dynamics = (-3, 0, 2, -4)[phrase_bar] + retreat
+        channel = 1 if (contrasting and bar < 12) or coda_bar else 0
+        if not first_pass and section == 2 and phrase_bar >= 2:
+            channel = 1
 
-    # Circular room reflections preserve the tails across the repeat point.
-    dry = mix.copy()
-    for delay, gain in [(0.071, 0.145), (0.127, 0.102), (0.204, 0.072), (0.31, 0.038)]:
-        mix += np.roll(dry[:, ::-1], round(delay * RATE), axis=0) * gain
-    rms = np.sqrt(np.mean(mix ** 2))
-    peak = np.max(np.abs(mix))
-    return mix * min(0.091 / rms, 0.78 / peak)
+        for match in re.finditer(r"([def1-9])(-*)", measure.melody):
+            at = match.start()
+            weight = 4 if at in accents else -3
+            if at == 0 and phrase_bar == 0:
+                weight += 4
+            degree = DEGREES[match[1]]
+            pitch = midi_pitch(score, degree)
+            use_lower_register = evening and pitch > 73 and voices[channel] is HARP
+            if use_lower_register:
+                pitch -= 12
+            duration = min(len(match[0]) * voices[channel].gate, len(match[0]) + 0.24)
+            # The bass enters first. The lead sits a few milliseconds behind the pluck.
+            put(channel, pitch, start + at, duration, weight + phrase_dynamics,
+                push=0.006 if at in accents else 0.012)
+
+        put(3, root, start, (size if evening or coda_bar else size * 0.52) - 0.24,
+            phrase_dynamics - 1)
+        if not evening and not coda_bar:
+            if bar % 2 == 1 and phrase_bar != 3:
+                next_root = midi_pitch(score, measures[bar + 1].root) if bar + 1 < len(measures) else score.tonic
+                while next_root > 50:
+                    next_root -= 12
+                put(3, next_root, start + size - 1.03, 0.79, -10)
+            else:
+                put(3, fifth, start + accents[-1], 1.34, -6 + retreat)
+
+        if evening:
+            # Sparse, ringing shapes leave room for the lower-register evening lead.
+            positions = ((0.09, 0), (1.65, 1), (size / 2 + 0.33, 2), (size - 1.02, 1))
+        elif score.colors in ("trail", "courtyard") and not coda_bar:
+            positions = tuple((at + 0.24, degree) for at, degree in enumerate(
+                (0, 1, 2, 1, 0, 2, 1, 2)[:size]
+            ))
+        elif contrasting:
+            positions = ((0.10, 0), (1.11, 1), (size / 2 + 0.12, 2), (size - 1.1, 1))
+        else:
+            positions = ((0.12, 0), (1.11, 2), (size / 2, 1), (size - 1.13, 2))
+        for onset, degree in positions:
+            tone = chord[degree]
+            volume = phrase_dynamics - (3 if evening else 0) - (5 if degree == 0 else 0)
+            if bar % 2 == 0 and degree == 2 and not evening and not coda_bar:
+                tone += 12 if tone + 12 < score.tonic + 9 else 0
+            put(2, tone, start + onset, min(2.1, size - onset - 0.06), volume)
+        if contrasting or (section == 2 and (phrase_bar < 2 or evening)):
+            # An unobtrusive bowed inner voice connects the sections.
+            sustain = chord[1] if bass is BASS else chord[0] + 12
+            put(4, sustain, start + 0.13, size - 0.40, phrase_dynamics - 8)
+
+        active_rhythm = score.colors in ("trail", "courtyard", "guitar")
+        if active_rhythm and not evening and not coda_bar and 2 <= bar < len(measures) - 5:
+            # Low strokes and soft brushes, with no tuned pattern over the score.
+            put(9, 36, start, 0.46, 0)
+            put(9, 38, start + accents[-1] + 0.05, 0.62, -8)
+            if contrasting or bar % 2 == 0:
+                put(9, 42, start + accents[1] + 0.04, 0.39, -18)
+    return length, voices, sorted(events)
 
 
-def main() -> None:
-    OUT.mkdir(parents=True, exist_ok=True)
-    args = sys.argv[1:]
-    evening = "--evening" in args
-    indices = list(map(int, (value for value in args if value != "--evening"))) or range(len(SCORES))
-    for index in indices:
-        score = SCORES[index]
-        pcm = compose(index, score, evening)
-        suffix = "-abend" if evening else ""
-        run([
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-            "-f", "f32le", "-ar", str(RATE), "-ac", "2", "-i", "pipe:0",
-            "-c:a", "libvorbis", "-q:a", "3.2", "-metadata", f"title={score.harbor}",
-            "-metadata", "album=Nililane · Hafenreisen", str(OUT / f"{index:02}{suffix}.ogg"),
-        ], input=pcm.astype("<f4").tobytes(), check=True)
-        print(f"{index:02} {score.harbor:14} {len(pcm) / RATE:5.1f} s", flush=True)
+def synthesize(soundfont: Path, length: int, voices, events):
+    synth = fluidsynth.Synth(
+        gain=0.43, samplerate=RATE, channels=16,
+        **{"synth.chorus.active": False, "synth.reverb.active": True},
+    )
+    try:
+        bank = synth.sfload(str(soundfont), update_midi_preset=0)
+        if bank < 0:
+            raise ValueError(f"FluidSynth could not load {soundfont}")
+        synth.set_reverb(0.36, 0.56, 55.0, 0.29)
+        for channel, voice in voices.items():
+            result = synth.program_select(channel, bank, 128 if channel == 9 else 0, voice.program)
+            if result != 0:
+                raise ValueError(f"SoundFont preset {voice.program} is unavailable")
+            synth.cc(channel, 7, voice.volume)
+            synth.cc(channel, 10, voice.pan)
+            synth.cc(channel, 91, 29 if channel in (0, 1) else 21)
+
+        # Put the final cadence's tail underneath the first beat at the loop point.
+        tail_frames = RATE * 3
+        pcm = np.empty((length + tail_frames, 2), dtype=np.float32)
+        played = 0
+
+        def advance(frame):
+            nonlocal played
+            if frame > played:
+                frames = synth.get_samples(frame - played).reshape(-1, 2)
+                pcm[played:frame] = frames.astype(np.float32) / 32768.0
+                played = frame
+
+        # Repeated notes may be re-articulated before the earlier gate ends.
+        # Keep the newest note active if the earlier one is still releasing.
+        active = {}
+        for event in events:
+            advance(event.frame)
+            pair = (event.channel, event.key)
+            if event.velocity:
+                if pair in active:
+                    synth.noteoff(*pair)
+                synth.noteon(*pair, event.velocity)
+                active[pair] = active.get(pair, 0) + 1
+            elif active.get(pair, 0) == 1:
+                synth.noteoff(*pair)
+                del active[pair]
+            elif pair in active:
+                active[pair] -= 1
+        advance(length + tail_frames)
+        pcm[:tail_frames] += pcm[length:] * np.linspace(1.0, 0.0, tail_frames)[:, None]
+        return pcm[:length]
+    finally:
+        synth.delete()
+
+
+def master(pcm, evening: bool):
+    measurement = run(
+        ["ffmpeg", "-hide_banner", "-nostats", "-f", "f32le", "-ar", str(RATE), "-ac", "2",
+         "-i", "pipe:0", "-af", "ebur128=framelog=verbose", "-f", "null", "-"],
+        input=pcm.astype("<f4").tobytes(), capture_output=True, check=True,
+    ).stderr.decode()
+    measured = float(re.findall(r"I:\s+(-?\d+\.\d+) LUFS", measurement)[-1])
+    target = -20.5 if evening else -19.0
+    gain = 10 ** ((target - measured) / 20)
+    # A fixed gain preserves the players' written dynamics.
+    return pcm * min(gain, 0.76 / np.max(np.abs(pcm)))
+
+
+def write_score(index: int, evening: bool, soundfont: Path, out: Path):
+    score = SCORES[index]
+    length, voices, events = arrange(score, evening)
+    pcm = master(synthesize(soundfont, length, voices, events), evening)
+    suffix = "-abend" if evening else ""
+    title = f"{score.title} (Abendfassung)" if evening else score.title
+    run([
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "f32le", "-ar", str(RATE), "-ac", "2", "-i", "pipe:0",
+        "-c:a", "libvorbis", "-b:a", "64k",
+        "-metadata", f"title={title}", "-metadata", f"location={score.harbor}",
+        "-metadata", "album=Nililane · Hafenmusik",
+        str(out / f"{index:02}{suffix}.ogg"),
+    ], input=pcm.astype("<f4").tobytes(), check=True)
+    print(f"{index:02}{suffix:6} {score.harbor:14} {len(pcm) / RATE:5.1f} s  {title}", flush=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--soundfont", required=True, type=Path)
+    parser.add_argument("--out", type=Path, default=OUT)
+    parser.add_argument("--evening", action="store_true", help="only render the evening arrangements")
+    parser.add_argument("--day", action="store_true", help="only render the day arrangements")
+    parser.add_argument("--jobs", type=int, default=3)
+    parser.add_argument("indices", nargs="*", type=int, metavar="HARBOR")
+    args = parser.parse_args()
+    if args.evening and args.day:
+        parser.error("--day and --evening are mutually exclusive")
+    if any(not 0 <= index < len(SCORES) for index in args.indices):
+        parser.error(f"Harbor numbers must be between 0 and {len(SCORES) - 1}")
+    if not args.soundfont.is_file():
+        parser.error(f"SoundFont not found: {args.soundfont}")
+    args.out.mkdir(parents=True, exist_ok=True)
+    variants = [True] if args.evening else [False] if args.day else [False, True]
+    with ProcessPoolExecutor(max_workers=args.jobs) as pool:
+        jobs = [
+            pool.submit(write_score, i, evening, args.soundfont, args.out)
+            for i in args.indices or range(len(SCORES)) for evening in variants
+        ]
+        for job in jobs:
+            job.result()
 
 
 if __name__ == "__main__":

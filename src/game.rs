@@ -95,7 +95,7 @@ pub enum Action {
     ConfirmDemolish,
     Open,
     Aid,
-    Incident(usize),
+    AidAt(usize),
     Nili,
     ChooseJob(Job),
     Dispatch,
@@ -266,6 +266,23 @@ impl Default for Game {
 }
 
 impl Game {
+    pub fn lot_action(&self, town: &Town, lot: usize) -> Action {
+        let chapter = &CHAPTERS[town.chapter];
+        if town.favor_plan(chapter, lot).is_some()
+            && (town
+                .incident(chapter)
+                .is_some_and(|(_, target)| target == lot)
+                || matches!(
+                    coach::next(town, chapter, self.selected, self.saw_prices),
+                    Some(Step::Aid(target, _)) if target == lot
+                ))
+        {
+            Action::AidAt(lot)
+        } else {
+            Action::LookAtLot(lot)
+        }
+    }
+
     pub fn visible_town<'a>(&'a self, save: &'a Campaign) -> &'a Town {
         let region = match self.view {
             View::Street => return save.active_town().unwrap_or(&self.preview),
@@ -615,12 +632,13 @@ pub fn frame(
                 Action::Dispatch
             } else if !town.planning() {
                 match game.nearby {
-                    Some(Nearby::Building(lot)) => Action::LookAtLot(lot),
+                    Some(Nearby::Building(lot)) => game.lot_action(town, lot),
                     Some(Nearby::Activity(slot, _)) => Action::StreetHelp(slot),
-                    None => return,
+                    None => match game.lot_action(town, game.selected) {
+                        action @ Action::AidAt(_) => action,
+                        _ => return,
+                    },
                 }
-            } else if town.favor_plan(chapter, game.selected).is_some() {
-                Action::Aid
             } else {
                 Action::Plot
             };
@@ -667,7 +685,7 @@ pub fn frame(
             game.pan += Vec2::new(controls.pan.x, -controls.pan.y) * dt * 6.0;
             game.pan = game.pan.clamp(Vec2::new(-5.0, -2.0), Vec2::new(5.0, 3.0));
         }
-        // Clicking a visible parcel focuses it. A second tap or the action button opens it.
+        // Marked requests take priority when tapping an occupied parcel.
         if game.walk_pointer.is_none()
             && !buttons
                 .iter()
@@ -688,12 +706,11 @@ pub fn frame(
                 && let Some(lot) = crate::world::pick(camera, transform, pointer, chapter.layout)
             {
                 if game.job.is_none() && town.lots[lot].is_some() {
-                    apply(Action::LookAtLot(lot), &mut game, &mut save);
+                    let action = game.lot_action(town, lot);
+                    apply(action, &mut game, &mut save);
                 } else if lot == game.selected && (town.planning() || game.job.is_some()) {
                     let action = if game.job.is_some() {
                         Action::Dispatch
-                    } else if town.favor_plan(chapter, lot).is_some() {
-                        Action::Aid
                     } else {
                         Action::Plot
                     };
@@ -1300,11 +1317,10 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                 game.save(save);
             }
         }
-        Action::Incident(lot) => {
-            if let Some(town) = save.active_town()
-                && town
-                    .incident(&CHAPTERS[town.chapter])
-                    .is_some_and(|(_, target)| target == lot)
+        Action::AidAt(lot) => {
+            if save
+                .active_town()
+                .is_some_and(|town| town.favor_plan(&CHAPTERS[town.chapter], lot).is_some())
             {
                 select(game, lot);
                 apply(Action::Aid, game, save);
@@ -1516,6 +1532,24 @@ enum Track {
     Harbor { chapter: usize, evening: bool },
 }
 
+impl Track {
+    fn asset(self) -> String {
+        match self {
+            Self::Menu(Region::Greece) => "embedded://audio/aegean.ogg".to_owned(),
+            Self::Menu(Region::Rome) => "embedded://audio/roman_quay.ogg".to_owned(),
+            Self::Harbor { chapter, evening } => {
+                let suffix = if evening { "-abend" } else { "" };
+                let source = if cfg!(target_os = "android") {
+                    ""
+                } else {
+                    "embedded://"
+                };
+                format!("{source}audio/harbors/{chapter:02}{suffix}.ogg")
+            }
+        }
+    }
+}
+
 #[derive(Component)]
 pub(crate) struct Music {
     track: Track,
@@ -1528,14 +1562,11 @@ pub(crate) struct Coast;
 #[derive(Component)]
 pub(crate) struct RainAudio;
 
-#[derive(Component)]
-pub(crate) struct IncidentAudio(bool);
-
 type MusicVoices<'w, 's> = Query<
     'w,
     's,
     (Entity, &'static mut Music, Option<&'static mut AudioSink>),
-    (Without<Coast>, Without<RainAudio>, Without<IncidentAudio>),
+    (Without<Coast>, Without<RainAudio>),
 >;
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -1546,18 +1577,8 @@ pub fn audio(
     assets: Res<AssetServer>,
     mut music: MusicVoices,
     time: Res<Time<Real>>,
-    mut coast: Query<
-        Option<&mut AudioSink>,
-        (With<Coast>, Without<RainAudio>, Without<IncidentAudio>),
-    >,
-    mut rain: Query<
-        Option<&mut AudioSink>,
-        (With<RainAudio>, Without<Coast>, Without<IncidentAudio>),
-    >,
-    mut motif: Query<
-        (Entity, &IncidentAudio, Option<&mut AudioSink>),
-        (Without<Coast>, Without<RainAudio>, Without<Music>),
-    >,
+    mut coast: Query<Option<&mut AudioSink>, (With<Coast>, Without<RainAudio>)>,
+    mut rain: Query<Option<&mut AudioSink>, (With<RainAudio>, Without<Coast>)>,
     window: Single<&Window, With<PrimaryWindow>>,
 ) {
     let town = game.visible_town(&save);
@@ -1584,88 +1605,57 @@ pub fn audio(
     let track_ready = music
         .iter()
         .any(|(_, item, sink)| item.track == track && sink.is_some());
-    let audio_ready = music.iter().any(|(_, _, sink)| sink.is_some());
     if !has_track {
-        let path = match track {
-            Track::Menu(Region::Greece) => "embedded://audio/aegean.ogg".to_owned(),
-            Track::Menu(Region::Rome) => "embedded://audio/roman_quay.ogg".to_owned(),
-            Track::Harbor { chapter, evening } => {
-                let suffix = if evening { "-abend" } else { "" };
-                format!("embedded://audio/harbors/{chapter:02}{suffix}.ogg")
-            }
-        };
         let mut settings = PlaybackSettings::LOOP.with_volume(Volume::Linear(0.0));
-        settings.paused = !audible;
+        settings.paused = true;
         commands.spawn((
             Music { track, gain: 0.0 },
-            AudioPlayer::new(assets.load(path)),
+            AudioPlayer::new(assets.load(track.asset())),
             settings,
         ));
     }
-    let event = if in_harbor {
-        town.incident(&CHAPTERS[town.chapter])
-            .map(|(favor, _)| favor == model::Favor::LostGuests)
-    } else {
-        None
+    let incident = in_harbor
+        .then(|| town.incident(&CHAPTERS[town.chapter]))
+        .flatten();
+    let song_volume = match incident {
+        Some((model::Favor::LostGuests, _)) => 0.37,
+        Some(_) => 0.31,
+        None => 0.43,
     };
-    let motif_playing = motif.iter().any(|(_, cue, _)| Some(cue.0) == event);
-    if let Some(guests) = event.filter(|_| !motif_playing) {
-        let path = if guests {
-            "embedded://audio/harbor_guests.ogg"
-        } else {
-            "embedded://audio/harbor_caution.ogg"
-        };
-        let mut settings = PlaybackSettings::LOOP.with_volume(Volume::Linear(0.0));
-        settings.paused = !audible;
-        commands.spawn((
-            IncidentAudio(guests),
-            AudioPlayer::new(assets.load(path)),
-            settings,
-        ));
-    }
-    let fade = time.delta_secs().min(0.1) / 0.9;
-    for (entity, cue, sink) in &mut motif {
-        let current = Some(cue.0) == event;
-        if let Some(mut sink) = sink {
-            let previous = sink.volume().to_linear();
-            let goal = if current { 0.22 } else { 0.0 };
-            let volume = previous + (goal - previous).clamp(-fade, fade);
-            sink.set_volume(Volume::Linear(volume));
-            if audible {
-                sink.play();
-            } else {
-                sink.pause();
-            }
-            if !current && volume == 0.0 {
-                commands.entity(entity).despawn();
-            }
-        } else if !current {
-            commands.entity(entity).despawn();
-        }
-    }
-    let step = time.delta_secs().min(0.1) / 1.2;
+    // Wait for the incoming asset, then fade the outgoing instruments before
+    // the new arrangement starts.
+    let fading_out = music
+        .iter()
+        .any(|(_, item, sink)| item.track != track && item.gain > 0.0 && sink.is_some());
+    let elapsed = time.delta_secs().min(0.1);
     for (entity, mut item, sink) in &mut music {
-        if item.track == track {
-            item.gain = (item.gain + step).min(1.0);
-        } else if track_ready {
-            item.gain = (item.gain - step).max(0.0);
-            if !audible || item.gain == 0.0 {
+        let current = item.track == track;
+        let Some(mut sink) = sink else {
+            if !current {
                 commands.entity(entity).despawn();
-                continue;
             }
+            continue;
+        };
+        let ready_to_play = audible && if current { !fading_out } else { !track_ready };
+        let goal = if ready_to_play { 1.0 } else { 0.0 };
+        let delta = (goal - item.gain).clamp(-elapsed / 0.55, elapsed / 0.72);
+        item.gain += delta;
+        if !current && track_ready && (!audible || item.gain <= 0.0) {
+            commands.entity(entity).despawn();
+            continue;
         }
-        if let Some(mut sink) = sink {
-            let gain = if motif_playing { 0.20 } else { 0.30 };
-            let volume = sink
-                .volume()
-                .to_linear()
-                .lerp(gain * item.gain, (step * 6.0).min(1.0));
-            sink.set_volume(Volume::Linear(volume));
-            if audible {
-                sink.play();
-            } else {
-                sink.pause();
-            }
+        let fade = item.gain * item.gain * (3.0 - 2.0 * item.gain);
+        let mix = sink.volume().to_linear().lerp(song_volume, elapsed * 8.0);
+        // Use a separate envelope for the handoff, so a new track starts silently.
+        sink.set_volume(Volume::Linear(if item.gain < 1.0 {
+            song_volume * fade
+        } else {
+            mix
+        }));
+        if audible && item.gain > 0.0 {
+            sink.play();
+        } else {
+            sink.pause();
         }
     }
     match coast.single_mut() {
@@ -1706,11 +1696,7 @@ pub fn audio(
         }
         Ok(None) => {}
     }
-    if let Some(cue) = game
-        .cue
-        .take()
-        .filter(|_| save.sounds && focused && audio_ready)
-    {
+    if let Some(cue) = game.cue.take().filter(|_| save.sounds && focused) {
         let file = match cue {
             Cue::Confirm => "embedded://audio/ui_choose.wav",
             Cue::Back => "embedded://audio/ui_back.wav",
@@ -1731,5 +1717,36 @@ pub fn audio(
             AudioPlayer::new(assets.load(file)),
             PlaybackSettings::DESPAWN.with_volume(Volume::Linear(0.35)),
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_marked_request_starts_from_nilis_current_position() {
+        let chapter = &CHAPTERS[0];
+        let mut town = Town::new(0, chapter);
+        let mut game = Game {
+            selected: 1,
+            ..Game::default()
+        };
+        assert!(town.build(chapter, 2, Kind::Bakery));
+        assert!(town.open(chapter));
+        take_control(&mut town, &mut game, false);
+        assert_eq!(game.lot_action(&town, 2), Action::LookAtLot(2));
+        assert!(!town.tick(chapter, 9.0));
+        assert_eq!(game.lot_action(&town, 2), Action::AidAt(2));
+        assert_eq!(game.lot_action(&town, 1), Action::LookAtLot(1));
+        assert!(town.aid(chapter, 2));
+        take_control(&mut town, &mut game, false);
+        let Phase::Open(day) = &town.phase else {
+            unreachable!()
+        };
+        let (route, nili) = day.manual_route().unwrap();
+        assert_eq!(route.delivery, crate::errands::Stop::Parcel(2));
+        assert_eq!(nili.position, [0.0, 0.10]);
+        assert!(matches!(nili.stage, ManualStage::Pickup));
     }
 }

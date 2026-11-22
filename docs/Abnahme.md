@@ -121,6 +121,18 @@ Planung auf. Die Referenz für Ladenentscheidungen und die Kombination
 aus Bevölkerungs-, Zufriedenheits- und Umsatzzielen waren die Berichte
 über Minami Lane. [Siliconera](https://www.siliconera.com/review-minami-lane-feels-neighborly/) · [Missionsübersicht](https://www.trueachievements.com/game/Minami-Lane/walkthrough/3)
 
+## Musik und Auftragsstart in 2.5.2
+
+Die 48 Partituren und ihre Abendfassungen sind als Vorbis-Aufnahmen im
+Android-Paket enthalten. Alle 96 Dateien lassen sich dekodieren und sind
+dem passenden Hafen zugeordnet. Die Prüfung misst Pegel und Loop-Übergänge.
+Die Tagesstücke liegen bei rund −19 LUFS, die Abendfassungen bei −20,5 LUFS.
+
+Im Android-Emulator hat ein Tipp auf die markierte Backstube von Naxos
+den Auftrag geöffnet. Nilis Position blieb bei Auftragsbeginn erhalten
+und die Hafenuhr lief weiter. Der Spielstand war nach der Installation
+über Version 2.5.1 bytegleich. 28 Rust-Tests sind bestanden.
+
 ## Prüfungen
 
 - Formatierung, Clippy mit Warnungen als Fehler und 20 Rust-Tests

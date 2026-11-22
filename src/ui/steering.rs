@@ -134,16 +134,13 @@ pub(super) fn free(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &
         card(foot, frame_node(Val::Auto, 5.0, 10.0), INK).with_children(|near| match game.nearby {
             Some(Nearby::Building(lot)) => {
                 let b = town.lots[lot].unwrap();
-                button(
-                    near,
-                    hud,
-                    Action::LookAtLot(lot),
-                    b.kind.name(),
-                    kind_icon(b.kind),
-                    "A",
-                    Style::Primary,
-                    false,
-                );
+                let action = game.lot_action(town, lot);
+                let (label, art) = if action == Action::LookAtLot(lot) {
+                    (b.kind.name(), kind_icon(b.kind))
+                } else {
+                    ("Hilfe starten", "nili")
+                };
+                button(near, hud, action, label, art, "A", Style::Primary, false);
             }
             Some(Nearby::Activity(slot, activity)) => {
                 button(

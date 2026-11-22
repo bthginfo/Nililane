@@ -25,9 +25,12 @@ Hippogrove aus Waldwinkel. [Hippogrove-Revision](https://github.com/bthginfo/Hip
   `art/make_audio.py` erzeugt das Meeresrauschen und die Klangmotive
   für Bau, Ausbau, Verkauf, Hafenglocke und Nilis Hilfe sowie das Regenbett und
   die römische Musik mit Leier, Flöte und Rahmentrommel.
-- `art/make_harbor_music.py` komponiert die 48 Hafenthemen und ihre
-  Abendfassungen. `art/make_street_audio.py` erzeugt die Ereignismotive
-  und Klänge für Tiere und Straßenaktionen. `art/make_street_art.py`
-  zeichnet die Altersgruppen, Straßensymbole und neuen Kleidungsbilder.
+- Die 48 Hafenstücke und ihre Abendfassungen sind in `art/harbor_scores.py`
+  ausgeschrieben. `art/make_harbor_music.py` spielt die Partituren mit FluidSynth
+  und dem SoundFont GeneralUser GS 2.0.3 von S. Christian Collins ein.
+  Im Spiel liegen die fertigen Vorbis-Aufnahmen. [SoundFont und Lizenz](https://schristiancollins.com/generaluser.php)
+- `art/make_street_audio.py` erzeugt Klänge für Tiere und Straßenaktionen.
+  `art/make_street_art.py` zeichnet die Altersgruppen, Straßensymbole und
+  neuen Kleidungsbilder.
 - DM Sans und DM Serif Text stehen unter der SIL Open Font License.
   Die Lizenztexte liegen bei den Schriften in `fonts/`.

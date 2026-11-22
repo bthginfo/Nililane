@@ -1,7 +1,6 @@
-"""Synthesize short foley and the two incidental harbor music layers."""
+"""Synthesize short street and animal sounds."""
 
 from pathlib import Path
-from subprocess import run
 import wave
 
 import numpy as np
@@ -36,20 +35,6 @@ def tap(data, at, duration, hz, gain):
     data[at:at + len(t)] += chord * env * gain
 
 
-def motif(name, lively):
-    t = time(8)
-    mix = np.zeros(len(t))
-    notes = [220, 277.18, 329.63, 392, 329.63, 277.18] if lively else [
-        146.83, 174.61, 220, 196, 174.61, 146.83
-    ]
-    for i, hz in enumerate(notes):
-        tap(mix, i * 1.15 + 0.12, 0.76, hz, 0.33)
-    mix += np.roll(mix, 2235) * 0.18 + np.roll(mix, 4661) * 0.09
-    run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "f32le", "-ac", "1",
-         "-ar", str(RATE), "-i", "pipe:0", "-c:a", "libvorbis", "-q:a", "3",
-         str(OUT / f"{name}.ogg")], input=mix.astype("<f4").tobytes(), check=True)
-
-
 t = time(0.48)
 noise = RNG.normal(0, 0.48, len(t))
 noise -= np.roll(noise, 1) * 0.54
@@ -74,5 +59,3 @@ bell = np.zeros(len(time(0.74)))
 tap(bell, 0.015, 0.54, 469, 0.39)
 tap(bell, 0.17, 0.52, 347, 0.29)
 save("street_bell", bell)
-motif("harbor_caution", False)
-motif("harbor_guests", True)

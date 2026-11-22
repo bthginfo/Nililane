@@ -1,4 +1,4 @@
-# Nililane 2.5.1
+# Nililane 2.5.2
 
 Nililane ist ein 3D-Straßenmanagementspiel in Rust und Bevy. Mit dem Nilpferd Nili
 reist du zuerst durch das antike Griechenland und danach durch das antike
@@ -6,7 +6,7 @@ Rom. Du planst die Gasse am Morgen, versorgst Nachbarn und Fährgäste und hilfs
 tagsüber dort, wo sich die Lieferungen stauen. Auf der Kampagnenkarte erkennst
 du die Größe des nächsten Hafens schon vor der Überfahrt.
 
-**[Nililane 2.5.1 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/e7147de0fb2177c6a2363398b39eed9d8d404000/Nililane-2.5.1.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/e7147de0fb2177c6a2363398b39eed9d8d404000/Nililane-2.5.1.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.5.1)
+**[Nililane 2.5.2 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/6c15f857cac1ee826a8cf11a14d773fdc4103134/Nililane-2.5.2.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/6c15f857cac1ee826a8cf11a14d773fdc4103134/Nililane-2.5.2.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.5.2)
 
 ![Nili mit Bewohnern und dem ausgebauten Wohnhof in Naxos](docs/bilder/naxos.jpg)
 
@@ -48,6 +48,15 @@ Für Bauplätze, Preise und Angebote nutzt du morgens die Planung.
 Mit der Tastatur bewegst du Nili mit WASD oder den Pfeiltasten. Enter
 entspricht A, Escape entspricht B. X, Y, P, Q und E entsprechen X, Y,
 Start, LB und RB. N öffnet Nilis Touren. F öffnet das Gästebuch.
+
+## Neu in 2.5.2
+
+- Alle 48 Häfen haben neu eingespielte Instrumentalstücke mit eigener
+  Melodie, Begleitung und ruhigerer Abendfassung. Saiten, Holzbläser und
+  leise Perkussion geben der Ägäis und Rom unterschiedliche Klangfarben.
+  Bei Zwischenfällen wird die Musik leiser, damit man den Hinweis hört.
+- Ein Tipp auf das für **Nili hilft** markierte Gebäude startet den Auftrag.
+  Anschließend führst du Nili selbst zum Abholort und zur Übergabe.
 
 ## Neu in 2.5.1
 

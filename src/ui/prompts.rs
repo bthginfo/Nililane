@@ -32,12 +32,20 @@ fn step_words(step: Step) -> (&'static str, &'static str) {
     }
 }
 
+fn step_action(step: Step) -> Action {
+    match step {
+        Step::Aid(lot, _) => Action::AidAt(lot),
+        _ => Action::Coach(step),
+    }
+}
+
 pub(super) fn strip(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, step: Step) {
     let (word, art) = step_words(step);
     let shortcut = match step {
         Step::StartDay => "Y",
         Step::Tour(..) => "R3",
-        Step::Build(lot, _) | Step::Price(lot) | Step::Aid(lot, _) if lot == game.selected => "A",
+        Step::Build(lot, _) | Step::Price(lot) if lot == game.selected => "A",
+        Step::Aid(lot, _) if lot == game.selected && game.nearby.is_none() => "A",
         _ => "",
     };
     p.spawn(Node {
@@ -55,7 +63,7 @@ pub(super) fn strip(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: 
         let mut tile = if matches!(step, Step::Arrivals | Step::Evening) {
             card(strip, node, DEEP)
         } else {
-            button_shell(strip, Action::Coach(step), Style::Primary, false, node)
+            button_shell(strip, step_action(step), Style::Primary, false, node)
         };
         let active = !matches!(step, Step::Arrivals | Step::Evening);
         tile.with_children(|r| {
@@ -320,7 +328,7 @@ fn map_signs(town: &Town, game: &Game) -> Vec<MapSign> {
             },
             title: favor.event_name(),
             icon: favor.icon(),
-            action: town.favor_plan(chapter, lot).map(|_| Action::Incident(lot)),
+            action: town.favor_plan(chapter, lot).map(|_| Action::AidAt(lot)),
         });
     }
     let step = coach::next(town, chapter, game.selected, game.saw_prices);
@@ -341,7 +349,7 @@ fn map_signs(town: &Town, game: &Game) -> Vec<MapSign> {
             point: Point::Lot(lot),
             title,
             icon: step_words(step).1,
-            action: Some(Action::Coach(step)),
+            action: Some(step_action(step)),
         });
     }
 
@@ -351,7 +359,7 @@ fn map_signs(town: &Town, game: &Game) -> Vec<MapSign> {
                 point: Point::Stop(Stop::Parcel(lot as u8)),
                 title: "Zum Eingang",
                 icon: "guest_steps",
-                action: Some(Action::LookAtLot(lot)),
+                action: Some(game.lot_action(town, lot)),
             });
         }
         for (slot, spot) in crate::street::spots(town, chapter).into_iter().enumerate() {
@@ -381,7 +389,7 @@ fn map_signs(town: &Town, game: &Game) -> Vec<MapSign> {
                     point: Point::Lot(lot),
                     title: unavailable(service),
                     icon: "guest_empty",
-                    action: Some(Action::LookAtLot(lot)),
+                    action: Some(game.lot_action(town, lot)),
                 });
             }
         }

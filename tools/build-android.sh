@@ -52,7 +52,7 @@ java -m jdk.compiler/com.sun.tools.javac.Main -source 8 -target 8 -Xlint:-option
 python3 - "$out" "${architectures[@]}" <<'PYRSA'
 import sys
 from pathlib import Path
-from zipfile import ZIP_DEFLATED, ZipFile
+from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 
 root = Path(sys.argv[1])
 with ZipFile(root / "linked.apk", "a") as apk:
@@ -60,6 +60,11 @@ with ZipFile(root / "linked.apk", "a") as apk:
     for abi in sys.argv[2:]:
         apk.write(root / "native" / abi / "libnililane.so", f"lib/{abi}/libnililane.so",
                   compress_type=ZIP_DEFLATED, compresslevel=6)
+    music = Path("assets/audio/harbors")
+    for index in range(48):
+        for suffix in ("", "-abend"):
+            name = f"{index:02}{suffix}.ogg"
+            apk.write(music / name, f"assets/audio/harbors/{name}", compress_type=ZIP_STORED)
 PYRSA
 
 if [[ -n "${NILILANE_KEYSTORE:-}" ]]; then

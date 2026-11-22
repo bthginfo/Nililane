@@ -146,6 +146,7 @@ fn embed_assets(app: &App) {
                 include_bytes!(concat!("../assets/", $asset)).as_slice());)*
         };
     }
+    #[cfg(not(target_os = "android"))]
     macro_rules! harbor_scores {
         ($($id:literal),* $(,)?) => {
             $(
@@ -162,6 +163,7 @@ fn embed_assets(app: &App) {
             )*
         };
     }
+    #[cfg(not(target_os = "android"))]
     harbor_scores!(
         "00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14",
         "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
@@ -179,8 +181,6 @@ fn embed_assets(app: &App) {
         "models/waldwinkel/resource_rock.glb",
         "audio/aegean.ogg",
         "audio/roman_quay.ogg",
-        "audio/harbor_caution.ogg",
-        "audio/harbor_guests.ogg",
         "audio/street_sweep.wav",
         "audio/street_purr.wav",
         "audio/street_woof.wav",
