@@ -8,6 +8,10 @@ use crate::{
 };
 
 pub const REGION_SIZE: usize = 24;
+
+pub const fn harbor_stage(index: usize) -> usize {
+    index % REGION_SIZE
+}
 pub const CHAPTER_COUNT: usize = REGION_SIZE * 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -153,17 +157,32 @@ pub struct Chapter {
 
 impl Chapter {
     pub fn allowed(&self) -> &'static [Kind] {
-        self.building_set.unwrap_or(&Kind::ALL[..self.unlock])
+        const GREEK_PLANS: [Kind; 12] = [
+            House, Well, Bakery, Grove, Potter, Stoa, Taverna, HerbGarden, Inn, Storehouse, Press,
+            Shrine,
+        ];
+        self.building_set.unwrap_or_else(|| {
+            if self.unlock >= 7 {
+                &GREEK_PLANS[..self.unlock + 1]
+            } else {
+                &Kind::ALL[..self.unlock]
+            }
+        })
     }
 
     pub fn day_seconds(&self) -> f32 {
-        let growth = self.par.saturating_sub(8) as f32;
-        match self.region {
-            Region::Greece => {
-                DAY_SECONDS + (growth * 1.45).min(24.0) + if self.par >= 15 { 13.0 } else { 0.0 }
-            }
-            Region::Rome => 45.0 + (growth * 1.15).min(16.0),
-        }
+        let walking_room = self.layout.width().saturating_sub(3) as f32 * 7.5;
+        let market_room = (self.par.saturating_sub(8) as f32 * 2.25).min(23.0);
+        let regional = if self.region == Region::Rome {
+            5.0
+        } else {
+            0.0
+        };
+        DAY_SECONDS + walking_room + market_room + regional
+    }
+
+    pub fn extra_ferry_guests(&self) -> u16 {
+        self.layout.width().saturating_sub(6) as u16 * 3
     }
 
     pub fn harbor_plans(&self) -> bool {

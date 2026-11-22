@@ -23,7 +23,10 @@ pub fn model(kind: Kind, level: u8) -> Mesh {
         Kind::Well => well(&mut b),
         Kind::Grove => grove(&mut b),
         Kind::Stoa => stoa(&mut b),
-        Kind::Bakery | Kind::Potter | Kind::Taverna | Kind::Inn => shop(&mut b, kind),
+        Kind::Bakery => bakehouse(&mut b, false),
+        Kind::Taverna => tavern(&mut b, false),
+        Kind::Potter | Kind::Inn => shop(&mut b, kind),
+        Kind::HerbGarden => herb_garden(&mut b, false),
         Kind::Storehouse => storage(&mut b),
         Kind::Press => press(&mut b),
         Kind::Shrine => sanctuary(&mut b),
@@ -38,8 +41,14 @@ pub fn model(kind: Kind, level: u8) -> Mesh {
 }
 
 pub fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8) {
+    if tier >= 5 {
+        super::late_upgrades::add(b, kind, tier, false);
+        return;
+    }
+
     let wood = [155, 111, 75];
     match (kind, tier) {
+        (Kind::HerbGarden, _) => garden_upgrade(b, tier, false),
         (Kind::House, 2) => {
             b.slab(v(0.0, 1.02, 1.10), v(1.96, 0.13, 0.62), IVORY);
             rail(b, v(0.0, 1.08, 1.38), 1.86, TEAL);
@@ -48,12 +57,19 @@ pub fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8) {
             }
         }
         (Kind::House, 3) => {
-            for x in [-1.10, 1.10] {
-                column(b, v(x, 0.05, 0.99), 0.98, 0.098);
+            b.slab(v(0.91, 0.56, -0.51), v(0.65, 1.07, 0.88), IVORY);
+            b.slab(v(0.91, 1.11, -0.51), v(0.79, 0.12, 1.00), BLUE);
+            b.slab(v(0.94, 0.74, -0.051), v(0.25, 0.32, 0.060), [61, 78, 78]);
+            b.slab(v(0.94, 0.553, 0.001), v(0.32, 0.063, 0.15), IVORY);
+            for n in 0..5 {
+                let height = 0.065 + n as f32 * 0.116;
+                b.slab(
+                    v(0.94, height * 0.5, 0.83 - n as f32 * 0.153),
+                    v(0.39, height, 0.19),
+                    IVORY,
+                );
             }
-            b.slab(v(0.0, 1.02, 1.05), v(2.46, 0.096, 0.62), MARBLE);
-            b.slab(v(0.0, 2.22, -0.34), v(1.15, 0.14, 0.78), IVORY);
-            canopy(b, v(0.0, 2.29, -0.34), 1.12, 0.78, 0.48, BLUE, false);
+            flowerpot(b, v(1.18, 0.07, 0.77), 0.51, [218, 122, 141]);
         }
         (Kind::House, 4) => {
             awning(b, 0.45, 1.75, 2.17, BLUE);
@@ -401,10 +417,227 @@ pub(super) fn awning(b: &mut Batch, z: f32, y: f32, width: f32, color: Tint) {
     }
 }
 
+pub(super) fn bakehouse(b: &mut Batch, roman: bool) {
+    let plaster = if roman {
+        [233, 168, 109]
+    } else {
+        [249, 223, 167]
+    };
+    let tiles = if roman { [170, 74, 53] } else { [226, 141, 72] };
+    let brick = if roman { [162, 85, 68] } else { [187, 104, 65] };
+    stone_base(b, 2.58, 1.91);
+    b.slab(v(-0.1, 0.73, -0.19), v(2.16, 1.33, 1.39), plaster);
+    roof(b, 2.32, 1.82, 1.44, 0.51, tiles);
+    b.slab(v(0.65, 1.47, -0.51), v(0.48, 1.70, 0.39), brick);
+    for y in [0.93, 1.54, 2.23] {
+        b.slab(v(0.65, y, -0.51), v(0.56, 0.083, 0.45), shift(brick, 26));
+    }
+    b.slab(v(0.65, 2.29, -0.51), v(0.25, 0.028, 0.19), [79, 48, 41]);
+    b.slab(v(0.36, 0.57, 0.525), v(0.49, 0.92, 0.075), shift(OAK, -30));
+    b.slab(v(0.36, 1.04, 0.563), v(0.58, 0.13, 0.13), MARBLE);
+    b.slab(v(-0.56, 0.75, 0.528), v(0.93, 0.53, 0.088), [88, 60, 42]);
+    b.slab(v(-0.56, 0.48, 0.72), v(1.06, 0.12, 0.48), shift(OAK, 13));
+    for i in 0..5 {
+        let x = -0.95 + i as f32 * 0.18;
+        let z = 0.73 + (i % 2) as f32 * 0.093;
+        b.gem(
+            v(x, 0.573, z),
+            0.113,
+            0.066,
+            0.081,
+            i as f32 * 0.66,
+            shift(GOLD, -7 + i * 6),
+        );
+        b.beam(
+            v(x - 0.042, 0.621, z - 0.037),
+            v(x + 0.015, 0.629, z + 0.028),
+            0.019,
+            CREAM,
+        );
+    }
+    awning(
+        b,
+        0.52,
+        1.27,
+        1.95,
+        if roman { [169, 65, 57] } else { [226, 169, 68] },
+    );
+    b.block(
+        v(-0.79, 1.40, 0.71),
+        v(0.39, 0.23, 0.042),
+        Quat::from_rotation_z(-0.09),
+        OAK,
+    );
+    b.gem(v(-0.79, 1.40, 0.749), 0.155, 0.065, 0.022, 0.25, GOLD);
+    if roman {
+        for x in [-1.04, 0.85] {
+            b.slab(v(x, 0.74, 0.539), v(0.13, 1.23, 0.15), brick);
+        }
+    }
+}
+
+pub(super) fn tavern(b: &mut Batch, roman: bool) {
+    let plaster = if roman { [212, 166, 124] } else { IVORY };
+    let wood = if roman { [111, 76, 64] } else { [57, 105, 113] };
+    let cloth = if roman { [122, 39, 78] } else { [53, 128, 149] };
+    let leaf = if roman { [100, 139, 76] } else { [79, 145, 91] };
+    stone_base(b, 2.66, 2.00);
+    b.slab(v(0.0, 0.84, -0.71), v(2.40, 1.51, 0.40), plaster);
+    b.slab(v(0.0, 1.66, -0.55), v(2.49, 0.15, 0.79), MARBLE);
+    b.slab(v(0.0, 1.77, -0.55), v(2.55, 0.09, 0.86), cloth);
+    b.slab(v(0.0, 0.80, -0.47), v(1.44, 1.03, 0.115), shift(wood, -16));
+    for x in [-1.07, 1.07] {
+        b.slab(v(x, 0.84, 0.70), v(0.119, 1.46, 0.122), wood);
+        b.slab(v(x, 0.19, 0.70), v(0.24, 0.16, 0.24), plaster);
+        b.beam(v(x, 1.55, 0.91), v(x, 1.55, -0.66), 0.11, wood);
+    }
+    for i in 0..9 {
+        let z = -0.57 + i as f32 * 0.173;
+        b.slab(
+            v(0.0, 1.57, z),
+            v(2.43, 0.071, 0.074),
+            shift(wood, i * 3 - 12),
+        );
+        if i < 7 {
+            b.slab(
+                v(-0.11, 1.62 + (i % 2) as f32 * 0.018, z),
+                v(1.83, 0.06, 0.18),
+                shift(cloth, i * 4 - 8),
+            );
+        }
+    }
+    for x in [-0.63, 0.61] {
+        b.frustum(v(x, 0.12, 0.61), 0.068, 0.047, 0.39, 8, wood);
+        b.frustum(v(x, 0.51, 0.61), 0.30, 0.30, 0.048, 10, cloth);
+        b.frustum(v(x - 0.05, 0.56, 0.67), 0.13, 0.16, 0.055, 9, MARBLE);
+        for i in 0..4 {
+            b.gem(
+                v(x - 0.14 + i as f32 * 0.054, 0.635, 0.67),
+                0.031,
+                0.03,
+                0.029,
+                i as f32,
+                shift([192, 150, 66], i * 10),
+            );
+        }
+        bench(b, v(x, 0.12, 0.99), 0.41);
+    }
+    for i in 0..7 {
+        let at = v(
+            1.05 - i as f32 * 0.23,
+            1.58 + 0.045 * (i as f32).sin(),
+            0.73,
+        );
+        b.gem(at, 0.31, 0.105, 0.144, i as f32, shift(leaf, i * 5 - 16));
+        if i % 2 == 0 {
+            b.gem(
+                at + v(0.085, -0.115, 0.09),
+                0.08,
+                0.10,
+                0.073,
+                0.3,
+                [135, 74, 120],
+            );
+        }
+    }
+    amphora(b, v(-1.04, 0.125, 0.32), 1.05, cloth);
+}
+
+pub(super) fn herb_garden(b: &mut Batch, roman: bool) {
+    let border = if roman {
+        [168, 108, 80]
+    } else {
+        [198, 168, 119]
+    };
+    b.slab(v(0.0, 0.05, 0.0), v(2.56, 0.095, 1.84), shift(border, 15));
+    for (i, x) in [-0.79, 0.0, 0.79].into_iter().enumerate() {
+        b.slab(v(x, 0.12, 0.01), v(0.65, 0.13, 1.43), border);
+        b.slab(v(x, 0.191, 0.01), v(0.57, 0.03, 1.34), [112, 77, 53]);
+        for j in 0..7 {
+            let at = v(
+                x + (j % 2) as f32 * 0.18 - 0.08,
+                0.32,
+                -0.52 + j as f32 * 0.18,
+            );
+            let color = [[104, 158, 113], [84, 139, 70], [138, 142, 101]][i];
+            b.gem(
+                at,
+                0.16,
+                0.16,
+                0.13,
+                j as f32 * 0.73,
+                shift(color, j * 4 - 8),
+            );
+            if i == 2 {
+                b.gem(
+                    at + v(0.037, 0.148, -0.028),
+                    0.063,
+                    0.058,
+                    0.061,
+                    0.2,
+                    [170, 124, 192],
+                );
+            }
+        }
+    }
+    amphora(
+        b,
+        v(-1.09, 0.103, 0.84),
+        0.71,
+        if roman { [158, 76, 62] } else { TEAL },
+    );
+    b.beam(v(1.09, 0.14, 0.77), v(1.09, 0.63, 0.77), 0.048, OAK);
+    b.block(
+        v(1.09, 0.56, 0.77),
+        v(0.29, 0.16, 0.049),
+        Quat::from_rotation_z(0.13),
+        shift(OAK, 26),
+    );
+}
+
+pub(super) fn garden_upgrade(b: &mut Batch, tier: u8, roman: bool) {
+    let stone = if roman { [187, 135, 99] } else { CREAM };
+    match tier {
+        2 => {
+            b.slab(v(0.0, 0.25, -0.25), v(0.70, 0.21, 0.75), stone);
+            b.slab(v(0.0, 0.376, -0.25), v(0.61, 0.045, 0.67), [113, 85, 59]);
+            flowerpot(b, v(-0.16, 0.39, -0.14), 0.72, [228, 164, 159]);
+        }
+        3 => {
+            for x in [-1.07, 1.07] {
+                b.slab(v(x, 0.72, -0.65), v(0.082, 1.34, 0.084), OAK);
+            }
+            for i in 0..8 {
+                let x = -1.02 + i as f32 * 0.29;
+                b.beam(v(x, 1.33, -0.87), v(x, 1.33, -0.31), 0.062, OAK);
+                b.gem(
+                    v(x, 1.38, -0.46),
+                    0.24,
+                    0.14,
+                    0.24,
+                    i as f32 * 0.4,
+                    shift([103, 153, 87], i * 5 - 16),
+                );
+            }
+            b.beam(v(-1.22, 1.33, -0.65), v(1.22, 1.33, -0.65), 0.085, OAK);
+        }
+        _ => {
+            awning(
+                b,
+                0.15,
+                1.05,
+                1.27,
+                if roman { [150, 65, 68] } else { [221, 173, 83] },
+            );
+            bake_shelf(b, v(0.55, 0.09, 0.39), stone);
+        }
+    }
+}
+
 fn shop(b: &mut Batch, kind: Kind) {
     let (color, roof_color, fabric, height) = match kind {
         Kind::Bakery => (IVORY, TERRACOTTA, TEAL, 1.55),
-        Kind::Potter => ([230, 182, 138], [173, 100, 67], [198, 99, 77], 1.43),
+        Kind::Potter => ([223, 178, 145], [77, 125, 129], [201, 107, 85], 1.58),
         Kind::Taverna => ([238, 201, 132], TERRACOTTA, BLUE, 1.69),
         _ => (MARBLE, BLUE, [202, 139, 76], 2.12),
     };

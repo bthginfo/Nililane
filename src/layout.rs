@@ -3,6 +3,7 @@
 pub const ORIGINAL_COLUMNS: usize = 6;
 pub const MAX_COLUMNS: usize = 9;
 pub const LOTS: usize = MAX_COLUMNS * 2;
+pub const LOT_SPACING: f32 = 3.20;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Shore {

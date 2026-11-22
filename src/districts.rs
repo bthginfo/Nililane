@@ -209,16 +209,18 @@ pub(super) const GREEK_LATE: [Chapter; 12] = [
 ];
 
 const PORT_PLANS: &[crate::model::Kind] = &[
-    House, Well, Bakery, Grove, Potter, Stoa, Taverna, Inn, Storehouse,
+    House, Well, Bakery, Grove, Potter, Stoa, Taverna, Inn, HerbGarden, Storehouse,
 ];
 const WATER_PLANS: &[crate::model::Kind] = &[
-    House, Well, Bakery, Grove, Potter, Taverna, Inn, Storehouse, Aqueduct, Baths,
+    House, Well, Bakery, Grove, Potter, Taverna, Inn, Storehouse, HerbGarden, Aqueduct, Baths,
 ];
 const CITY_PLANS: &[crate::model::Kind] = &[
-    House, Well, Bakery, Grove, Potter, Taverna, Inn, Storehouse, Aqueduct, Baths, Forum,
+    House, Well, Bakery, Grove, Potter, Taverna, Inn, Storehouse, HerbGarden, Aqueduct, Baths,
+    Forum,
 ];
 const ALL_ROMAN: &[crate::model::Kind] = &[
-    House, Well, Bakery, Grove, Potter, Taverna, Inn, Storehouse, Aqueduct, Baths, Forum, Villa,
+    House, Well, Bakery, Grove, Potter, Taverna, Inn, Storehouse, HerbGarden, Aqueduct, Baths,
+    Forum, Villa,
 ];
 
 const ROME_PORT: Chapter = Chapter {

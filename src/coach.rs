@@ -350,7 +350,7 @@ mod tests {
             next(&town, chapter, 1, false),
             Some(Step::Tour(lot, Job::Freight))
         );
-        assert!(town.tick(chapter, 60.0));
+        assert!(town.tick(chapter, chapter.day_seconds()));
         assert!(town.advance());
         town.coins = 60;
         let (_, dry_upgrade) = town.projected_upgrade(chapter, lot).unwrap();

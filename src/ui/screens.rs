@@ -426,7 +426,7 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
 
 pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, tutorial: bool) {
     let ch = &CHAPTERS[town.chapter];
-    let weather = town.weather(ch);
+    let weather = town.sky(ch);
     let manual = match &town.phase {
         Phase::Open(day) => day.manual_route().map(|(route, nili)| (day, route, nili)),
         _ => None,
@@ -498,11 +498,7 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
                 );
             });
         });
-        if manual.is_some() {
-            card(stack, frame_node(Val::Auto, 4.0, 8.0), DEEP).with_children(|time| {
-                panels::metric(time, hud, "pause", "Hafenuhr pausiert");
-            });
-        } else if matches!(town.phase, Phase::Open(_)) {
+        if matches!(town.phase, Phase::Open(_)) {
             card(stack, frame_node(Val::Px(290.0), 6.0, 10.0), INK).with_children(|time| {
                 time.spawn(Node {
                     justify_content: JustifyContent::SpaceBetween,
@@ -556,7 +552,7 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
     });
 
     if let Some((day, route, nili)) = manual {
-        steering::draw(p, hud, town, day, route, nili);
+        steering::draw(p, hud, town, game, day, route, nili);
         return;
     }
 
@@ -611,7 +607,7 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
             rail,
             hud,
             Action::Forecast,
-            "Hafenplan",
+            "Tagesplan",
             "ferry",
             "RB",
             Style::Quiet,
@@ -619,192 +615,176 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
         );
     });
 
-    let (place, tile, desc) = parcel_labels(town, game.selected);
-    let plan = game.job.map(|job| (job, job.plan(town, ch, game.selected)));
-    let step = coach::next(town, ch, game.selected, game.saw_prices);
-    let (primary, hot, ico, action) = if plan.is_some() {
-        ("Nili steuern", "A", "nili", Action::Dispatch)
-    } else if town.favor_plan(ch, game.selected).is_some() {
-        ("Nili steuern", "A", "nili", Action::Aid)
-    } else if town.planning() && town.lots[game.selected].is_none() {
-        ("Bauen", "A", "hammer", Action::Plot)
-    } else if town.planning()
-        && town.lots[game.selected].is_some_and(|b| b.kind.service().is_some())
-    {
-        ("Preis und Ausbau", "A", "coin", Action::Plot)
-    } else {
-        ("Details", "A", tile, Action::Plot)
-    };
-    let footer = Node {
-        position_type: PositionType::Absolute,
-        left: Val::Px(22.0),
-        bottom: Val::Px(23.0),
-        right: Val::Px(360.0),
-        ..column(9.0)
-    };
-    p.spawn(footer).with_children(|foot| {
-        if let Some((job, status)) = plan {
-            card(foot, frame_node(Val::Px(520.0), 4.0, 10.0), DEEP).with_children(|help| {
-                help.spawn(row(7.0)).with_children(|r| {
-                    icon(r, hud, job.icon(), 29.0);
-                    label(r, hud, job.name(), 20.0, Face::Bold, GOLD);
-                });
-                let ready = status.is_ok();
-                if let Ok(route) = status {
-                    route_stops(help, hud, town, route);
-                } else if let Err(reason) = status {
-                    label(help, hud, reason.label(job), 16.0, Face::Body, SAND);
-                }
-                help.spawn(row(5.0)).with_children(|r| {
-                    icon(r, hud, "pad_dpad", 26.0);
-                    label(
-                        r,
-                        hud,
-                        if ready {
-                            "Ziel wechseln"
-                        } else {
-                            "Ziel wählen"
-                        },
-                        15.0,
-                        Face::Bold,
-                        MUTED,
-                    );
-                    icon(r, hud, "pause", 26.0);
-                });
-            });
-        } else if let Phase::Open(day) = &town.phase
-            && let Some(route) = day.route
-        {
-            card(foot, frame_node(Val::Px(513.0), 5.0, 9.0), DEEP).with_children(|info| {
-                info.spawn(row(7.0)).with_children(|r| {
-                    icon(r, hud, route.job.icon(), 30.0);
-                    label(r, hud, route.title(), 18.0, Face::Bold, GOLD);
-                    r.spawn((
-                        Dynamic::Route,
-                        Text::new(""),
-                        TextColor(SAND),
-                        TextFont {
-                            font: hud.fonts[0].clone(),
-                            font_size: 15.0,
-                            ..default()
-                        },
-                    ));
-                });
-                route_stops(info, hud, town, route);
-                info.spawn((
-                    Node {
-                        width: Val::Percent(100.0),
-                        height: Val::Px(4.0),
-                        ..default()
-                    },
-                    BackgroundColor(LINE),
-                ))
-                .with_children(|track| {
-                    track.spawn((
-                        RouteBar,
-                        Node {
-                            width: Val::Percent(route.progress(day.seconds) * 100.0),
-                            height: Val::Percent(100.0),
-                            ..default()
-                        },
-                        BackgroundColor(GOLD),
-                    ));
-                });
-            });
-        } else if let Some(step) = step {
-            prompts::strip(foot, hud, game, town, step);
+    let walking = matches!(town.phase, Phase::Open(_));
+    if walking && game.job.is_none() {
+        steering::free(p, hud, game, town);
+        if let Some(step) = coach::next(town, ch, game.selected, game.saw_prices) {
+            p.spawn(Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(183.0),
+                bottom: Val::Px(96.0),
+                ..column(3.0)
+            })
+            .with_children(|coach| prompts::strip(coach, hud, game, town, step));
         }
-        card(
-            foot,
-            Node {
-                padding: UiRect::all(Val::Px(10.0)),
-                flex_wrap: FlexWrap::Wrap,
-                justify_content: JustifyContent::SpaceBetween,
-                row_gap: Val::Px(6.0),
-                ..row(10.0)
-            },
-            INK,
-        )
-        .with_children(|bar| {
-            bar.spawn(row(6.0)).with_children(|details| {
-                icon(details, hud, tile, 40.0);
-                details.spawn(column(1.0)).with_children(|caption| {
-                    label(caption, hud, place, 20.0, Face::Bold, SAND);
-                    if matches!(town.phase, Phase::Open(_))
-                        && town.lots[game.selected].is_some_and(|b| b.kind.service().is_some())
-                    {
-                        caption.spawn((
-                            Dynamic::Stock(game.selected),
-                            Text::new(desc),
-                            TextColor(MUTED),
-                            TextFont {
-                                font: hud.fonts[0].clone(),
-                                font_size: 15.0,
-                                ..default()
-                            },
-                        ));
-                    } else {
-                        label(caption, hud, desc, 15.0, Face::Body, MUTED);
+    }
+    if !walking || game.job.is_some() {
+        if walking {
+            p.spawn(Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(23.0),
+                bottom: Val::Px(23.0),
+                ..default()
+            })
+            .with_children(|pad| steering::pad(pad, hud));
+        }
+        let (place, tile, desc) = parcel_labels(town, game.selected);
+        let plan = game.job.map(|job| (job, job.plan(town, ch, game.selected)));
+        let step = coach::next(town, ch, game.selected, game.saw_prices);
+        let (primary, hot, ico, action) = if plan.is_some() {
+            ("Nili steuern", "A", "nili", Action::Dispatch)
+        } else if town.favor_plan(ch, game.selected).is_some() {
+            ("Nili steuern", "A", "nili", Action::Aid)
+        } else if town.planning() && town.lots[game.selected].is_none() {
+            ("Bauen", "A", "hammer", Action::Plot)
+        } else if town.planning()
+            && town.lots[game.selected].is_some_and(|b| b.kind.service().is_some())
+        {
+            ("Preis und Ausbau", "A", "coin", Action::Plot)
+        } else {
+            ("Details", "A", tile, Action::Plot)
+        };
+        let footer = Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(if walking { 183.0 } else { 22.0 }),
+            bottom: Val::Px(23.0),
+            right: Val::Px(360.0),
+            ..column(9.0)
+        };
+        p.spawn(footer).with_children(|foot| {
+            if let Some((job, status)) = plan {
+                card(foot, frame_node(Val::Px(520.0), 4.0, 10.0), DEEP).with_children(|help| {
+                    help.spawn(row(7.0)).with_children(|r| {
+                        icon(r, hud, job.icon(), 29.0);
+                        label(r, hud, job.name(), 20.0, Face::Bold, GOLD);
+                    });
+                    let ready = status.is_ok();
+                    if let Ok(route) = status {
+                        route_stops(help, hud, town, route);
+                    } else if let Err(reason) = status {
+                        label(help, hud, reason.label(job), 16.0, Face::Body, SAND);
                     }
+                    help.spawn(row(5.0)).with_children(|r| {
+                        icon(r, hud, "pad_dpad", 26.0);
+                        label(
+                            r,
+                            hud,
+                            if ready {
+                                "Ziel wechseln"
+                            } else {
+                                "Ziel wählen"
+                            },
+                            15.0,
+                            Face::Bold,
+                            MUTED,
+                        );
+                    });
                 });
-            });
-            bar.spawn(row(8.0)).with_children(|actions| {
-                button(
-                    actions,
-                    hud,
-                    action,
-                    primary,
-                    ico,
-                    hot,
-                    if plan.is_some() {
-                        Style::Primary
-                    } else {
-                        Style::Quiet
-                    },
-                    plan.is_some_and(|(_, status)| status.is_err()),
-                );
-                if plan.is_some() {
+            } else if let Some(step) = step {
+                prompts::strip(foot, hud, game, town, step);
+            }
+            card(
+                foot,
+                Node {
+                    padding: UiRect::all(Val::Px(10.0)),
+                    flex_wrap: FlexWrap::Wrap,
+                    justify_content: JustifyContent::SpaceBetween,
+                    row_gap: Val::Px(6.0),
+                    ..row(10.0)
+                },
+                INK,
+            )
+            .with_children(|bar| {
+                bar.spawn(row(6.0)).with_children(|details| {
+                    icon(details, hud, tile, 40.0);
+                    details.spawn(column(1.0)).with_children(|caption| {
+                        label(caption, hud, place, 20.0, Face::Bold, SAND);
+                        if matches!(town.phase, Phase::Open(_))
+                            && town.lots[game.selected].is_some_and(|b| b.kind.service().is_some())
+                        {
+                            caption.spawn((
+                                Dynamic::Stock(game.selected),
+                                Text::new(desc),
+                                TextColor(MUTED),
+                                TextFont {
+                                    font: hud.fonts[0].clone(),
+                                    font_size: 15.0,
+                                    ..default()
+                                },
+                            ));
+                        } else {
+                            label(caption, hud, desc, 15.0, Face::Body, MUTED);
+                        }
+                    });
+                });
+                bar.spawn(row(8.0)).with_children(|actions| {
                     button(
                         actions,
                         hud,
-                        Action::Back,
-                        "Touren",
-                        "",
-                        "B",
-                        Style::Quiet,
-                        false,
-                    );
-                } else if town.planning() {
-                    button(
-                        actions,
-                        hud,
-                        Action::Open,
-                        "Tag starten",
-                        "sun",
-                        "Y",
-                        if step.is_none() {
+                        action,
+                        primary,
+                        ico,
+                        hot,
+                        if plan.is_some() {
                             Style::Primary
                         } else {
                             Style::Quiet
                         },
-                        false,
+                        plan.is_some_and(|(_, status)| status.is_err()),
                     );
-                } else {
-                    let label = format!("Tempo {}×", game.speed);
-                    button(
-                        actions,
-                        hud,
-                        Action::Speed,
-                        &label,
-                        "",
-                        "Y",
-                        Style::Quiet,
-                        false,
-                    );
-                }
+                    if plan.is_some() {
+                        button(
+                            actions,
+                            hud,
+                            Action::Back,
+                            "Touren",
+                            "",
+                            "B",
+                            Style::Quiet,
+                            false,
+                        );
+                    } else if town.planning() {
+                        button(
+                            actions,
+                            hud,
+                            Action::Open,
+                            "Tag starten",
+                            "sun",
+                            "Y",
+                            if step.is_none() {
+                                Style::Primary
+                            } else {
+                                Style::Quiet
+                            },
+                            false,
+                        );
+                    } else {
+                        let label = format!("Tempo {}×", game.speed);
+                        button(
+                            actions,
+                            hud,
+                            Action::Speed,
+                            &label,
+                            "",
+                            "Y",
+                            Style::Quiet,
+                            false,
+                        );
+                    }
+                });
             });
         });
-    });
+    }
     p.spawn(Node {
         position_type: PositionType::Absolute,
         right: Val::Px(22.0),
@@ -814,6 +794,18 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
         ..column(7.0)
     })
     .with_children(|actions| {
+        if walking && game.job.is_none() {
+            button(
+                actions,
+                hud,
+                Action::Speed,
+                &format!("Tempo {}×", game.speed),
+                "",
+                "Y",
+                Style::Quiet,
+                false,
+            );
+        }
         if town.chapter > 0 {
             button(
                 actions,

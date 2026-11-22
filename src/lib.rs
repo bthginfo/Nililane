@@ -7,6 +7,7 @@ mod game;
 mod layout;
 mod model;
 mod save;
+mod street;
 mod ui;
 mod world;
 
@@ -64,7 +65,15 @@ pub fn run() {
             brightness: 245.0,
             ..default()
         })
-        .add_systems(Startup, (ui::setup, world::setup, world::setup_weather))
+        .add_systems(
+            Startup,
+            (
+                ui::setup,
+                world::setup,
+                world::setup_weather,
+                world::setup_pets,
+            ),
+        )
         .add_systems(
             Update,
             (
@@ -85,6 +94,7 @@ pub fn run() {
                 ui::update_lessons,
                 world::animate_construction,
                 world::animate_weather,
+                world::animate_pets,
             )
                 .chain(),
         );
@@ -136,6 +146,28 @@ fn embed_assets(app: &App) {
                 include_bytes!(concat!("../assets/", $asset)).as_slice());)*
         };
     }
+    macro_rules! harbor_scores {
+        ($($id:literal),* $(,)?) => {
+            $(
+                registry.insert_asset(
+                    Path::new(concat!("audio/harbors/", $id, ".ogg")).into(),
+                    Path::new(concat!("audio/harbors/", $id, ".ogg")),
+                    include_bytes!(concat!("../assets/audio/harbors/", $id, ".ogg")).as_slice(),
+                );
+                registry.insert_asset(
+                    Path::new(concat!("audio/harbors/", $id, "-abend.ogg")).into(),
+                    Path::new(concat!("audio/harbors/", $id, "-abend.ogg")),
+                    include_bytes!(concat!("../assets/audio/harbors/", $id, "-abend.ogg")).as_slice(),
+                );
+            )*
+        };
+    }
+    harbor_scores!(
+        "00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14",
+        "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
+        "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44",
+        "45", "46", "47",
+    );
     add!(
         "fonts/DMSans-Bold.ttf",
         "fonts/DMSans-Medium.ttf",
@@ -147,6 +179,12 @@ fn embed_assets(app: &App) {
         "models/waldwinkel/resource_rock.glb",
         "audio/aegean.ogg",
         "audio/roman_quay.ogg",
+        "audio/harbor_caution.ogg",
+        "audio/harbor_guests.ogg",
+        "audio/street_sweep.wav",
+        "audio/street_purr.wav",
+        "audio/street_woof.wav",
+        "audio/street_bell.wav",
         "audio/harbor_rain.ogg",
         "audio/ui_choose.wav",
         "audio/ui_blocked.wav",
@@ -159,6 +197,32 @@ fn embed_assets(app: &App) {
         "audio/ferry_bell.wav",
         "audio/nili_aid.wav",
         "audio/shore_loop.wav",
+        "ui/age_child.png",
+        "ui/age_adult.png",
+        "ui/age_senior.png",
+        "ui/cat.png",
+        "ui/dog.png",
+        "ui/leaves.png",
+        "ui/scraps.png",
+        "ui/herb_garden.png",
+        "ui/wear_olive.png",
+        "ui/wear_linen.png",
+        "ui/wear_coral.png",
+        "ui/wear_night.png",
+        "ui/wear_mosaic.png",
+        "ui/wear_sunbonnet.png",
+        "ui/wear_indigo.png",
+        "ui/wear_diadem.png",
+        "ui/wear_wreath.png",
+        "ui/wear_headband.png",
+        "ui/wear_satchel.png",
+        "ui/wear_shell.png",
+        "ui/wear_pearls.png",
+        "ui/wear_brooch.png",
+        "ui/wear_scarf.png",
+        "ui/wear_belt.png",
+        "ui/wear_basket.png",
+        "ui/wear_amulet.png",
         "ui/aqueduct.png",
         "ui/bakery.png",
         "ui/baths.png",

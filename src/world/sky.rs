@@ -21,7 +21,7 @@ pub(crate) struct Sky {
     cloud: Handle<StandardMaterial>,
     rain: Handle<StandardMaterial>,
     waves: Handle<StandardMaterial>,
-    weather: Option<Weather>,
+    weather: Option<(Weather, Weather, f32)>,
 }
 
 pub fn setup(
@@ -70,7 +70,7 @@ pub fn setup(
     let mut rng = Grain::new(781903);
     for i in 0..3 {
         let mut b = Batch::default();
-        for _ in 0..108 {
+        for _ in 0..130 {
             let p = v(
                 rng.span(-22.0, 23.0),
                 rng.span(-4.0, 6.9),
@@ -79,7 +79,7 @@ pub fn setup(
             let length = rng.span(0.23, 0.69);
             let end = p + v(-0.12, -length, 0.05);
             b.face(
-                &[p, end, end + Vec3::X * 0.014, p + Vec3::X * 0.014],
+                &[p, end, end + Vec3::X * 0.029, p + Vec3::X * 0.029],
                 [217, 239, 244],
             );
         }
@@ -141,63 +141,53 @@ pub fn animate(
     save: Res<Campaign>,
 ) {
     let town = game.visible_town(&save);
-    let weather = if game.view == View::Street {
-        town.weather(&CHAPTERS[town.chapter])
+    let weather = if game.view == View::Street && game.panel != crate::game::Panel::Wardrobe {
+        town.sky_blend(&CHAPTERS[town.chapter])
     } else {
-        Weather::Clear
+        (Weather::Clear, Weather::Clear, 1.0)
     };
-    let w = weather.swell();
-    let rain = matches!(weather, Weather::Rain | Weather::Storm);
-    let cloud_count = match weather {
-        Weather::Storm => 5,
-        Weather::Rain | Weather::Cloud => 4,
-        Weather::Wind | Weather::Feast => 3,
-        _ => 1,
+    let (before, after, blend) = weather;
+    let w = before.swell().lerp(after.swell(), blend);
+    let rain = before.rain_strength().lerp(after.rain_strength(), blend);
+    let coverage = |sky| match sky {
+        Weather::Storm | Weather::Rain => 5.0,
+        Weather::Cloud => 4.6,
+        Weather::Wind => 3.3,
+        Weather::Feast => 1.8,
+        _ => 1.45,
     };
+    let cloud_count = coverage(before).lerp(coverage(after), blend);
     if sky.weather != Some(weather) {
         sky.weather = Some(weather);
         if let Some(mat) = materials.get_mut(&sky.cloud) {
-            mat.base_color = if weather == Weather::Storm {
-                Color::srgb(0.60, 0.67, 0.70)
-            } else if rain {
-                Color::srgb(0.78, 0.83, 0.86)
-            } else {
-                Color::WHITE
-            };
+            let shade = 1.0 - rain * 0.47 - (cloud_count - 1.0) * 0.019;
+            mat.base_color = Color::srgb(shade, shade + rain * 0.065, shade + rain * 0.09);
         }
         if let Some(mat) = materials.get_mut(&sky.rain) {
-            mat.base_color = Color::srgba(
-                0.79,
-                0.91,
-                0.96,
-                if weather == Weather::Storm {
-                    0.67
-                } else {
-                    0.44
-                },
-            );
+            mat.base_color = Color::srgba(0.79, 0.91, 0.96, rain * 0.72);
         }
         if let Some(mat) = materials.get_mut(&sky.waves) {
-            mat.base_color = Color::srgb(0.85 - w * 0.13, 0.92 - w * 0.08, 0.94 - w * 0.05);
+            mat.base_color = Color::srgb(1.0 - w * 0.19, 1.0 - w * 0.11, 1.0);
         }
     }
     let t = game.clock;
     for (effect, mut transform, mut visible) in &mut effects {
         match *effect {
             Effect::Cloud(i) => {
-                *visible = if i < cloud_count {
+                let grow = (cloud_count - i as f32).clamp(0.0, 1.0);
+                *visible = if grow > 0.025 {
                     Visibility::Inherited
                 } else {
                     Visibility::Hidden
                 };
                 let speed = 0.35 + w * 0.58;
-                let x = (t * speed + i as f32 * 10.70).rem_euclid(52.0) - 26.0;
+                let x = (t * speed + i as f32 * 10.70).rem_euclid(52.0) - 22.0;
                 let z = -11.35 - (i % 3) as f32 * 2.32;
                 transform.translation = v(x, 4.75 + (i % 2) as f32 * 1.18, z);
-                transform.scale = v(0.85 + w * 0.81, 0.44 + w * 0.34, 0.83 + w * 0.44);
+                transform.scale = v(0.89 + w * 0.81, 0.47 + w * 0.34, 0.89 + w * 0.44) * grow;
             }
             Effect::Rain(i) => {
-                *visible = if rain && (weather == Weather::Storm || i < 2) {
+                *visible = if rain > 0.04 && (rain > 0.72 || i < 2) {
                     Visibility::Inherited
                 } else {
                     Visibility::Hidden

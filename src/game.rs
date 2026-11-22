@@ -8,13 +8,14 @@ use crate::{
     campaign::{CHAPTERS, REGION_SIZE, Region},
     coach::{self, Lesson, Prompt, Step},
     controls::{self, Controls, Direction},
-    cosmetics::Cosmetic,
+    cosmetics::{Category, Cosmetic},
     errands::{Job, ManualStage, NiliControl, Route, RouteStage},
     layout::{lot_col, lot_id, lot_row},
     model::{
         self, Assortment, GuestTip, HarborPlan, Kind, LOTS, Miss, Phase, Price, Town, Weather,
     },
     save::Campaign,
+    street::{self, Activity},
     ui::{self, Hud},
     world::{StreetCamera, motion},
 };
@@ -34,7 +35,6 @@ pub enum Panel {
     Brief,
     Build,
     Details,
-    Assortment,
     Goals,
     Forecast,
     Nili,
@@ -64,6 +64,7 @@ pub enum Action {
     Pause,
     Options,
     Wardrobe,
+    WardrobeTab(Category),
     Wear(Cosmetic),
     Guide,
     GuideTab(usize),
@@ -75,9 +76,11 @@ pub enum Action {
     Lesson(bool),
     SelectLot(usize),
     LookAtLot(usize),
+    StreetHelp(usize),
     Goals,
     Forecast,
     Feedback,
+    TomorrowNotes,
     GuestReview(usize),
     GuestAdvice(usize),
     ReviewReason(Miss),
@@ -86,13 +89,13 @@ pub enum Action {
     Build(Kind),
     BuildPage(usize),
     Upgrade,
-    ShowAssortment,
     Assortment(Assortment),
     Price(Price),
     Demolish,
     ConfirmDemolish,
     Open,
     Aid,
+    Incident(usize),
     Nili,
     ChooseJob(Job),
     Dispatch,
@@ -112,12 +115,20 @@ enum Cue {
     Build,
     Hammer,
     Ferry,
+    Alert,
+    Street(Activity),
     Aid,
     Sale,
 }
 
 pub const BUILD_TIME: f32 = 1.58;
 pub const DELIVERY_TIME: f32 = 3.2;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Nearby {
+    Building(usize),
+    Activity(usize, Activity),
+}
 
 #[derive(Clone, Copy)]
 pub struct Delivery {
@@ -138,12 +149,16 @@ pub struct Game {
     pub selected: usize,
     pub chart: usize,
     pub guide: usize,
+    pub wardrobe_tab: Category,
     pub build_page: usize,
     pub ledger_page: usize,
     pub review_guest: Option<usize>,
     pub review_reason: Option<Miss>,
     pub return_to_guests: bool,
     pub job: Option<Job>,
+    pub nearby: Option<Nearby>,
+    pub destination: Option<usize>,
+    pub street_action: Option<(usize, Activity, f32)>,
     pub saw_prices: bool,
     pub lesson: Option<Lesson>,
     delivered: Option<Delivery>,
@@ -215,12 +230,16 @@ impl Default for Game {
             selected: 0,
             chart: 0,
             guide: 0,
+            wardrobe_tab: Category::default(),
             build_page: 0,
             ledger_page: 0,
             review_guest: None,
             review_reason: None,
             return_to_guests: false,
             job: None,
+            nearby: None,
+            destination: None,
+            street_action: None,
             saw_prices: false,
             lesson: None,
             delivered: None,
@@ -266,6 +285,9 @@ impl Game {
             self.world_version += 1;
             self.delivered = None;
             self.job = None;
+            self.nearby = None;
+            self.destination = None;
+            self.street_action = None;
             self.work.fill(None);
         }
         self.view = view;
@@ -381,43 +403,14 @@ pub fn frame(
         (*state == Interaction::Pressed && !action.disabled).then_some(action.action)
     });
     game.walking = false;
-    if live
-        && save.active_town().is_some_and(
-            |town| matches!(&town.phase, Phase::Open(day) if day.manual_route().is_some()),
+    let running = game.view == View::Street
+        && matches!(
+            game.panel,
+            Panel::None | Panel::Details | Panel::Nili | Panel::Forecast | Panel::Goals
         )
-    {
-        if !window.focused {
-            game.walk_pointer = None;
-            game.walk_axis = Vec2::ZERO;
-        } else if controls.got(controls::B) || pressed == Some(Action::CancelErrand) {
-            if let Some(town) = save.active_town_mut()
-                && let Phase::Open(day) = &mut town.phase
-            {
-                day.route = None;
-                game.dirty = true;
-                game.message("Auftrag abgebrochen", Cue::Back);
-                game.save(&save);
-            }
-        } else if controls.got(controls::START) || pressed == Some(Action::Pause) {
-            apply(Action::Pause, &mut game, &mut save);
-        } else {
-            let touch =
-                ui::walk_input(&walk_pad, &window, &touches, &mouse, &mut game.walk_pointer);
-            let axis = (touch + controls.walk).clamp_length_max(1.0);
-            drive_errand(
-                &mut game,
-                &mut save,
-                axis,
-                dt,
-                real_dt,
-                controls.got(controls::A) || pressed == Some(Action::DoErrand),
-            );
-        }
-        return;
-    }
-    game.walk_pointer = None;
-    game.walk_axis = Vec2::ZERO;
-    if live && game.job.is_none() && game.lesson.is_none() && window.focused {
+        && game.lesson.is_none()
+        && window.focused;
+    if running {
         let before = save.active_town().and_then(day_feedback);
         let previous_step = save.active_town().and_then(|town| {
             coach::next(
@@ -427,11 +420,17 @@ pub fn frame(
                 game.saw_prices,
             )
         });
-        let dispatched = save.active_town().and_then(active_route);
+        let sky_before = save
+            .active_town()
+            .map(|town| town.sky_phase(&CHAPTERS[town.chapter]));
+        let street_before = save.active_town().map(street_slots);
+        let incident_before = save
+            .active_town()
+            .and_then(|town| town.incident(&CHAPTERS[town.chapter]));
         let completed_day = save.active_town_mut().is_some_and(|town| {
             town.tick(
                 &CHAPTERS[town.chapter],
-                real_dt.min(1.0) * f32::from(game.speed),
+                real_dt.min(0.25) * f32::from(game.speed),
             )
         });
         if completed_day {
@@ -450,8 +449,10 @@ pub fn frame(
             game.dirty = true;
         }
         let after = save.active_town().and_then(day_feedback);
-        if let (Some((time_before, sales_before)), Some((time_after, sales_after))) =
-            (before, after)
+        if let (
+            Some((time_before, sales_before, replies_before)),
+            Some((time_after, sales_after, replies_after)),
+        ) = (before, after)
         {
             if time_before < 8.0 && time_after >= 8.0 {
                 game.dirty = true;
@@ -459,11 +460,25 @@ pub fn frame(
             } else if sales_after > sales_before {
                 game.cue = Some(Cue::Sale);
             }
+            if replies_after != replies_before
+                && matches!(game.panel, Panel::Details | Panel::Forecast | Panel::Goals)
+            {
+                game.dirty = true;
+            }
         }
-        if let Some(route) = dispatched
-            && save.active_town().and_then(active_route).is_none()
+        if let Some(town) = save.active_town()
+            && (sky_before != Some(town.sky_phase(&CHAPTERS[town.chapter]))
+                || street_before != Some(street_slots(town)))
         {
-            delivery_notice(&mut game, &save, route);
+            game.dirty = true;
+        }
+        if let Some((event, _)) = save
+            .active_town()
+            .and_then(|town| town.incident(&CHAPTERS[town.chapter]))
+            && incident_before.is_none()
+        {
+            game.message(event.event_name(), Cue::Alert);
+            game.dirty = true;
         }
         if after.is_some() {
             game.checkpoint += real_dt;
@@ -472,9 +487,48 @@ pub fn frame(
                 game.save(&save);
             }
         }
-        if game.offer_lesson(&save, step) {
+        if live
+            && game.job.is_none()
+            && save.active_town().and_then(active_route).is_none()
+            && game.offer_lesson(&save, step)
+        {
             return;
         }
+    }
+
+    game.walk_axis = Vec2::ZERO;
+    let can_walk = live
+        && game.lesson.is_none()
+        && window.focused
+        && save
+            .active_town()
+            .is_some_and(|town| matches!(town.phase, Phase::Open(_)));
+    if can_walk {
+        let touch = ui::walk_input(&walk_pad, &window, &touches, &mouse, &mut game.walk_pointer);
+        let axis = (touch + controls.walk).clamp_length_max(1.0);
+        if save.active_town().and_then(active_route).is_some() {
+            if controls.got(controls::B) || pressed == Some(Action::CancelErrand) {
+                apply(Action::CancelErrand, &mut game, &mut save);
+            } else if controls.got(controls::START) || pressed == Some(Action::Pause) {
+                apply(Action::Pause, &mut game, &mut save);
+            } else if controls.got(controls::Y) || pressed == Some(Action::Speed) {
+                apply(Action::Speed, &mut game, &mut save);
+            } else {
+                drive_errand(
+                    &mut game,
+                    &mut save,
+                    axis,
+                    dt,
+                    controls.got(controls::A) || pressed == Some(Action::DoErrand),
+                );
+            }
+            return;
+        }
+        if let Some(town) = save.active_town_mut() {
+            walk_day(&mut game, town, axis, dt);
+        }
+    } else {
+        game.walk_pointer = None;
     }
 
     if let Some(lesson) = game.lesson {
@@ -559,6 +613,12 @@ pub fn frame(
         if controls.got(controls::A) {
             let action = if game.job.is_some() {
                 Action::Dispatch
+            } else if !town.planning() {
+                match game.nearby {
+                    Some(Nearby::Building(lot)) => Action::LookAtLot(lot),
+                    Some(Nearby::Activity(slot, _)) => Action::StreetHelp(slot),
+                    None => return,
+                }
             } else if town.favor_plan(chapter, game.selected).is_some() {
                 Action::Aid
             } else {
@@ -575,7 +635,9 @@ pub fn frame(
             game.zoom = 0.0;
             game.pan = Vec2::ZERO;
         }
-        if let Some(dir) = controls.direction {
+        if let Some(dir) = controls.direction
+            && (town.planning() || game.job.is_some())
+        {
             let row = lot_row(game.selected);
             let col = lot_col(game.selected);
             let (next_row, next_col) = match dir {
@@ -606,9 +668,10 @@ pub fn frame(
             game.pan = game.pan.clamp(Vec2::new(-5.0, -2.0), Vec2::new(5.0, 3.0));
         }
         // Clicking a visible parcel focuses it. A second tap or the action button opens it.
-        if !buttons
-            .iter()
-            .any(|(_, _, _, state)| *state != Interaction::None)
+        if game.walk_pointer.is_none()
+            && !buttons
+                .iter()
+                .any(|(_, _, _, state)| *state != Interaction::None)
         {
             let touch = touches
                 .iter_just_pressed()
@@ -626,7 +689,7 @@ pub fn frame(
             {
                 if game.job.is_none() && town.lots[lot].is_some() {
                     apply(Action::LookAtLot(lot), &mut game, &mut save);
-                } else if lot == game.selected {
+                } else if lot == game.selected && (town.planning() || game.job.is_some()) {
                     let action = if game.job.is_some() {
                         Action::Dispatch
                     } else if town.favor_plan(chapter, lot).is_some() {
@@ -667,11 +730,22 @@ fn take_control(town: &mut Town, game: &mut Game, resume: bool) {
     let Phase::Open(day) = &mut town.phase else {
         return;
     };
-    let Some(route) = day.route else { return };
     if resume && day.nili.is_some() {
         return;
     }
     let layout = CHAPTERS[town.chapter].layout;
+    let Some(route) = day.route else {
+        day.nili.get_or_insert_with(|| NiliControl {
+            position: if day.seconds == 0.0 {
+                [0.0, 0.10]
+            } else {
+                motion::ground(motion::stop(day.nili_at, layout), layout).to_array()
+            },
+            yaw: 0.22,
+            stage: ManualStage::Pickup,
+        });
+        return;
+    };
     let current = motion::job_walk(route, day.seconds, layout);
     let stage = match route.stage(day.seconds).0 {
         RouteStage::Approach | RouteStage::Collect => ManualStage::Pickup,
@@ -693,14 +767,63 @@ fn take_control(town: &mut Town, game: &mut Game, resume: bool) {
     game.dirty = true;
 }
 
-fn drive_errand(
+fn street_slots(town: &Town) -> [Option<Activity>; street::SPOTS] {
+    street::spots(town, &CHAPTERS[town.chapter]).map(|spot| spot.map(|spot| spot.activity))
+}
+
+fn steer(
     game: &mut Game,
-    save: &mut Campaign,
+    nili: &mut NiliControl,
     axis: Vec2,
     dt: f32,
-    real_dt: f32,
-    work: bool,
+    layout: crate::layout::Layout,
 ) {
+    game.walk_axis = axis;
+    let amount = motion::walk(nili, axis * (4.55 * dt.min(0.25)), layout);
+    game.walk_distance += amount;
+    game.walking = amount > 0.0001;
+}
+
+fn walk_day(game: &mut Game, town: &mut Town, axis: Vec2, dt: f32) {
+    let chapter = &CHAPTERS[town.chapter];
+    take_control(town, game, true);
+    let Phase::Open(day) = &mut town.phase else {
+        return;
+    };
+    let Some(nili) = day.nili.as_mut() else {
+        return;
+    };
+    if !game
+        .street_action
+        .is_some_and(|(_, _, since)| game.clock - since < 0.50)
+    {
+        steer(game, nili, axis, dt, chapter.layout);
+    }
+    let position = nili.position;
+    let lot = motion::nearby_lot(town, position, chapter.layout);
+    if game.walking
+        && game
+            .job
+            .is_some_and(|job| lot.is_some_and(|lot| job.plan(town, chapter, lot).is_ok()))
+        && let Some(lot) = lot
+    {
+        select(game, lot);
+    }
+    let nearby = street::spots(town, chapter)
+        .iter()
+        .enumerate()
+        .find_map(|(slot, spot)| {
+            spot.filter(|spot| spot.in_range(position))
+                .map(|spot| Nearby::Activity(slot, spot.activity))
+        })
+        .or_else(|| lot.map(Nearby::Building));
+    if game.nearby != nearby {
+        game.nearby = nearby;
+        game.dirty = true;
+    }
+}
+
+fn drive_errand(game: &mut Game, save: &mut Campaign, axis: Vec2, dt: f32, work: bool) {
     let Some(town) = save.active_town_mut() else {
         return;
     };
@@ -713,15 +836,12 @@ fn drive_errand(
     };
     let nili = day.nili.as_mut().expect("manual route has a position");
     let layout = chapter.layout;
-    let dt = dt.min(0.12);
+    let dt = dt.min(0.25);
     game.walk_axis = Vec2::ZERO;
     let mut checkpoint = false;
     match nili.stage {
         ManualStage::Pickup | ManualStage::Delivery => {
-            game.walk_axis = axis;
-            let amount = motion::walk(nili, axis * (4.35 * dt), layout);
-            game.walk_distance += amount;
-            game.walking = amount > 0.0001;
+            steer(game, nili, axis, dt, layout);
             if work {
                 if motion::can_work(*nili, route, layout) {
                     let point = motion::stop(nili.target(route), layout).xz();
@@ -755,28 +875,29 @@ fn drive_errand(
     {
         game.dirty = true;
     }
-    if let Some((route, ended)) = town.finish_controlled(chapter) {
-        if ended {
-            finish_day(game, save);
-        } else {
-            delivery_notice(game, save, route);
-        }
+    if let Some(route) = town.finish_controlled(chapter) {
+        delivery_notice(game, save, route);
         return;
     }
-    game.checkpoint += real_dt;
-    if checkpoint || game.checkpoint >= 4.0 {
+    if checkpoint {
         game.checkpoint = 0.0;
         game.save(save);
     }
 }
 
 fn finish_day(game: &mut Game, save: &mut Campaign) {
+    game.job = None;
+    game.nearby = None;
+    game.destination = None;
+    game.street_action = None;
     if let Some(town) = save.active_town()
         && let Phase::Report(report) = &town.phase
     {
-        let (chapter, day, stars) = (town.chapter, town.day, report.stars);
+        let (chapter, day, stars, income) =
+            (town.chapter, town.day, report.stars, town.totals.income);
         if stars > 0 {
             save.record(chapter, day, stars);
+            save.record_income(chapter, income);
         }
         game.cue = Some(if stars > 0 { Cue::Earned } else { Cue::Day });
     }
@@ -791,10 +912,10 @@ fn delivery_notice(game: &mut Game, save: &Campaign, route: Route) {
     });
     if route.favor {
         let town = save.active_town().unwrap();
-        let title = match &town.phase {
-            Phase::Open(day) if day.favor == model::Favor::Fire => "Feuer gelöscht",
-            Phase::Open(day) if day.favor == model::Favor::Crates => "Kisten gesichert",
-            _ => "Bitte vom Kai erfüllt",
+        let title = if let Phase::Open(day) = &town.phase {
+            day.favor.resolved_name()
+        } else {
+            "Bitte vom Kai erfüllt"
         };
         let currency = Region::of(town.chapter).currency();
         game.message(format!("{title} · +6 {currency} · +2 Ansehen"), Cue::Aid);
@@ -805,9 +926,9 @@ fn delivery_notice(game: &mut Game, save: &Campaign, route: Route) {
     game.save(save);
 }
 
-fn day_feedback(town: &Town) -> Option<(f32, u32)> {
+fn day_feedback(town: &Town) -> Option<(f32, u32, u32)> {
     match &town.phase {
-        Phase::Open(day) => Some((day.seconds, day.tally.served_total())),
+        Phase::Open(day) => Some((day.seconds, day.tally.served_total(), day.tally.responses())),
         _ => None,
     }
 }
@@ -829,7 +950,13 @@ fn start(chapter: usize, tutorial: bool, game: &mut Game, save: &mut Campaign) {
         return;
     }
     let rule = &CHAPTERS[chapter];
-    let town = Town::new(chapter, rule);
+    let mut town = Town::new(chapter, rule);
+    let bonus = if tutorial {
+        0
+    } else {
+        save.travel_bonus(chapter)
+    };
+    town.coins += bonus;
     game.saw_prices = false;
     game.delivered = None;
     game.selected = coach::next(&town, rule, 1, false)
@@ -845,6 +972,12 @@ fn start(chapter: usize, tutorial: bool, game: &mut Game, save: &mut Campaign) {
     game.checkpoint = 0.0;
     game.note_left = 0.0;
     game.transition(View::Street, Panel::Brief);
+    if bonus > 0 {
+        game.message(
+            format!("+{bonus} Startmünzen aus dem letzten Hafen"),
+            Cue::Earned,
+        );
+    }
     game.world_version += 1;
     game.save(save);
 }
@@ -1015,10 +1148,6 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                     game.show(Panel::Report);
                 }
                 Panel::Demolish => game.show(Panel::Details),
-                Panel::Assortment => {
-                    game.show(Panel::Details);
-                    game.focus = Some(Action::ShowAssortment);
-                }
                 Panel::Report => open_chart(game, save),
                 Panel::None => match game.view {
                     View::Street => {
@@ -1041,6 +1170,11 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
         }
         Action::Options => game.show(Panel::Options),
         Action::Wardrobe => game.show(Panel::Wardrobe),
+        Action::WardrobeTab(category) => {
+            game.wardrobe_tab = category;
+            game.focus = Some(action);
+            game.dirty = true;
+        }
         Action::Wear(item) => {
             if game.panel == Panel::Wardrobe && save.equip(item) {
                 game.focus = Some(action);
@@ -1069,6 +1203,19 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
         }
         Action::Plot => {
             if let Some(town) = save.active_town() {
+                let layout = CHAPTERS[town.chapter].layout;
+                if !motion::can_inspect(town, game.selected, layout) {
+                    if let Some(building) = town.lots[game.selected] {
+                        game.destination = Some(game.selected);
+                        game.show(Panel::None);
+                        game.message(
+                            format!("Geh mit Nili zu: {}", building.kind.name()),
+                            Cue::Back,
+                        );
+                    }
+                    return;
+                }
+                game.destination = None;
                 game.build_page = 0;
                 game.return_to_guests = false;
                 if town.planning() && coach::recommended_price(town, game.selected).is_some() {
@@ -1081,7 +1228,6 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                 });
             }
         }
-        Action::ShowAssortment => game.show(Panel::Assortment),
         Action::Coach(step) => {
             let Some(town) = save.active_town() else {
                 return;
@@ -1117,6 +1263,51 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
             select(game, lot);
             if matches!(action, Action::LookAtLot(_)) {
                 apply(Action::Plot, game, save);
+            }
+        }
+        Action::StreetHelp(slot) => {
+            let Some(town) = save.active_town_mut() else {
+                return;
+            };
+            let chapter = &CHAPTERS[town.chapter];
+            let point = street::spots(town, chapter).get(slot).copied().flatten();
+            if let Some(activity) = street::help(town, chapter, slot) {
+                if let Phase::Open(day) = &mut town.phase
+                    && let (Some(nili), Some(point)) = (&mut day.nili, point)
+                {
+                    let turn = Vec2::from_array(point.position) - Vec2::from_array(nili.position);
+                    if turn.length_squared() > 0.001 {
+                        nili.yaw = turn.x.atan2(turn.y);
+                    }
+                }
+                game.street_action = Some((slot, activity, game.clock));
+                game.nearby = None;
+                game.dirty = true;
+                game.message(
+                    format!("+{} Ansehen bei Tagesende", activity.reward()),
+                    Cue::Street(activity),
+                );
+                game.save(save);
+            }
+        }
+        Action::CancelErrand => {
+            if let Some(town) = save.active_town_mut()
+                && let Phase::Open(day) = &mut town.phase
+                && day.route.take().is_some()
+            {
+                game.dirty = true;
+                game.message("Auftrag abgebrochen", Cue::Back);
+                game.save(save);
+            }
+        }
+        Action::Incident(lot) => {
+            if let Some(town) = save.active_town()
+                && town
+                    .incident(&CHAPTERS[town.chapter])
+                    .is_some_and(|(_, target)| target == lot)
+            {
+                select(game, lot);
+                apply(Action::Aid, game, save);
             }
         }
         Action::Nili => {
@@ -1164,6 +1355,11 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
             game.show(Panel::Forecast);
             game.focus = Some(Action::LedgerPage(0));
         }
+        Action::TomorrowNotes => {
+            game.ledger_page = 3;
+            game.show(Panel::Forecast);
+            game.focus = Some(Action::LedgerPage(3));
+        }
         Action::Feedback => {
             game.review_reason = None;
             game.guest_book(None);
@@ -1190,9 +1386,13 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
             match tip {
                 GuestTip::Shop(lot) => {
                     select(game, lot);
-                    game.show(Panel::Details);
+                    apply(Action::Plot, game, save);
                 }
                 GuestTip::Build(lot, kind) => {
+                    if !town.planning() {
+                        game.message("Neue Gebäude kannst du morgen früh bauen.", Cue::Back);
+                        return;
+                    }
                     select(game, lot);
                     game.build_page = usize::from(
                         chapter
@@ -1207,7 +1407,7 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                     }
                 }
             }
-            game.return_to_guests = true;
+            game.return_to_guests = matches!(game.panel, Panel::Details | Panel::Build);
         }
         Action::ReviewReason(reason) => {
             game.review_guest = None;
@@ -1282,6 +1482,11 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                     Action::Open | Action::NextDay => {
                         game.speed = 1;
                         game.delivered = None;
+                        game.destination = None;
+                        game.street_action = None;
+                        if edit == Action::Open {
+                            take_control(town, game, false);
+                        }
                         if edit == Action::NextDay
                             && let Some(lot) =
                                 coach::next(town, chapter, game.selected, game.saw_prices)
@@ -1305,8 +1510,17 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Track {
+    Menu(Region),
+    Harbor { chapter: usize, evening: bool },
+}
+
 #[derive(Component)]
-pub(crate) struct Music(Region);
+pub(crate) struct Music {
+    track: Track,
+    gain: f32,
+}
 
 #[derive(Component)]
 pub(crate) struct Coast;
@@ -1314,47 +1528,145 @@ pub(crate) struct Coast;
 #[derive(Component)]
 pub(crate) struct RainAudio;
 
+#[derive(Component)]
+pub(crate) struct IncidentAudio(bool);
+
+type MusicVoices<'w, 's> = Query<
+    'w,
+    's,
+    (Entity, &'static mut Music, Option<&'static mut AudioSink>),
+    (Without<Coast>, Without<RainAudio>, Without<IncidentAudio>),
+>;
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn audio(
     mut commands: Commands,
     mut game: ResMut<Game>,
     save: Res<Campaign>,
     assets: Res<AssetServer>,
-    music: Query<(Entity, &Music, Option<&AudioSink>), (Without<Coast>, Without<RainAudio>)>,
-    mut coast: Query<Option<&mut AudioSink>, (With<Coast>, Without<RainAudio>)>,
-    mut rain: Query<Option<&mut AudioSink>, (With<RainAudio>, Without<Coast>)>,
+    mut music: MusicVoices,
+    time: Res<Time<Real>>,
+    mut coast: Query<
+        Option<&mut AudioSink>,
+        (With<Coast>, Without<RainAudio>, Without<IncidentAudio>),
+    >,
+    mut rain: Query<
+        Option<&mut AudioSink>,
+        (With<RainAudio>, Without<Coast>, Without<IncidentAudio>),
+    >,
+    mut motif: Query<
+        (Entity, &IncidentAudio, Option<&mut AudioSink>),
+        (Without<Coast>, Without<RainAudio>, Without<Music>),
+    >,
     window: Single<&Window, With<PrimaryWindow>>,
 ) {
     let town = game.visible_town(&save);
     let region = Region::of(town.chapter);
-    let weather = if game.view == View::Street {
-        town.weather(&CHAPTERS[town.chapter])
-    } else {
-        Weather::Clear
-    };
-    let spawn_track = |commands: &mut Commands| {
-        let path = match region {
-            Region::Greece => "embedded://audio/aegean.ogg",
-            Region::Rome => "embedded://audio/roman_quay.ogg",
-        };
-        let mut settings = PlaybackSettings::LOOP.with_volume(Volume::Linear(0.30));
-        settings.paused = !window.focused || !save.music;
-        commands.spawn((Music(region), AudioPlayer::new(assets.load(path)), settings));
-    };
-    match music.single() {
-        Err(_) => spawn_track(&mut commands),
-        Ok((entity, playing, _)) if playing.0 != region => {
-            commands.entity(entity).despawn();
-            spawn_track(&mut commands);
+    let in_harbor = game.view == View::Street;
+    let track = if in_harbor {
+        Track::Harbor {
+            chapter: town.chapter,
+            evening: town.sky_phase(&CHAPTERS[town.chapter]) == 2,
         }
-        Ok((_, _, Some(sink))) => {
-            if save.music && window.focused {
+    } else {
+        Track::Menu(region)
+    };
+    let (before, after, blend) = if in_harbor {
+        town.sky_blend(&CHAPTERS[town.chapter])
+    } else {
+        (Weather::Clear, Weather::Clear, 1.0)
+    };
+    let swell = before.swell().lerp(after.swell(), blend);
+    let rainfall = before.rain_strength().lerp(after.rain_strength(), blend);
+    let focused = window.focused;
+    let audible = focused && save.music;
+    let has_track = music.iter().any(|(_, item, _)| item.track == track);
+    let track_ready = music
+        .iter()
+        .any(|(_, item, sink)| item.track == track && sink.is_some());
+    let audio_ready = music.iter().any(|(_, _, sink)| sink.is_some());
+    if !has_track {
+        let path = match track {
+            Track::Menu(Region::Greece) => "embedded://audio/aegean.ogg".to_owned(),
+            Track::Menu(Region::Rome) => "embedded://audio/roman_quay.ogg".to_owned(),
+            Track::Harbor { chapter, evening } => {
+                let suffix = if evening { "-abend" } else { "" };
+                format!("embedded://audio/harbors/{chapter:02}{suffix}.ogg")
+            }
+        };
+        let mut settings = PlaybackSettings::LOOP.with_volume(Volume::Linear(0.0));
+        settings.paused = !audible;
+        commands.spawn((
+            Music { track, gain: 0.0 },
+            AudioPlayer::new(assets.load(path)),
+            settings,
+        ));
+    }
+    let event = if in_harbor {
+        town.incident(&CHAPTERS[town.chapter])
+            .map(|(favor, _)| favor == model::Favor::LostGuests)
+    } else {
+        None
+    };
+    let motif_playing = motif.iter().any(|(_, cue, _)| Some(cue.0) == event);
+    if let Some(guests) = event.filter(|_| !motif_playing) {
+        let path = if guests {
+            "embedded://audio/harbor_guests.ogg"
+        } else {
+            "embedded://audio/harbor_caution.ogg"
+        };
+        let mut settings = PlaybackSettings::LOOP.with_volume(Volume::Linear(0.0));
+        settings.paused = !audible;
+        commands.spawn((
+            IncidentAudio(guests),
+            AudioPlayer::new(assets.load(path)),
+            settings,
+        ));
+    }
+    let fade = time.delta_secs().min(0.1) / 0.9;
+    for (entity, cue, sink) in &mut motif {
+        let current = Some(cue.0) == event;
+        if let Some(mut sink) = sink {
+            let previous = sink.volume().to_linear();
+            let goal = if current { 0.22 } else { 0.0 };
+            let volume = previous + (goal - previous).clamp(-fade, fade);
+            sink.set_volume(Volume::Linear(volume));
+            if audible {
+                sink.play();
+            } else {
+                sink.pause();
+            }
+            if !current && volume == 0.0 {
+                commands.entity(entity).despawn();
+            }
+        } else if !current {
+            commands.entity(entity).despawn();
+        }
+    }
+    let step = time.delta_secs().min(0.1) / 1.2;
+    for (entity, mut item, sink) in &mut music {
+        if item.track == track {
+            item.gain = (item.gain + step).min(1.0);
+        } else if track_ready {
+            item.gain = (item.gain - step).max(0.0);
+            if !audible || item.gain == 0.0 {
+                commands.entity(entity).despawn();
+                continue;
+            }
+        }
+        if let Some(mut sink) = sink {
+            let gain = if motif_playing { 0.20 } else { 0.30 };
+            let volume = sink
+                .volume()
+                .to_linear()
+                .lerp(gain * item.gain, (step * 6.0).min(1.0));
+            sink.set_volume(Volume::Linear(volume));
+            if audible {
                 sink.play();
             } else {
                 sink.pause();
             }
         }
-        _ => {}
     }
     match coast.single_mut() {
         Err(_) => {
@@ -1366,7 +1678,7 @@ pub fn audio(
         }
         Ok(Some(mut sink)) => {
             if save.sounds && window.focused {
-                sink.set_volume(Volume::Linear(0.35 + weather.swell() * 0.28));
+                sink.set_volume(Volume::Linear(0.35 + swell * 0.28));
                 sink.play();
             } else {
                 sink.pause();
@@ -1385,12 +1697,8 @@ pub fn audio(
             ));
         }
         Ok(Some(mut sink)) => {
-            if save.sounds && window.focused && matches!(weather, Weather::Rain | Weather::Storm) {
-                sink.set_volume(Volume::Linear(if weather == Weather::Storm {
-                    0.51
-                } else {
-                    0.33
-                }));
+            if save.sounds && focused && rainfall > 0.01 {
+                sink.set_volume(Volume::Linear(0.51 * rainfall));
                 sink.play();
             } else {
                 sink.pause();
@@ -1401,7 +1709,7 @@ pub fn audio(
     if let Some(cue) = game
         .cue
         .take()
-        .filter(|_| save.sounds && music.single().is_ok_and(|(_, _, sink)| sink.is_some()))
+        .filter(|_| save.sounds && focused && audio_ready)
     {
         let file = match cue {
             Cue::Confirm => "embedded://audio/ui_choose.wav",
@@ -1412,6 +1720,10 @@ pub fn audio(
             Cue::Build => "embedded://audio/build_place.wav",
             Cue::Hammer => "embedded://audio/tier_assembly.wav",
             Cue::Ferry => "embedded://audio/ferry_bell.wav",
+            Cue::Alert => "embedded://audio/street_bell.wav",
+            Cue::Street(Activity::Cat) => "embedded://audio/street_purr.wav",
+            Cue::Street(Activity::Dog) => "embedded://audio/street_woof.wav",
+            Cue::Street(_) => "embedded://audio/street_sweep.wav",
             Cue::Aid => "embedded://audio/nili_aid.wav",
             Cue::Sale => "embedded://audio/market_sale.wav",
         };

@@ -4,9 +4,10 @@ use super::{landscape, lot_position, mesh::v};
 use crate::{
     errands::{NiliControl, Route, Stop},
     layout::{Layout, lot_row},
+    model::{Phase, Town},
 };
 
-const ROAD_EDGE: f32 = 0.99;
+const ROAD_EDGE: f32 = 1.62;
 const PIER_HALF_WIDTH: f32 = 0.39;
 const INTERACT_DISTANCE: f32 = 0.79;
 
@@ -54,12 +55,38 @@ pub fn can_work(nili: NiliControl, route: Route, layout: Layout) -> bool {
             <= INTERACT_DISTANCE * INTERACT_DISTANCE
 }
 
+pub fn can_inspect(town: &Town, lot: usize, layout: Layout) -> bool {
+    let Phase::Open(day) = &town.phase else {
+        return true;
+    };
+    layout.contains(lot)
+        && town.lots[lot].is_some()
+        && day.nili.is_some_and(|nili| {
+            entrance(lot, layout)
+                .xz()
+                .distance_squared(Vec2::from_array(nili.position))
+                <= 0.96_f32.powi(2)
+        })
+}
+
+pub fn nearby_lot(town: &Town, position: [f32; 2], layout: Layout) -> Option<usize> {
+    let distance = |lot| {
+        entrance(lot, layout)
+            .xz()
+            .distance_squared(Vec2::from_array(position))
+    };
+    layout
+        .lots()
+        .filter(|&lot| can_inspect(town, lot, layout))
+        .min_by(|&a, &b| distance(a).total_cmp(&distance(b)))
+}
+
 pub fn entrance(lot: usize, layout: Layout) -> Vec3 {
     let lot_center = lot_position(lot, layout.width());
     v(
         lot_center.x,
         0.084,
-        if lot_row(lot) == 0 { -1.23 } else { 1.23 },
+        if lot_row(lot) == 0 { -1.86 } else { 1.89 },
     )
 }
 

@@ -33,6 +33,22 @@ pub(super) struct Pose {
     pub carry: bool,
 }
 
+pub(super) fn quick_action(activity: crate::street::Activity, time: f32) -> Pose {
+    let bend = (time / 0.60 * PI).sin();
+    let sweep = (time * 23.0).sin() * 0.22;
+    Pose {
+        height: -0.15 * bend,
+        pitch: 0.34 * bend,
+        roll: 0.10 * bend,
+        arms: [
+            -0.12 * bend,
+            (-0.95 + sweep * f32::from(activity.animal())) * bend,
+        ],
+        stretch: -0.06 * bend,
+        ..default()
+    }
+}
+
 pub(super) fn perform(job: Job, stage: RouteStage, phase: f32) -> Pose {
     use RouteStage::*;
     let mut pose = Pose::default();
@@ -124,6 +140,9 @@ pub(crate) enum Mark {
     Flame,
     Smoke(usize),
     Crates,
+    BrokenJars,
+    ShadeSail,
+    LostGroup,
 }
 
 pub(super) fn spawn(
@@ -204,6 +223,53 @@ pub(super) fn spawn(
         );
     }
     spawn(Mark::Crates, meshes.add(boxes.mesh()));
+    let mut jars = Batch::default();
+    for n in 0..10 {
+        let angle = n as f32 * 2.399;
+        let p = v(angle.cos() * 0.38, 0.013, angle.sin() * 0.24);
+        let q = v(angle.sin() * 0.16, 0.075, angle.cos() * 0.14);
+        jars.face(
+            &[p, p + q, p + v(0.12, 0.014, 0.05)],
+            [[204, 111, 75], [141, 87, 64], [82, 144, 142]][n % 3],
+        );
+        jars.face(&[p + v(0.12, 0.014, 0.05), p + q, p], [224, 164, 107]);
+    }
+    spawn(Mark::BrokenJars, meshes.add(jars.mesh()));
+    let mut sail = Batch::default();
+    sail.beam(
+        v(-0.56, 0.04, -0.10),
+        v(0.49, 0.39, 0.21),
+        0.053,
+        [148, 94, 65],
+    );
+    for n in 0..7 {
+        let x = -0.51 + n as f32 * 0.156;
+        let p = v(x, 0.065 + (x * 6.1).cos() * 0.033, -0.17);
+        sail.face(
+            &[
+                p,
+                p + v(0.16, 0.021, 0.03),
+                p + v(0.16, 0.22, 0.43),
+                p + v(0.0, 0.14, 0.49),
+            ],
+            if n % 2 == 0 {
+                [114, 169, 172]
+            } else {
+                [235, 219, 166]
+            },
+        );
+    }
+    spawn(Mark::ShadeSail, meshes.add(sail.mesh()));
+    let mut sign = Batch::default();
+    sign.beam(v(0.0, 0.02, 0.0), v(0.0, 0.58, 0.0), 0.049, [147, 104, 68]);
+    sign.block(
+        v(-0.09, 0.49, 0.0),
+        v(0.39, 0.18, 0.068),
+        Quat::from_rotation_z(0.12),
+        [91, 142, 142],
+    );
+    sign.gem(v(0.0, 0.49, 0.057), 0.071, 0.052, 0.029, 0.25, GOLD);
+    spawn(Mark::LostGroup, meshes.add(sign.mesh()));
 }
 
 pub fn animate(
@@ -324,6 +390,25 @@ pub fn animate(
                     .with_scale(Vec3::splat(0.62 + lift * 1.22))
                     .with_rotation(Quat::from_rotation_y(lift * 1.1 + i as f32))
                 }),
+                Mark::BrokenJars | Mark::ShadeSail | Mark::LostGroup => {
+                    let want = match mark {
+                        Mark::BrokenJars => Favor::BrokenJars,
+                        Mark::ShadeSail => Favor::ShadeSail,
+                        _ => Favor::LostGuests,
+                    };
+                    incident
+                        .filter(|(favor, _)| *favor == want)
+                        .map(|(_, lot)| {
+                            let point = if want == Favor::LostGuests {
+                                stop(Stop::Quay, layout) + v(0.59, 0.0, -0.27)
+                            } else {
+                                stop(Stop::Parcel(lot as u8), layout) + v(0.25, -0.027, 0.0)
+                            };
+                            Transform::from_translation(point).with_rotation(Quat::from_rotation_y(
+                                (game.clock * 2.1).sin() * 0.06,
+                            ))
+                        })
+                }
                 Mark::Crates => incident
                     .filter(|(event, _)| *event == Favor::Crates)
                     .filter(|_| {

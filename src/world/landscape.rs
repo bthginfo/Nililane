@@ -54,7 +54,11 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
             Shore::Lagoon if z > 2.0 => (x, z + 1.73 * (1.0 - normalized.abs().min(1.0))),
             _ => (x, z),
         };
-        (x + grain.span(-0.23, 0.24), z + grain.span(-0.16, 0.19))
+        let waterfront = if z > 2.0 { 0.83 } else { 0.0 };
+        (
+            x + grain.span(-0.23, 0.24),
+            z + waterfront + grain.span(-0.16, 0.19),
+        )
     });
     let (earth, edge) = if roman {
         let earth = [
@@ -94,8 +98,8 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
     let steps = ((wide - ramp) / 0.52) as usize;
     for i in 0..steps {
         let x = ramp + i as f32 * 0.52;
-        for row in 0..6 {
-            let pz = -0.87 + row as f32 * 0.32;
+        for row in 0..10 {
+            let pz = -1.49 + row as f32 * 0.33;
             let palette = [
                 [209, 177, 135],
                 [224, 195, 150],
@@ -104,7 +108,7 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
             ];
             b.slab(
                 v(x + grain.span(-0.008, 0.008), 0.021, pz),
-                v(0.501, grain.span(0.037, 0.054), 0.304),
+                v(0.501, grain.span(0.037, 0.054), 0.316),
                 if roman {
                     super::roman::paving(i, row)
                 } else {
@@ -114,7 +118,7 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
         }
         for sign in [-1.0, 1.0] {
             b.slab(
-                v(x, 0.055, sign * 1.073),
+                v(x, 0.055, sign * 1.71),
                 v(0.51, 0.09, 0.13),
                 shift(CREAM, 6),
             );
@@ -126,7 +130,7 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
             let p = lot_position(lot_id(row, col), columns);
             b.slab(p.with_y(0.021), v(2.84, 0.048, 2.44), [206, 177, 132]);
             b.slab(p.with_y(0.040), v(2.65, 0.036, 2.21), [220, 192, 151]);
-            let path_z = if row == 0 { -1.04 } else { 1.08 };
+            let path_z = if row == 0 { -1.79 } else { 1.83 };
             for n in 0..3 {
                 b.slab(
                     v(p.x + (n as f32 - 1.0) * 0.25, 0.042, path_z),
@@ -159,13 +163,13 @@ pub fn terrain(layout: Layout, chapter: usize) -> Mesh {
     for n in 0..90 {
         let x = grain.span(-wide + 0.8, wide - 0.63);
         let z = if n % 3 == 0 {
-            grain.span(3.40, 3.77)
+            grain.span(4.25, 4.56)
         } else {
             grain.span(-5.16, -3.62)
         };
         meadow(&mut b, v(x, 0.018, z), grain.span(0.14, 0.49), &mut grain);
     }
-    promenade_wall(&mut b, wide);
+    promenade_wall(&mut b, wide, quay(layout));
     harbor(&mut b, quay(layout));
     if roman {
         super::roman::skyline(&mut b, wide, chapter, &mut grain);
@@ -224,11 +228,14 @@ fn meadow(b: &mut Batch, center: Vec3, size: f32, grain: &mut Grain) {
     }
 }
 
-fn promenade_wall(b: &mut Batch, wide: f32) {
+fn promenade_wall(b: &mut Batch, wide: f32, quay: f32) {
     let count = ((wide - 1.9) * 2.0 / 0.43) as usize;
     for i in 0..count {
         let x = -wide + 1.23 + i as f32 * 0.43;
-        let z = 3.67 + (x * 0.15).cos() * 0.22;
+        if (x - quay).abs() < 0.94 {
+            continue;
+        }
+        let z = 4.49 + (x * 0.15).cos() * 0.22;
         b.slab(
             v(x, 0.12, z),
             v(0.422, 0.27, 0.37),
@@ -238,13 +245,16 @@ fn promenade_wall(b: &mut Batch, wide: f32) {
     }
     for i in 0..10 {
         let x = (i as f32 / 9.0 - 0.5) * (wide * 1.65);
+        if (x - quay).abs() < 0.94 {
+            continue;
+        }
         b.slab(
-            v(x, 0.31, 3.73 + (x * 0.15).cos() * 0.22),
+            v(x, 0.31, 4.55 + (x * 0.15).cos() * 0.22),
             v(0.18, 0.29, 0.42),
             IVORY,
         );
         b.slab(
-            v(x, 0.47, 3.73 + (x * 0.15).cos() * 0.22),
+            v(x, 0.47, 4.55 + (x * 0.15).cos() * 0.22),
             v(0.23, 0.062, 0.47),
             CREAM,
         );
@@ -328,6 +338,13 @@ fn shore_garden(b: &mut Batch, at: Vec3, roman: bool, seed: usize, grain: &mut G
 }
 
 fn harbor(b: &mut Batch, x: f32) {
+    for n in 0..5 {
+        b.slab(
+            v(x, 0.031, 1.83 + n as f32 * 0.24),
+            v(0.94, 0.061, 0.229),
+            shift(CREAM, n * 4 - 10),
+        );
+    }
     for side in [-1.0, 1.0] {
         for n in 0..4 {
             let z = 3.2 + n as f32 * 1.08;
@@ -483,7 +500,7 @@ pub fn foam(columns: usize, lane: usize) -> Mesh {
     }
     for i in 0..34 {
         let x = -wide + (i as f32 / 33.0) * wide * 2.0;
-        let z = 4.19 + (x * 0.28).cos() * 0.29 + lane as f32 * 0.18 + grain.span(-0.11, 0.16);
+        let z = 5.02 + (x * 0.28).cos() * 0.29 + lane as f32 * 0.18 + grain.span(-0.11, 0.16);
         let len = grain.span(0.17, 0.68);
         b.face(
             &[

@@ -73,14 +73,10 @@ pub(crate) enum Dynamic {
     Toast,
     Goal(crate::campaign::Goal),
     Stock(usize),
-    Route,
 }
 
 #[derive(Component)]
 pub(crate) struct DynamicBar;
-
-#[derive(Component)]
-pub(crate) struct RouteBar;
 
 #[derive(Component)]
 pub(crate) struct GoalBar(crate::campaign::Goal);
@@ -97,7 +93,7 @@ pub fn setup(mut hud: ResMut<Hud>, assets: Res<AssetServer>) {
         assets.load("embedded://fonts/DMSans-Bold.ttf"),
         assets.load("embedded://fonts/DMSerifText-Regular.ttf"),
     ];
-    let icons = "house well bakery grove potter stoa taverna inn bread olive meze bed coin star sun water wind ferry fire chart book guide hammer lock check nili title_fade storehouse press shrine aqueduct baths forum villa mood cloud rain storm guest_book guest_down guest_empty guest_happy guest_mixed guest_steps guest_wait pad_dpad pad_view sunset pause budget";
+    let icons = "house well bakery grove potter stoa taverna inn bread olive meze bed coin star sun water wind ferry fire chart book guide hammer lock check nili title_fade storehouse press shrine aqueduct baths forum villa mood cloud rain storm guest_book guest_down guest_empty guest_happy guest_mixed guest_steps guest_wait pad_dpad pad_view sunset pause budget age_child age_adult age_senior cat dog leaves scraps herb_garden";
     for key in icons
         .split_whitespace()
         .map(str::to_owned)
@@ -137,7 +133,7 @@ pub fn draw(
             match (game.view, game.panel) {
                 (_, Panel::Guide) => panels::guide(base, &hud, &game),
                 (_, Panel::Options) => panels::options(base, &hud, &save),
-                (_, Panel::Wardrobe) => wardrobe::draw(base, &hud, &save),
+                (_, Panel::Wardrobe) => wardrobe::draw(base, &hud, &save, game.wardrobe_tab),
                 (View::Title, _) => screens::title(base, &hud, &save),
                 (View::Chart, Panel::Replace) => panels::replace(base, &hud, &game),
                 (View::Chart, _) => screens::chart(base, &hud, &game, &save),
@@ -156,7 +152,12 @@ pub fn draw(
                         }
                     } else {
                         panels::street_panel(base, &hud, &game, town, save.in_tutorial());
-                        if matches!(town.phase, Phase::Open(_)) {
+                        if matches!(town.phase, Phase::Open(_))
+                            && !matches!(
+                                panel,
+                                Panel::Details | Panel::Forecast | Panel::Goals | Panel::Nili
+                            )
+                        {
                             prompts::pause_chip(base, &hud);
                         }
                     }
@@ -217,7 +218,7 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
     }
     let action = match (game.view, game.panel) {
         (_, Panel::Options) => Action::LargeUi,
-        (_, Panel::Wardrobe) => Action::Back,
+        (_, Panel::Wardrobe) => Action::WardrobeTab(game.wardrobe_tab),
         (_, Panel::Guide) => Action::GuideTab(game.guide),
         (View::Title, _) => {
             if save.active_town().is_some() {
@@ -293,9 +294,6 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
                 Action::NextDay
             }
         }
-        (View::Street, Panel::Assortment) => {
-            Action::Assortment(save.active_town()?.lots[game.selected]?.assortment)
-        }
         (View::Street, _) => Action::Back,
     };
     Some(action)
@@ -326,25 +324,11 @@ pub fn refresh(
     )>,
     mut texts: Query<(&Dynamic, &mut Text)>,
     mut toast: Query<&mut Visibility, With<ToastBox>>,
-    mut bar: Query<
-        &mut Node,
-        (
-            With<DynamicBar>,
-            Without<Root>,
-            Without<GoalBar>,
-            Without<RouteBar>,
-        ),
-    >,
+    mut bar: Query<&mut Node, (With<DynamicBar>, Without<Root>, Without<GoalBar>)>,
     mut goals: Query<
         (&GoalBar, &mut Node, &mut BackgroundColor),
-        (
-            Without<DynamicBar>,
-            Without<Root>,
-            Without<RouteBar>,
-            Without<ButtonAction>,
-        ),
+        (Without<DynamicBar>, Without<Root>, Without<ButtonAction>),
     >,
-    mut route_bar: Query<&mut Node, (With<RouteBar>, Without<Root>)>,
     mut badges: Query<(&GoalBadge, &mut ImageNode)>,
 ) {
     let factor = if save.large_ui { 1.105 } else { 1.0 };
@@ -464,17 +448,6 @@ pub fn refresh(
                     }
                 }
             }
-            Dynamic::Route => {
-                if let Some(day) = day
-                    && let Some(route) = day.route
-                {
-                    let (stage, _) = route.stage(day.seconds);
-                    let stage = stage.caption(route.job);
-                    if text.0 != stage {
-                        text.0 = stage.to_owned();
-                    }
-                }
-            }
             Dynamic::Clock => {
                 if let Some(day) = day {
                     let hour = 7.0 + day.seconds / length * 12.0;
@@ -521,11 +494,6 @@ pub fn refresh(
     }
     if let (Some(day), Ok(mut fill)) = (day, bar.single_mut()) {
         fill.width = Val::Percent(day.seconds / length * 100.0);
-    }
-    if let (Some(day), Ok(mut fill)) = (day, route_bar.single_mut())
-        && let Some(route) = day.route
-    {
-        fill.width = Val::Percent(route.progress(day.seconds) * 100.0);
     }
 }
 
@@ -780,6 +748,7 @@ fn kind_icon(kind: Kind) -> &'static str {
         Kind::Taverna => "taverna",
         Kind::Inn => "inn",
         Kind::Storehouse => "storehouse",
+        Kind::HerbGarden => "herb_garden",
         Kind::Press => "press",
         Kind::Shrine => "shrine",
         Kind::Aqueduct => "aqueduct",

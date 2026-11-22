@@ -219,7 +219,11 @@ pub fn update(
             && let Some(guest) = town.guest_history().get(p.guest)
         {
             let name = if badge.face {
-                guests::face(p.verdict)
+                if guest.specialty_bonus > 0 {
+                    "star"
+                } else {
+                    guests::face(p.verdict)
+                }
             } else {
                 service_icon(guest.wants)
             };
@@ -234,7 +238,11 @@ pub fn update(
             && let Some(guest) = town.guest_history().get(p.guest)
         {
             let words = if badge.result {
-                guests::short_verdict(p.verdict)
+                if guest.specialty_bonus > 0 {
+                    "Lieblingsangebot"
+                } else {
+                    guests::short_verdict(p.verdict)
+                }
             } else {
                 guest.wants.name()
             };

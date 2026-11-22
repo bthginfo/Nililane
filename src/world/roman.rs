@@ -31,7 +31,10 @@ pub fn model(kind: Kind, level: u8) -> Mesh {
         Kind::Aqueduct => pipes(&mut b),
         Kind::Baths => baths(&mut b),
         Kind::Forum => forum(&mut b),
-        Kind::Bakery | Kind::Potter | Kind::Taverna | Kind::Inn => shop(&mut b, kind),
+        Kind::Bakery => super::buildings::bakehouse(&mut b, true),
+        Kind::Taverna => super::buildings::tavern(&mut b, true),
+        Kind::Potter | Kind::Inn => shop(&mut b, kind),
+        Kind::HerbGarden => super::buildings::herb_garden(&mut b, true),
         Kind::Press | Kind::Shrine => unreachable!("Roman districts use separate amenities"),
     }
     for tier in 2..=level {
@@ -41,7 +44,13 @@ pub fn model(kind: Kind, level: u8) -> Mesh {
 }
 
 pub fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8) {
+    if tier >= 5 {
+        super::late_upgrades::add(b, kind, tier, true);
+        return;
+    }
+
     match (kind, tier) {
+        (Kind::HerbGarden, _) => super::buildings::garden_upgrade(b, tier, true),
         (Kind::House, 2) | (Kind::Inn, 2) => {
             b.slab(v(0.0, 1.41, 0.67), v(2.44, 0.13, 0.58), TRAVERTINE);
             rail(b, v(0.0, 1.46, 0.94), 2.26, WINE);
@@ -49,7 +58,21 @@ pub fn append_upgrade(b: &mut Batch, kind: Kind, tier: u8) {
                 flowerpot(b, v(x, 1.48, 0.85), 0.59, [209, 108, 120]);
             }
         }
-        (Kind::House, 3) => tower(b, v(-0.49, 2.18, -0.43), 1.04, 0.60, PLASTER),
+        (Kind::House, 3) => {
+            b.slab(v(0.91, 0.56, -0.51), v(0.65, 1.07, 0.88), TRAVERTINE);
+            b.slab(v(0.91, 1.11, -0.51), v(0.79, 0.12, 1.00), TILE);
+            b.slab(v(0.94, 0.74, -0.051), v(0.25, 0.32, 0.060), [61, 78, 78]);
+            b.slab(v(0.94, 0.553, 0.001), v(0.32, 0.063, 0.15), TRAVERTINE);
+            for n in 0..5 {
+                let height = 0.065 + n as f32 * 0.116;
+                b.slab(
+                    v(0.94, height * 0.5, 0.83 - n as f32 * 0.153),
+                    v(0.39, height, 0.19),
+                    TRAVERTINE,
+                );
+            }
+            flowerpot(b, v(1.18, 0.07, 0.77), 0.51, [218, 122, 141]);
+        }
         (Kind::House, 4) => {
             for x in [-0.70, 0.70] {
                 arch(b, v(x, 0.13, 0.72), 0.75, 0.69, 0.14, 0.17, BRICK);
@@ -400,7 +423,13 @@ fn shop(b: &mut Batch, kind: Kind) {
     b.slab(v(0.0, 0.15 + h / 2.0, -0.33), v(2.31, h, 1.28), front);
     masonry(b, v(0.0, 0.14, 0.327), 2.27, h, shift(front, 3));
     b.slab(v(0.0, h + 0.119, -0.33), v(2.41, 0.12, 1.42), TRAVERTINE);
-    roof(b, 2.53, 1.89, h + 0.19, 0.30, TILE);
+    if kind == Kind::Potter {
+        b.slab(v(0.0, h + 0.23, -0.31), v(2.54, 0.12, 1.49), [88, 125, 130]);
+        b.frustum(v(0.61, h + 0.29, -0.34), 0.35, 0.19, 0.44, 12, BRICK);
+        b.frustum(v(0.61, h + 0.73, -0.34), 0.22, 0.20, 0.078, 12, TRAVERTINE);
+    } else {
+        roof(b, 2.53, 1.89, h + 0.19, 0.30, TILE);
+    }
     for x in [-0.59, 0.59] {
         b.slab(v(x, 0.58, 0.352), v(0.57, 0.83, 0.045), [52, 49, 44]);
         arch(b, v(x, 0.15, 0.39), 0.57, 0.66, 0.105, 0.12, BRICK);

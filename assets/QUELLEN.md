@@ -15,7 +15,9 @@ Hippogrove aus Waldwinkel. [Hippogrove-Revision](https://github.com/bthginfo/Hip
   `people.rs` baut römische und griechische Figuren mit einem gemeinsamen
   Skelett. `construction.rs` steuert Gerüst, Ausbauteile und Staub.
   `work.rs` und `actors.rs` gestalten Nilis Bewegungen, Requisiten und Punktspuren.
-  `clothes.rs` erzeugt die Gewänder, Hüte und den Kranz für Nili.
+  `clothes.rs` erzeugt Nilis Gewänder, Hüte und Accessoires.
+  `pets.rs` enthält die Modelle und Bewegungen der Katzen und Hunde.
+  `late_upgrades.rs` ergänzt die Ausbauten auf Stufe 5 und 6.
   `sky.rs` zeichnet Wolken, Regenschlieren und Sturmwellen.
 - Die Bildtafeln und die meisten Spielsymbole in `ui/` kommen aus `art/make_ui.py`.
   Dazu gehören die Gästehinweise, das Gästebuch, die Controller-Symbole und das Budgetsymbol.
@@ -23,5 +25,9 @@ Hippogrove aus Waldwinkel. [Hippogrove-Revision](https://github.com/bthginfo/Hip
   `art/make_audio.py` erzeugt das Meeresrauschen und die Klangmotive
   für Bau, Ausbau, Verkauf, Hafenglocke und Nilis Hilfe sowie das Regenbett und
   die römische Musik mit Leier, Flöte und Rahmentrommel.
+- `art/make_harbor_music.py` komponiert die 48 Hafenthemen und ihre
+  Abendfassungen. `art/make_street_audio.py` erzeugt die Ereignismotive
+  und Klänge für Tiere und Straßenaktionen. `art/make_street_art.py`
+  zeichnet die Altersgruppen, Straßensymbole und neuen Kleidungsbilder.
 - DM Sans und DM Serif Text stehen unter der SIL Open Font License.
   Die Lizenztexte liegen bei den Schriften in `fonts/`.

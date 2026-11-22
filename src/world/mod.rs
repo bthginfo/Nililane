@@ -3,8 +3,10 @@ mod buildings;
 mod clothes;
 mod construction;
 mod landscape;
+mod late_upgrades;
 mod mesh;
 pub(crate) mod motion;
+mod pets;
 pub use clothes::dress as dress_nili;
 pub(crate) use motion::stop as route_position;
 pub(crate) use work::animate as animate_work;
@@ -40,13 +42,13 @@ use self::{
     mesh::{Batch, v},
 };
 
-pub const LOT_STEP: f32 = 3.20;
+pub const LOT_STEP: f32 = crate::layout::LOT_SPACING;
 
 pub fn lot_position(lot: usize, columns: usize) -> Vec3 {
     v(
         lot_col(lot) as f32 * LOT_STEP - (columns as f32 - 1.0) * LOT_STEP * 0.5,
         0.065,
-        if lot_row(lot) == 0 { -2.34 } else { 2.38 },
+        if lot_row(lot) == 0 { -3.07 } else { 3.11 },
     )
 }
 
@@ -89,7 +91,7 @@ pub struct Art {
     matte: Handle<StandardMaterial>,
     sea: Handle<StandardMaterial>,
     water: Handle<StandardMaterial>,
-    sea_weather: Option<Weather>,
+    sea_mix: Option<(Weather, Weather, f32)>,
     gold: Handle<StandardMaterial>,
     kinds: HashMap<(Region, Kind, u8), Handle<Mesh>>,
     additions: HashMap<(Region, Kind, u8, u8), Handle<Mesh>>,
@@ -188,7 +190,7 @@ pub fn setup(
             unlit: true,
             ..default()
         }),
-        sea_weather: None,
+        sea_mix: None,
         gold,
         hulls,
         sails,
@@ -332,21 +334,24 @@ pub fn sync(
     let ch = &CHAPTERS[town.chapter];
     let cols = ch.layout.width();
     let region = Region::of(town.chapter);
-    let weather = if game.view == View::Street {
-        town.weather(ch)
+    let weather = if game.view == View::Street && game.panel != Panel::Wardrobe {
+        town.sky_blend(ch)
     } else {
-        Weather::Clear
+        (Weather::Clear, Weather::Clear, 1.0)
     };
-    if art.sea_weather != Some(weather) {
-        art.sea_weather = Some(weather);
+    if art.sea_mix != Some(weather) {
+        art.sea_mix = Some(weather);
         if let Some(material) = materials.get_mut(&art.water) {
-            material.base_color = match weather {
-                Weather::Storm => Color::srgb(0.67, 0.75, 0.80),
-                Weather::Rain => Color::srgb(0.78, 0.85, 0.88),
-                Weather::Cloud => Color::srgb(0.91, 0.95, 0.96),
-                Weather::Heat => Color::srgb(0.95, 1.0, 0.97),
-                _ => Color::WHITE,
+            let tint = |weather| match weather {
+                Weather::Storm => v(0.56, 0.71, 0.87),
+                Weather::Rain => v(0.69, 0.81, 0.90),
+                Weather::Cloud => v(0.84, 0.92, 0.97),
+                Weather::Wind => v(0.87, 0.96, 0.94),
+                Weather::Heat => v(0.97, 1.0, 0.86),
+                _ => Vec3::ONE,
             };
+            let [r, g, b] = tint(weather.0).lerp(tint(weather.1), weather.2).to_array();
+            material.base_color = Color::srgb(r, g, b);
         }
     }
     if art.chapter != Some(town.chapter) {
@@ -539,6 +544,7 @@ type Extras<'w, 's> = Query<
 >;
 
 pub use people::{Reactions, animate as animate_people};
+pub use pets::{animate as animate_pets, setup as setup_pets};
 pub use sky::{animate as animate_weather, setup as setup_weather};
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn animate(
@@ -584,19 +590,13 @@ pub fn animate(
     } else {
         0.22
     };
-    let weather = if playing && !wardrobe {
-        town.weather(chapter)
+    let (from, to, alpha) = if playing && !wardrobe {
+        town.sky_blend(chapter)
     } else {
-        Weather::Clear
+        (Weather::Clear, Weather::Clear, 1.0)
     };
-    let bright = match weather {
-        Weather::Heat => 1.08,
-        Weather::Cloud => 0.86,
-        Weather::Rain => 0.69,
-        Weather::Storm => 0.53,
-        _ => 1.0,
-    };
-    let swell = weather.swell();
+    let bright = from.brightness().lerp(to.brightness(), alpha);
+    let swell = from.swell().lerp(to.swell(), alpha);
     let blend = 1.0 - (-5.2 * time.delta_secs()).exp();
     {
         let mut rig = rigs.p0();
@@ -619,21 +619,24 @@ pub fn animate(
                 viewport_height: height,
             };
         }
-        let offset = if manual.is_some() {
-            0.0
+        let offset = if lives.is_some() {
+            if manual.is_some() { 0.0 } else { 0.095 }
         } else if playing {
             0.12
         } else {
             -0.095
         };
         let yaw = if playing { 0.13 } else { 0.19 };
-        let look = v(yaw, 0.86, 1.15).normalize();
+        let look = v(yaw, if playing { 1.12 } else { 0.91 }, 1.15).normalize();
         let right = v(look.z, 0.0, -look.x).normalize();
         let width = height * aspect;
         let pan = if playing { game.pan } else { Vec2::ZERO };
         let mut framing = width * offset + pan.x;
         if game.view == View::Title {
             framing = framing.max(ships::berth(quay).dot(right) - width * 0.32);
+        } else if playing && let Some(nili) = lives.and_then(|day| day.nili) {
+            let track = motion::controlled_position(nili).dot(right);
+            framing = framing.clamp(track - width * 0.10, track + width * 0.28);
         } else if playing && game.zoom > 0.04 && game.pan.x.abs() < 0.12 {
             let plot = lot_position(game.selected, cols).dot(right);
             framing = framing.clamp(plot - width * 0.17, plot + width * 0.32);
@@ -662,14 +665,24 @@ pub fn animate(
         sun.illuminance = (12_400.0 - sunset * 4_500.0) * bright;
     }
     ambient.brightness = (510.0 - sunset * 146.0) * (0.49 + bright * 0.51);
-    let p = lot_position(game.selected, cols);
+    let cursor = if town.planning() || game.job.is_some() {
+        Some(game.selected)
+    } else {
+        match game.nearby {
+            Some(crate::game::Nearby::Building(lot)) => Some(lot),
+            _ => game.destination,
+        }
+    };
     if let Ok((mut transform, mut visible)) = rigs.p2().single_mut() {
-        *visible = if playing && manual.is_none() && !wardrobe {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        };
-        transform.translation = p + Vec3::Y * (t * 3.7).sin() * 0.017;
+        *visible = Visibility::Hidden;
+        if playing
+            && manual.is_none()
+            && !wardrobe
+            && let Some(lot) = cursor
+        {
+            *visible = Visibility::Inherited;
+            transform.translation = lot_position(lot, cols) + Vec3::Y * (t * 3.7).sin() * 0.017;
+        }
     }
     let route = lives.and_then(|day| day.route_pose());
     let pending = game
@@ -692,6 +705,10 @@ pub fn animate(
         work::Pose::default()
     } else if let Some((route, (stage, at))) = route {
         work::perform(route.job, stage, at)
+    } else if let Some((_, activity, since)) = game.street_action
+        && t - since < 0.60
+    {
+        work::quick_action(activity, t - since)
     } else {
         game.delivery()
             .map_or_else(work::Pose::default, |done| work::celebrate(t - done.since))

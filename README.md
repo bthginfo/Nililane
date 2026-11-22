@@ -1,4 +1,4 @@
-# Nililane 2.4.0
+# Nililane 2.5.0
 
 Nililane ist ein 3D-Straßenmanagementspiel in Rust und Bevy. Mit dem Nilpferd Nili
 reist du zuerst durch das antike Griechenland und danach durch das antike
@@ -6,7 +6,7 @@ Rom. Du planst die Gasse am Morgen, versorgst Nachbarn und Fährgäste und hilfs
 tagsüber dort, wo sich die Lieferungen stauen. Auf der Kampagnenkarte erkennst
 du die Größe des nächsten Hafens schon vor der Überfahrt.
 
-**[Nililane 2.4.0 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/3863cc7e6658183653ff872e5f0297fd6fa06963/Nililane-2.4.0.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/3863cc7e6658183653ff872e5f0297fd6fa06963/Nililane-2.4.0.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.4.0)
+**[Nililane 2.5.0 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/e0c4584ef11567cfd477c95e90ff77612d6d1bdc/Nililane-2.5.0.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/e0c4584ef11567cfd477c95e90ff77612d6d1bdc/Nililane-2.5.0.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.5.0)
 
 ![Nili mit Bewohnern und dem ausgebauten Wohnhof in Naxos](docs/bilder/naxos.jpg)
 
@@ -29,44 +29,58 @@ sowie Musik und Spielklänge separat schalten.
 
 | Xbox-Controller | Aktion |
 | --- | --- |
-| Steuerkreuz oder linker Stick | Bauplatz oder Menüaktion wählen, während eines Auftrags Nili bewegen |
-| A | Bestätigen, Grundstück öffnen oder am markierten Ort abholen und abgeben |
+| Linker Stick | Tagsüber Nili bewegen |
+| Steuerkreuz | Menü bedienen oder morgens einen Bauplatz wählen |
+| A | Bestätigen oder mit dem Gebäude, der Abholung oder dem Tier in deiner Nähe interagieren |
 | B | Zurück, pausieren oder den laufenden Auftrag abbrechen |
 | X | Aufträge ansehen |
 | Y | Tag starten, das Tempo wechseln oder auf der Kampagnenkarte das Tutorial neu starten |
-| RB | Hafenplan mit Wetter, Nachfrage und Vorräten öffnen |
+| RB | Tagesplan mit Gästezahlen, Wetter und Notizen öffnen |
 | View (Taste mit zwei Rechtecken) | Gästebuch direkt öffnen |
 | Rechten Stick drücken (R3) | Ab Amorgos Nilis Touren öffnen |
 | Rechter Stick, LT und RT | Kamera schwenken und zoomen |
 | LB | Kamera zurücksetzen |
 | Start | Pausenmenü öffnen |
 
-Tippe ein Gebäude an, um seinen Bedarf zu sehen. Bewege Nili während eines
-Auftrags mit dem runden Steuerfeld und tippe am Ziel auf die helle Aktion.
-Mit der Tastatur bedienen
-Pfeiltasten oder WASD die Auswahl, Enter bestätigt, Escape geht zurück.
-X, Y, P, Q und E entsprechen X, Y, Start, LB und RB. N öffnet Nilis Touren.
-F öffnet das Gästebuch.
+Zieh tagsüber das runde Steuerfeld, um Nili zu bewegen. Geh zu einem
+Gebäude und tippe auf die helle Aktion, um Vorrat und Bedarf zu sehen.
+Für Bauplätze, Preise und Angebote nutzt du morgens die Planung.
+Mit der Tastatur bewegst du Nili mit WASD oder den Pfeiltasten. Enter
+entspricht A, Escape entspricht B. X, Y, P, Q und E entsprechen X, Y,
+Start, LB und RB. N öffnet Nilis Touren. F öffnet das Gästebuch.
 
-## Neu in 2.4.0
+## Neu in 2.5.0
 
-- **Nili selbst steuern.** Mit linkem Stick oder Touch zum markierten Ort
-  gehen und dort abholen oder abgeben. Die Hafenuhr pausiert während der
-  Steuerung. Beim Abschluss verstreicht die eingeplante Zeit des Auftrags.
-- **Bedarf am Gebäude.** Die Details vergleichen Vorrat und erwartete Gäste,
-  zeigen knappes Wasser und schlagen verfügbare Touren vor.
-- **Zwischenfälle am Hafen.** Ab Rhodos können ein kleiner Ofenbrand oder
-  verrutschte Kisten nach Unwetter einen Hafenauftrag auslösen.
-- **Drei Altersgruppen.** Kinder, Erwachsene und ältere Gäste haben
-  eigene Körperformen und Laufbewegungen. Backstuben, Tavernen und
-  Töpfereien können morgens eine Spezialität für eine Gruppe wählen.
-  Wer sie mag und einkauft, bringt zusätzliches Ansehen.
-- **Nilis Garderobe.** Auf der Kampagnenkarte und im Pausenmenü kannst du
-  mit verdienten Sternen drei Gewänder und drei Kopfbedeckungen kaufen.
-  Kombiniere ein Gewand mit einer Kopfbedeckung. Sternrekorde und
-  Freischaltungen bleiben erhalten.
+- **Mehr Platz für Nili.** Die Gasse ist breiter. Tagsüber steuerst du Nili
+  frei und gehst zum Gebäude, das du untersuchen möchtest. Die Uhr läuft
+  beim Abholen, Tragen und Abliefern weiter. Auf großen Inseln dauern die
+  Tage länger und es kommen mehr Fährgäste. Du kannst mehrmals Gäste begleiten.
+- **Tagesplan und Beobachtungen.** Die Übersicht zeigt die erwarteten
+  Kinder, Erwachsenen und älteren Gäste. In beiden Kampagnen kommen Kinder
+  ab dem dritten Hafen und ältere Gäste ab dem fünften dazu. Wohnhöfe und
+  Villen zeigen ihre Bewohner. Am Anfang eines Hafens erklären Bildkarten
+  die neu hinzugekommenen Aktionen. Unter **Notizen** stehen die Wünsche und Rückmeldungen des
+  vergangenen Markttags.
+- **Preis und Angebot am selben Ort.** Für Backstuben, Tavernen und Töpfereien
+  zeigt jede Spezialität, für wen sie gedacht ist und wie viele Münzen bei
+  passenden Verkäufen zu erwarten sind. Gebäude haben sechs Stufen mit
+  sichtbaren Ausbauten. Läden erhalten dabei zusätzliche Spezialitäten.
+- **Mehr Wege zur Versorgung.** Brunnen liefern Wasser, Haine Oliven und
+  Speicher Vorräte. Kräutergärten versorgen benachbarte Küchen. Ihre
+  Reichweite wächst ab Stufe 3. Backstuben, Tavernen und Töpfereien haben
+  eigene Silhouetten.
+- **Abwechslung auf der Gasse.** Nili kann Laub oder Unrat aufheben und
+  Katzen oder Hunde streicheln. Dazu kommen Ofenbrände, lose Kisten,
+  zerbrochene Krüge, lose Sonnensegel und verirrte Reisegruppen. Optionale
+  Tagesaufträge und ein Anteil am Handelsumsatz füllen die Reisekasse.
+- **Himmel, Wasser und Musik.** Der Tagesplan zeigt drei Wetterabschnitte.
+  Wolken, Regen und Sturm verändern Licht, Meer und Schiffe. Jeder der
+  48 Häfen hat ein eigenes Thema mit Abendfassung. Bei Zwischenfällen
+  erklingt ein zusätzliches Motiv.
+- **Nilis Garderobe.** Sterne kannst du für 24 Gewänder, Hüte und
+  Accessoires ausgeben. Nili kann je ein Stück davon kombinieren.
 
-![Nili trägt in der Garderobenvorschau eine Purpurtoga und einen Fischerhut](docs/bilder/garderobe.jpg)
+![Tagesplan mit den erwarteten Kindern, Erwachsenen und älteren Gästen](docs/bilder/tagesplan.jpg)
 
 ## Neu in 2.3.2
 
@@ -173,9 +187,9 @@ auch im 4:3-Format vollständig.
   Zusatzsterne. Nach dem Abschluss kannst du bleiben, weiterreisen
   oder einen Hafen für mehr Sterne erneut besuchen.
 - Bauentscheidungen, laufende Tage und Sternrekorde werden lokal gespeichert.
-  Bei Normaltempo ist jede Reise inklusive Planung auf rund acht Stunden
-  ausgelegt. Dein Bautempo, die Tempo-Taste und Wiederholungen verändern
-  die tatsächliche Spielzeit.
+  Bei Normaltempo dauern die Markttage der Referenzpartien rund sechseinhalb
+  Stunden in Griechenland und elfeinhalb Stunden in Rom. Planung, Spieltempo
+  und Wiederholungen beeinflussen die tatsächliche Spielzeit.
 
 ## Aus dem Quellcode starten
 

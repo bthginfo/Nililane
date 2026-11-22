@@ -1,7 +1,7 @@
 use crate::{
     campaign::{Chapter, Region},
     model::{
-        Age, GuestTip, Miss, Origin, SERVICES, Service, Tally, Town, Verdict, Visit,
+        GuestTip, Miss, Origin, SERVICES, Service, Tally, Town, Verdict, Visit,
         satisfaction_percent,
     },
 };
@@ -650,7 +650,7 @@ fn guest_card(
                 label(
                     words,
                     hud,
-                    format!("{} · {}", Age::guest(index).label(), verdict_name(verdict)),
+                    format!("{} · {}", visit.age(index).label(), verdict_name(verdict)),
                     18.0,
                     Face::Bold,
                     SAND,
@@ -663,7 +663,8 @@ fn guest_card(
             icon(identity, hud, service_icon(visit.wants), 38.0);
         });
         let quote = match verdict {
-            Verdict::Pleased => "Genau das habe ich gesucht!",
+            Verdict::Pleased if visit.specialty_bonus > 0 => "Mein Lieblingsangebot!",
+            Verdict::Pleased => "Ich habe bekommen, was ich gesucht habe!",
             Verdict::Missed(Miss::NoShop) => "Das habe ich hier vermisst.",
             Verdict::Missed(Miss::Walk) => "Der Weg zum Laden war mir zu weit.",
             Verdict::Missed(Miss::Price) => "Das war mir zu teuer.",
@@ -683,6 +684,29 @@ fn guest_card(
             Face::Body,
             SAND,
         );
+        if visit.specialty_bonus > 0 {
+            super::panels::metric(
+                c,
+                hud,
+                visit.age(index).icon(),
+                format!("Spezialität · +{} Münzen", visit.specialty_bonus),
+            );
+        } else if verdict == Verdict::Pleased
+            && let Some(b) = visit.shop.and_then(|lot| town.lots[usize::from(lot)])
+            && crate::model::Assortment::supported(b.kind)
+        {
+            use crate::model::Age;
+            let age = visit.age(index);
+            let observation = match (b.kind, age) {
+                (Kind::Potter, Age::Child) => "Ein bisschen Farbe wäre schön.",
+                (Kind::Potter, Age::Adult) => "Ich suche etwas für den Alltag.",
+                (Kind::Potter, Age::Senior) => "Mir gefallen traditionelle Muster.",
+                (_, Age::Child) => "Ich mag es lieber süß.",
+                (_, Age::Adult) => "Ich hätte Lust auf etwas Herzhaftes.",
+                (_, Age::Senior) => "Am liebsten etwas Vertrautes.",
+            };
+            super::panels::metric(c, hud, age.icon(), observation);
+        }
         if verdict == Verdict::Missed(Miss::Price) {
             let budget = visit.budget.coins(visit.wants);
             let price = visit

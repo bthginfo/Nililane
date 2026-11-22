@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    campaign::Chapter,
+    campaign::{Chapter, REGION_SIZE, harbor_stage},
     layout::distance,
     model::{Kind, Phase, Town, Weather},
 };
@@ -27,7 +27,12 @@ impl Job {
     ];
 
     pub fn unlocked(self, chapter: usize) -> bool {
-        chapter >= [1, 1, 2, 3, 6][self as usize]
+        let stage = harbor_stage(chapter);
+        if chapter < REGION_SIZE {
+            stage >= [1, 1, 2, 3, 6][self as usize]
+        } else {
+            stage >= [0, 0, 0, 3, 5][self as usize]
+        }
     }
 
     pub fn name(self) -> &'static str {
@@ -101,7 +106,27 @@ impl Job {
     }
 
     pub fn limit(chapter: usize) -> u8 {
-        if chapter < 6 { 2 } else { 3 }
+        if chapter < 6 {
+            3
+        } else if chapter < 12 {
+            4
+        } else {
+            5
+        }
+    }
+
+    pub fn daily_max(self, chapter: usize) -> u32 {
+        match self {
+            Self::Welcome => {
+                if chapter < 12 {
+                    2
+                } else {
+                    3
+                }
+            }
+            Self::Freight | Self::Water if chapter >= 6 => 2,
+            _ => 1,
+        }
     }
 
     pub fn offers(self, town: &Town, chapter: &Chapter, lot: usize) -> bool {
@@ -159,7 +184,7 @@ impl Job {
         if day.route.is_some() {
             return Err(Blocked::Busy);
         }
-        if day.tally.routes[self as usize] != 0 {
+        if day.tally.routes[self as usize] >= self.daily_max(town.chapter) {
             return Err(Blocked::Done);
         }
         if day.tally.routes_today() >= u32::from(Self::limit(town.chapter)) {
@@ -405,14 +430,6 @@ impl Route {
         (stage, ((seconds - start) / (end - start)).clamp(0.0, 1.0))
     }
 
-    pub fn title(self) -> &'static str {
-        if self.favor {
-            "Nili hilft"
-        } else {
-            self.job.name()
-        }
-    }
-
     pub fn reward(self) -> (&'static str, &'static str) {
         if self.favor {
             return ("+6 Münzen", "coin");
@@ -428,13 +445,13 @@ impl Route {
         }
     }
 
-    pub fn valid(self, town: &Town, chapter: &Chapter, age: f32) -> bool {
+    pub fn valid(self, town: &Town, chapter: &Chapter, age: f32, controlled: bool) -> bool {
         [self.from, self.pickup, self.delivery]
             .iter()
             .all(|s| s.valid(town, chapter))
             && self.started >= 0.0
             && self.started <= age
-            && age < self.finish
+            && (controlled || age < self.finish)
             && self.started < self.pickup_at
             && self.pickup_at < self.depart_at
             && self.depart_at < self.arrival
@@ -448,9 +465,5 @@ impl Route {
                         if day.favor_at.is_none() && day.favor.job() == self.job
                             && town.lots[usize::from(lot)].is_some_and(|b| day.favor.allows(b.kind))
                 ))
-    }
-
-    pub fn progress(self, seconds: f32) -> f32 {
-        ((seconds - self.started) / (self.finish - self.started)).clamp(0.0, 1.0)
     }
 }

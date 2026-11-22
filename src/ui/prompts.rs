@@ -26,6 +26,7 @@ fn step_words(step: Step) -> (&'static str, &'static str) {
         Step::Aid(_, Favor::Cargo) => ("Vorrat auffüllen", "guest_empty"),
         Step::Aid(_, Favor::Fire) => ("Ofenbrand löschen", "fire"),
         Step::Aid(_, Favor::Crates) => ("Kisten sichern", "storehouse"),
+        Step::Aid(_, event) => (event.name(), event.icon()),
         Step::Tour(_, job) => (job.name(), job.icon()),
         Step::Evening => ("Einnahmen am Abend", "sunset"),
     }
@@ -204,6 +205,7 @@ pub(super) fn spawn(p: &mut ChildSpawnerCommands, hud: &Hud) {
 enum Point {
     Lot(usize),
     Stop(Stop),
+    Street([f32; 2]),
     Nili,
 }
 
@@ -311,20 +313,14 @@ fn map_signs(town: &Town, game: &Game) -> Vec<MapSign> {
 
     if let Some((favor, lot)) = town.incident(chapter) {
         signs.push(MapSign {
-            point: if favor == Favor::Crates {
-                Point::Stop(Stop::Pier)
-            } else {
-                Point::Lot(lot)
+            point: match favor {
+                Favor::Crates => Point::Stop(Stop::Pier),
+                Favor::LostGuests => Point::Stop(Stop::Quay),
+                _ => Point::Lot(lot),
             },
-            title: if favor == Favor::Fire {
-                "Ofenbrand"
-            } else {
-                "Lose Kisten"
-            },
+            title: favor.event_name(),
             icon: favor.icon(),
-            action: town
-                .favor_plan(chapter, lot)
-                .map(|_| Action::Coach(Step::Aid(lot, favor))),
+            action: town.favor_plan(chapter, lot).map(|_| Action::Incident(lot)),
         });
     }
     let step = coach::next(town, chapter, game.selected, game.saw_prices);
@@ -350,6 +346,28 @@ fn map_signs(town: &Town, game: &Game) -> Vec<MapSign> {
     }
 
     if let Phase::Open(day) = &town.phase {
+        if let Some(lot) = game.destination {
+            signs.push(MapSign {
+                point: Point::Stop(Stop::Parcel(lot as u8)),
+                title: "Zum Eingang",
+                icon: "guest_steps",
+                action: Some(Action::LookAtLot(lot)),
+            });
+        }
+        for (slot, spot) in crate::street::spots(town, chapter).into_iter().enumerate() {
+            let Some(spot) = spot.filter(|spot| !spot.claimed) else {
+                continue;
+            };
+            signs.push(MapSign {
+                point: Point::Street(spot.position),
+                title: spot.activity.name(),
+                icon: spot.activity.icon(),
+                action: day
+                    .nili
+                    .filter(|nili| spot.in_range(nili.position))
+                    .map(|_| Action::StreetHelp(slot)),
+            });
+        }
         let mut needs = [false; SERVICES];
         for visit in day.visits.iter().filter(|v| !v.resolved) {
             needs[visit.wants as usize] = true;
@@ -430,6 +448,7 @@ pub fn update(
                 Point::Lot(lot) => plot(lot),
                 Point::Stop(Stop::Parcel(i)) => plot(usize::from(i)),
                 Point::Stop(stop) => route_position(stop, chapter.layout) + Vec3::Y * 1.1,
+                Point::Street([x, z]) => Vec3::new(x, 0.78, z),
                 Point::Nili => {
                     let Ok(hippo) = nili.single() else { continue };
                     hippo.translation + Vec3::Y * 1.70

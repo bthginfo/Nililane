@@ -1,7 +1,7 @@
 use super::*;
-use crate::cosmetics::Cosmetic;
+use crate::cosmetics::{Category, Cosmetic};
 
-pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign) {
+pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign, active: Category) {
     let stars = save.available_stars();
     p.spawn((
         Node {
@@ -25,14 +25,32 @@ pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign) {
                 })
                 .with_children(|head| {
                     label(head, hud, "Nilis Garderobe", 35.0, Face::Serif, SAND);
-                    panels::metric(head, hud, "star", format!("{stars} frei"));
+                    panels::metric(head, hud, "star", format!("{stars} Sterne"));
                 });
             line(closet, LINE);
-            for (title, items) in ["Gewänder", "Kopfschmuck"]
+            closet.spawn(row(6.0)).with_children(|tabs| {
+                for category in Category::ALL {
+                    button(
+                        tabs,
+                        hud,
+                        Action::WardrobeTab(category),
+                        category.label(),
+                        category.icon(),
+                        "",
+                        if category == active {
+                            Style::Primary
+                        } else {
+                            Style::Quiet
+                        },
+                        false,
+                    );
+                }
+            });
+            let items: Vec<_> = Cosmetic::ALL
                 .into_iter()
-                .zip(Cosmetic::ALL.chunks(3))
-            {
-                label(closet, hud, title, 17.0, Face::Bold, MUTED);
+                .filter(|item| item.category() == active)
+                .collect();
+            for items in items.chunks(4) {
                 closet
                     .spawn(Node {
                         align_items: AlignItems::Stretch,
@@ -61,10 +79,10 @@ pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign) {
                                 },
                             )
                             .with_children(|tile| {
-                                icon(tile, hud, item.icon(), 61.0);
-                                label(tile, hud, item.name(), 18.0, Face::Bold, SAND);
+                                icon(tile, hud, item.icon(), 49.0);
+                                label(tile, hud, item.name(), 15.0, Face::Bold, SAND);
                                 let (art, cost) = if wearing {
-                                    ("check", "Angezogen".to_owned())
+                                    ("check", "Aktiv".to_owned())
                                 } else if owned {
                                     ("", "Anziehen".to_owned())
                                 } else {

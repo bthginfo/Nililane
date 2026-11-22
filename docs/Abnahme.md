@@ -101,6 +101,26 @@ Die Ausbauvorschau zeigt solche Engpässe auch in den übrigen Häfen an.
 Puteoli erreicht mit zwei Gasthäusern drei Sterne bis zum 23. Tag.
 Der Hafentipp nennt die beiden Häuser und ihren Wasserbedarf.
 
+## Kampagnenprüfung in 2.5
+
+Die Kampagnenprüfung steuert Nili über den Laufkorridor und den Steg zu
+beiden Übergabepunkten. Die Marktuhr läuft während Weg und Arbeit weiter.
+Die Referenzpartien erreichen drei Sterne in allen 48 Häfen und laden
+jeden abgeschlossenen Hafen erneut aus dem Spielstand. Weitere Prüfungen
+decken Wetterwechsel, Gästezahlen, Spezialitätenerlös, Kräutergärten,
+wiederholte Gästetouren und abgelaufene Aufträge ab.
+
+Der Vergleich mit den Referenzpartien ergibt 206 Tage in Griechenland und
+326 Tage in Rom. Das entspricht bei Normaltempo rund 6½ und 11½ Stunden
+reiner Marktzeit. Dazu kommen Planung und Menüs. Die 4:3-Prüfung der
+Gebäudeansicht zeigt selbst mit großer Oberfläche alle neun Angebote,
+die Preise und die Zurück-Taste gleichzeitig. [Gebäudeansicht](bilder/angebote.jpg)
+
+Die Tagesnotizen greifen die Rückmeldungen als Grundlage für die nächste
+Planung auf. Die Referenz für Ladenentscheidungen und die Kombination
+aus Bevölkerungs-, Zufriedenheits- und Umsatzzielen waren die Berichte
+über Minami Lane. [Siliconera](https://www.siliconera.com/review-minami-lane-feels-neighborly/) · [Missionsübersicht](https://www.trueachievements.com/game/Minami-Lane/walkthrough/3)
+
 ## Prüfungen
 
 - Formatierung, Clippy mit Warnungen als Fehler und 20 Rust-Tests

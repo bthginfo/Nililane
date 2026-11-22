@@ -86,10 +86,94 @@ pub fn animate_walk_pad(game: Res<Game>, mut thumb: Query<&mut Node, With<Steeri
     }
 }
 
+pub(super) fn pad(p: &mut ChildSpawnerCommands, hud: &Hud) {
+    p.spawn((
+        SteeringPad,
+        Node {
+            width: Val::Px(PAD_SIZE),
+            height: Val::Px(PAD_SIZE),
+            border: UiRect::all(Val::Px(2.0)),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.048, 0.164, 0.176, 0.86)),
+        BorderColor(MUTED),
+        BorderRadius::MAX,
+        FocusPolicy::Block,
+    ))
+    .with_children(|pad| {
+        pad.spawn((
+            SteeringThumb,
+            Node {
+                width: Val::Px(THUMB_SIZE),
+                height: Val::Px(THUMB_SIZE),
+                position_type: PositionType::Absolute,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(JADE),
+            BorderRadius::MAX,
+            FocusPolicy::Pass,
+        ))
+        .with_children(|thumb| icon(thumb, hud, "pad_dpad", 41.0));
+    });
+}
+
+pub(super) fn free(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town) {
+    use crate::game::Nearby;
+    p.spawn(Node {
+        position_type: PositionType::Absolute,
+        left: Val::Px(23.0),
+        bottom: Val::Px(23.0),
+        right: Val::Px(353.0),
+        align_items: AlignItems::End,
+        ..row(12.0)
+    })
+    .with_children(|foot| {
+        pad(foot, hud);
+        card(foot, frame_node(Val::Auto, 5.0, 10.0), INK).with_children(|near| match game.nearby {
+            Some(Nearby::Building(lot)) => {
+                let b = town.lots[lot].unwrap();
+                button(
+                    near,
+                    hud,
+                    Action::LookAtLot(lot),
+                    b.kind.name(),
+                    kind_icon(b.kind),
+                    "A",
+                    Style::Primary,
+                    false,
+                );
+            }
+            Some(Nearby::Activity(slot, activity)) => {
+                button(
+                    near,
+                    hud,
+                    Action::StreetHelp(slot),
+                    activity.action(),
+                    activity.icon(),
+                    "A",
+                    Style::Primary,
+                    false,
+                );
+            }
+            None => {
+                panels::metric(near, hud, "pad_dpad", "Linker Stick oder ziehen");
+                if let Some(building) = game.destination.and_then(|lot| town.lots[lot]) {
+                    panels::metric(near, hud, kind_icon(building.kind), building.kind.name());
+                } else {
+                    label(near, hud, "Geh zu einem Gebäude.", 15.0, Face::Body, MUTED);
+                }
+            }
+        });
+    });
+}
+
 pub(super) fn draw(
     p: &mut ChildSpawnerCommands,
     hud: &Hud,
     town: &Town,
+    game: &Game,
     day: &Day,
     route: Route,
     nili: NiliControl,
@@ -107,36 +191,7 @@ pub(super) fn draw(
         ..row(14.0)
     })
     .with_children(|foot| {
-        foot.spawn((
-            SteeringPad,
-            Node {
-                width: Val::Px(PAD_SIZE),
-                height: Val::Px(PAD_SIZE),
-                border: UiRect::all(Val::Px(2.0)),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.048, 0.164, 0.176, 0.86)),
-            BorderColor(MUTED),
-            BorderRadius::MAX,
-            FocusPolicy::Block,
-        ))
-        .with_children(|pad| {
-            pad.spawn((
-                SteeringThumb,
-                Node {
-                    width: Val::Px(THUMB_SIZE),
-                    height: Val::Px(THUMB_SIZE),
-                    position_type: PositionType::Absolute,
-                    align_items: AlignItems::Center,
-                    justify_content: JustifyContent::Center,
-                    ..default()
-                },
-                BackgroundColor(JADE),
-                BorderRadius::MAX,
-                FocusPolicy::Pass,
-            ))
-            .with_children(|thumb| icon(thumb, hud, "pad_dpad", 41.0));
-        });
+        pad(foot, hud);
         card(foot, frame_node(Val::Px(440.0), 6.0, 12.0), INK).with_children(|steps| {
             steps.spawn(row(6.0)).with_children(|line| {
                 icon(line, hud, day.errand_icon(route), 25.0);
@@ -190,6 +245,16 @@ pub(super) fn draw(
         ..column(7.0)
     })
     .with_children(|actions| {
+        button(
+            actions,
+            hud,
+            Action::Speed,
+            &format!("Tempo {}×", game.speed),
+            "",
+            "Y",
+            Style::Quiet,
+            false,
+        );
         button(
             actions,
             hud,

@@ -1,15 +1,15 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    campaign::{Chapter, Goal},
+    campaign::{Chapter, Goal, harbor_stage},
     errands::{Blocked, JOB_TYPES, Job, ManualStage, NiliControl, Route, RouteStage, Stop},
 };
 
 pub use crate::layout::{LOTS, distance};
-pub const DAY_SECONDS: f32 = 55.0;
-pub const MAX_LEVEL: u8 = 4;
+pub const DAY_SECONDS: f32 = 65.0;
+pub const MAX_LEVEL: u8 = 6;
 pub const SERVICES: usize = 9;
-pub const BUILDINGS: usize = 15;
+pub const BUILDINGS: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Service {
@@ -69,6 +69,7 @@ pub enum Kind {
     Baths,
     Forum,
     Villa,
+    HerbGarden,
 }
 
 impl Kind {
@@ -88,6 +89,7 @@ impl Kind {
         Self::Baths,
         Self::Forum,
         Self::Villa,
+        Self::HerbGarden,
     ];
 
     pub fn name(self) -> &'static str {
@@ -107,6 +109,7 @@ impl Kind {
             Self::Baths => "Thermen",
             Self::Forum => "Forum",
             Self::Villa => "Villa",
+            Self::HerbGarden => "Kräutergarten",
         }
     }
 
@@ -127,6 +130,7 @@ impl Kind {
             Self::Baths => 49,
             Self::Forum => 46,
             Self::Villa => 41,
+            Self::HerbGarden => 23,
         }
     }
 
@@ -193,7 +197,7 @@ impl Price {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Age {
     Child,
     Adult,
@@ -202,6 +206,26 @@ pub enum Age {
 
 impl Age {
     pub const ALL: [Self; 3] = [Self::Child, Self::Adult, Self::Senior];
+
+    pub const fn stage(self) -> usize {
+        match self {
+            Self::Adult => 0,
+            Self::Child => 2,
+            Self::Senior => 4,
+        }
+    }
+
+    pub fn available(self, chapter: usize) -> bool {
+        harbor_stage(chapter) >= self.stage()
+    }
+
+    pub fn on_island(self, chapter: usize) -> Self {
+        if self.available(chapter) {
+            self
+        } else {
+            Self::Adult
+        }
+    }
 
     pub fn guest(index: usize) -> Self {
         match index % 7 {
@@ -222,8 +246,16 @@ impl Age {
     pub fn label(self) -> &'static str {
         match self {
             Self::Child => "Kind",
-            Self::Adult => "Erwachsen",
+            Self::Adult => "Erwachsener Gast",
             Self::Senior => "Älterer Gast",
+        }
+    }
+
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::Child => "age_child",
+            Self::Adult => "age_adult",
+            Self::Senior => "age_senior",
         }
     }
 }
@@ -235,10 +267,40 @@ pub enum Assortment {
     Colorful,
     Hearty,
     Classic,
+    Festival,
+    Market,
+    Signature,
+    HouseSpecial,
+    Celebration,
 }
 
 impl Assortment {
-    pub const ALL: [Self; 4] = [Self::Standard, Self::Colorful, Self::Hearty, Self::Classic];
+    pub const ALL: [Self; 9] = [
+        Self::Standard,
+        Self::Colorful,
+        Self::Hearty,
+        Self::Classic,
+        Self::Festival,
+        Self::Market,
+        Self::Signature,
+        Self::HouseSpecial,
+        Self::Celebration,
+    ];
+
+    pub fn unlocked(self, level: u8) -> bool {
+        self.tier() <= level
+    }
+
+    pub fn tier(self) -> u8 {
+        match self {
+            Self::Festival => 2,
+            Self::Market => 3,
+            Self::Signature => 4,
+            Self::HouseSpecial => 5,
+            Self::Celebration => 6,
+            _ => 1,
+        }
+    }
 
     pub fn standard(&self) -> bool {
         *self == Self::Standard
@@ -251,26 +313,60 @@ impl Assortment {
     pub fn flavor(self) -> Option<Age> {
         match self {
             Self::Standard => None,
-            Self::Colorful => Some(Age::Child),
-            Self::Hearty => Some(Age::Adult),
-            Self::Classic => Some(Age::Senior),
+            Self::Colorful | Self::Festival | Self::Celebration => Some(Age::Child),
+            Self::Hearty | Self::Market | Self::HouseSpecial => Some(Age::Adult),
+            Self::Classic | Self::Signature => Some(Age::Senior),
+        }
+    }
+
+    pub fn extra_coins(self) -> u32 {
+        match self {
+            Self::Standard => 0,
+            Self::Colorful => 3,
+            Self::Hearty => 2,
+            Self::Classic => 3,
+            Self::Festival => 5,
+            Self::Market => 4,
+            Self::Signature => 6,
+            Self::HouseSpecial => 6,
+            Self::Celebration => 7,
         }
     }
 
     pub fn label(self, kind: Kind) -> &'static str {
         let offers = match kind {
-            Kind::Bakery => ["Landbrot", "Honigfladen", "Olivenlaib", "Kräuterbrot"],
+            Kind::Bakery => [
+                "Landbrot",
+                "Honigfladen",
+                "Olivenlaib",
+                "Kräuterbrot",
+                "Feigenkringel",
+                "Sesamlaib",
+                "Rosmarinbrot",
+                "Mohnlaib",
+                "Festkringel",
+            ],
             Kind::Potter => [
                 "Schlichte Schalen",
                 "Bunte Becher",
                 "Vorratskrüge",
                 "Blaue Schalen",
+                "Tierbecher",
+                "Glasurkrüge",
+                "Reliefschalen",
+                "Marktkrüge",
+                "Tierpokale",
             ],
             Kind::Taverna => [
                 "Tagesgericht",
                 "Honigobst",
                 "Oliventeller",
                 "Kräutereintopf",
+                "Dattelkuchen",
+                "Markt-Meze",
+                "Linsen auf Salbei",
+                "Meze des Hauses",
+                "Honigfest",
             ],
             _ => return "Grundangebot",
         };
@@ -368,7 +464,28 @@ impl Weather {
             _ => 0,
         }
     }
+
+    pub fn brightness(self) -> f32 {
+        match self {
+            Self::Clear | Self::Feast => 1.0,
+            Self::Heat => 1.12,
+            Self::Wind => 0.89,
+            Self::Cloud => 0.72,
+            Self::Rain => 0.55,
+            Self::Storm => 0.41,
+        }
+    }
+
+    pub fn rain_strength(self) -> f32 {
+        match self {
+            Self::Rain => 0.62,
+            Self::Storm => 1.0,
+            _ => 0.0,
+        }
+    }
 }
+
+pub const WEATHER_PHASES: [f32; 3] = [0.0, 0.30, 0.71];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Favor {
@@ -377,6 +494,9 @@ pub enum Favor {
     Cargo,
     Fire,
     Crates,
+    BrokenJars,
+    ShadeSail,
+    LostGuests,
 }
 
 impl Favor {
@@ -387,6 +507,9 @@ impl Favor {
             Self::Cargo => "Ware vom Kai holen",
             Self::Fire => "Ofenbrand löschen",
             Self::Crates => "Verrutschte Kisten sichern",
+            Self::BrokenJars => "Scherben zusammenkehren",
+            Self::ShadeSail => "Sonnensegel befestigen",
+            Self::LostGuests => "Verirrte Reisegruppe begleiten",
         }
     }
 
@@ -397,14 +520,19 @@ impl Favor {
             Self::Cargo => "3 Portionen für einen Laden",
             Self::Fire => "Nach dem Löschen kommen 3 Portionen dazu.",
             Self::Crates => "3 gerettete Portionen für einen Laden",
+            Self::BrokenJars => "Räumt die Gasse frei und rettet 2 Portionen.",
+            Self::ShadeSail => "5 zusätzliche Plätze im Schatten",
+            Self::LostGuests => "2 Gäste finden mit Nili ans Ziel.",
         }
     }
 
     pub(crate) fn job(self) -> Job {
         match self {
             Self::Jugs | Self::Fire => Job::Water,
-            Self::Shade => Job::Shade,
+            Self::Shade | Self::ShadeSail => Job::Shade,
             Self::Cargo | Self::Crates => Job::Freight,
+            Self::BrokenJars => Job::Quay,
+            Self::LostGuests => Job::Welcome,
         }
     }
 
@@ -414,11 +542,41 @@ impl Favor {
             Self::Shade => matches!(kind, Kind::Grove | Kind::Stoa | Kind::Baths),
             Self::Cargo | Self::Crates => kind.service().is_some(),
             Self::Fire => matches!(kind, Kind::Bakery | Kind::Potter),
+            Self::BrokenJars => matches!(kind, Kind::Potter | Kind::Taverna | Kind::Press),
+            Self::ShadeSail => matches!(kind, Kind::Stoa | Kind::Taverna | Kind::Baths),
+            Self::LostGuests => {
+                matches!(kind, Kind::Inn | Kind::Taverna | Kind::Forum | Kind::Stoa)
+            }
         }
     }
 
     pub fn incident(self) -> bool {
-        matches!(self, Self::Fire | Self::Crates)
+        matches!(
+            self,
+            Self::Fire | Self::Crates | Self::BrokenJars | Self::ShadeSail | Self::LostGuests
+        )
+    }
+
+    pub fn event_name(self) -> &'static str {
+        match self {
+            Self::Fire => "Ofenbrand",
+            Self::Crates => "Lose Kisten",
+            Self::BrokenJars => "Zerbrochene Krüge",
+            Self::ShadeSail => "Loses Sonnensegel",
+            Self::LostGuests => "Verirrte Reisegruppe",
+            _ => self.name(),
+        }
+    }
+
+    pub fn resolved_name(self) -> &'static str {
+        match self {
+            Self::Fire => "Feuer gelöscht",
+            Self::Crates => "Kisten gesichert",
+            Self::BrokenJars => "Die Gasse ist frei",
+            Self::ShadeSail => "Das Sonnensegel hält",
+            Self::LostGuests => "Reisegruppe angekommen",
+            _ => "Bitte vom Kai erfüllt",
+        }
     }
 
     pub fn icon(self) -> &'static str {
@@ -427,6 +585,9 @@ impl Favor {
             Self::Shade => "grove",
             Self::Cargo | Self::Crates => "storehouse",
             Self::Fire => "fire",
+            Self::BrokenJars => "scraps",
+            Self::ShadeSail => "wind",
+            Self::LostGuests => "guest_steps",
         }
     }
 }
@@ -470,6 +631,10 @@ impl Miss {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Visit {
     pub origin: Origin,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub age: Option<Age>,
+    #[serde(default)]
+    pub specialty_bonus: u32,
     pub wants: Service,
     pub budget: Price,
     pub at: f32,
@@ -490,6 +655,10 @@ pub enum Verdict {
 }
 
 impl Visit {
+    pub fn age(&self, index: usize) -> Age {
+        self.age.unwrap_or_else(|| Age::guest(index))
+    }
+
     pub fn verdict(&self) -> Option<Verdict> {
         if !self.resolved {
             return None;
@@ -533,6 +702,12 @@ pub struct Tally {
     pub best_ferry_day: u32,
     #[serde(default)]
     pub best_mood: u32,
+    #[serde(default)]
+    pub street_bonus: u32,
+    #[serde(default)]
+    pub specialties: [u32; 3],
+    #[serde(default)]
+    pub specialty_income: u32,
 }
 
 impl Tally {
@@ -574,6 +749,11 @@ impl Tally {
         self.ferry_served += other.ferry_served;
         self.best_ferry_day = self.best_ferry_day.max(other.best_ferry_day);
         self.best_mood = self.best_mood.max(other.best_mood);
+        self.street_bonus += other.street_bonus;
+        self.specialty_income += other.specialty_income;
+        for (total, added) in self.specialties.iter_mut().zip(other.specialties) {
+            *total += added;
+        }
     }
 }
 
@@ -610,6 +790,8 @@ pub struct Day {
     pub route: Option<Route>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nili: Option<NiliControl>,
+    #[serde(default)]
+    pub street_claims: u8,
 }
 
 impl Day {
@@ -642,11 +824,19 @@ impl Day {
     }
 
     pub fn errand_action(&self, route: Route, stage: ManualStage) -> Option<&'static str> {
-        if route.favor && self.favor == Favor::Fire && matches!(stage, ManualStage::Delivery) {
-            Some("Feuer löschen")
-        } else {
-            stage.action(route.job)
+        if route.favor {
+            match (self.favor, stage) {
+                (Favor::Fire, ManualStage::Delivery) => return Some("Feuer löschen"),
+                (Favor::BrokenJars, ManualStage::Pickup) => return Some("Scherben aufkehren"),
+                (Favor::BrokenJars, ManualStage::Delivery) => {
+                    return Some("Scherben in den Korb legen");
+                }
+                (Favor::ShadeSail, ManualStage::Pickup) => return Some("Seil holen"),
+                (Favor::ShadeSail, ManualStage::Delivery) => return Some("Segel festbinden"),
+                _ => {}
+            }
         }
+        stage.action(route.job)
     }
 }
 
@@ -655,6 +845,49 @@ pub struct Report {
     pub tally: Tally,
     pub grant: u32,
     pub stars: u8,
+    #[serde(default)]
+    pub contract_bonus: u32,
+}
+
+#[derive(Clone, Copy)]
+pub enum DailyContract {
+    Specialty(Age, u32),
+    Turnover(u32),
+    Variety(u32),
+    Street(u32),
+}
+
+impl DailyContract {
+    pub fn progress(self, tally: &Tally) -> (u32, u32) {
+        match self {
+            Self::Specialty(age, goal) => (tally.specialties[age as usize], goal),
+            Self::Turnover(goal) => (tally.income, goal),
+            Self::Variety(goal) => (
+                tally.served.iter().filter(|&&sales| sales > 0).count() as u32,
+                goal,
+            ),
+            Self::Street(goal) => (tally.street_bonus, goal),
+        }
+    }
+
+    pub fn label(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Specialty(Age::Child, _) => ("Lieblingsangebote für Kinder", "age_child"),
+            Self::Specialty(Age::Adult, _) => ("Lieblingsangebote für Erwachsene", "age_adult"),
+            Self::Specialty(Age::Senior, _) => ("Lieblingsangebote für ältere Gäste", "age_senior"),
+            Self::Turnover(_) => ("Münzen verdienen", "coin"),
+            Self::Variety(_) => ("Verschiedene Wünsche erfüllen", "guest_book"),
+            Self::Street(_) => ("Ansehen durch Hilfe in der Gasse", "nili"),
+        }
+    }
+
+    pub fn reward(self) -> u32 {
+        match self {
+            Self::Street(_) => 4,
+            Self::Specialty(..) => 5,
+            _ => 7,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -720,7 +953,11 @@ pub struct SupplyNeed {
     pub stock: u16,
     pub guests: u16,
     pub short_water: bool,
-    pub ages: [u16; 3],
+}
+
+pub struct OfferForecast {
+    pub matches: [u16; Assortment::ALL.len()],
+    pub extra_coins: [u32; Assortment::ALL.len()],
 }
 
 impl SupplyNeed {
@@ -758,6 +995,21 @@ where
 }
 
 impl Town {
+    pub fn daily_contract(&self, chapter: &Chapter) -> Option<DailyContract> {
+        if harbor_stage(self.chapter) < 2 {
+            return None;
+        }
+        let scale = (chapter.layout.width().saturating_sub(4) / 2) as u32;
+        Some(match (self.day as usize + self.chapter) % 6 {
+            0 => DailyContract::Specialty(Age::Child, 1 + scale),
+            1 => DailyContract::Turnover(17 + scale * 13),
+            2 => DailyContract::Specialty(Age::Adult, 2 + scale),
+            3 => DailyContract::Street(1 + scale.min(1)),
+            4 => DailyContract::Specialty(Age::Senior.on_island(self.chapter), 1 + scale),
+            _ => DailyContract::Variety(2 + scale.min(1)),
+        })
+    }
+
     pub fn new(chapter: usize, rule: &Chapter) -> Self {
         let mut lots = [None; LOTS];
         for &(lot, kind) in rule.starts {
@@ -782,7 +1034,61 @@ impl Town {
     }
 
     pub fn weather_ahead(&self, chapter: &Chapter, days: usize) -> Weather {
-        chapter.weather[(self.day.saturating_sub(1) as usize + days) % chapter.weather.len()]
+        let day = self.day.saturating_sub(1) as usize + days;
+        let pattern = if chapter.weather.len() == 1 {
+            &[Weather::Clear, Weather::Rain, Weather::Wind, Weather::Cloud][..]
+        } else {
+            chapter.weather
+        };
+        pattern[day % pattern.len()]
+    }
+
+    pub fn weather_schedule(&self, chapter: &Chapter) -> [Weather; 3] {
+        use Weather::*;
+        let alternate = (self.day as usize + self.chapter).is_multiple_of(2);
+        match self.weather(chapter) {
+            Clear if alternate => [Cloud, Clear, Wind],
+            Clear => [Clear, Cloud, Clear],
+            Cloud => [Clear, Cloud, if alternate { Rain } else { Wind }],
+            Heat => [Clear, Heat, if alternate { Wind } else { Cloud }],
+            Wind => [if alternate { Cloud } else { Clear }, Wind, Cloud],
+            Rain => [Cloud, Rain, if alternate { Wind } else { Clear }],
+            Storm => [Rain, Storm, Cloud],
+            Feast => [Cloud, Feast, Clear],
+        }
+    }
+
+    pub fn sky_phase(&self, chapter: &Chapter) -> usize {
+        let progress = match &self.phase {
+            Phase::Plan => 0.0,
+            Phase::Open(day) => day.seconds / chapter.day_seconds(),
+            Phase::Report(_) => 1.0,
+        };
+        WEATHER_PHASES
+            .iter()
+            .rposition(|&start| progress >= start)
+            .unwrap_or(0)
+    }
+
+    pub fn sky(&self, chapter: &Chapter) -> Weather {
+        self.weather_schedule(chapter)[self.sky_phase(chapter)]
+    }
+
+    pub fn sky_blend(&self, chapter: &Chapter) -> (Weather, Weather, f32) {
+        let schedule = self.weather_schedule(chapter);
+        let phase = self.sky_phase(chapter);
+        match &self.phase {
+            Phase::Open(day) if phase > 0 => {
+                let since = day.seconds - WEATHER_PHASES[phase] * chapter.day_seconds();
+                let blend = (since / 3.7).clamp(0.0, 1.0);
+                (
+                    schedule[phase - 1],
+                    schedule[phase],
+                    blend * blend * (3.0 - 2.0 * blend),
+                )
+            }
+            _ => (schedule[phase], schedule[phase], 1.0),
+        }
     }
 
     pub fn planning(&self) -> bool {
@@ -852,17 +1158,38 @@ impl Town {
         if let Phase::Open(day) = &self.phase {
             return day.favor;
         }
-        if self.chapter >= crate::coach::ISLANDS
-            && self.day >= 2
-            && (self.day + self.chapter as u32) % 3 == 2
-        {
-            let weather = self.weather(chapter);
-            let event = match weather {
-                Weather::Wind | Weather::Rain | Weather::Storm => Favor::Crates,
-                _ => Favor::Fire,
+        let seed =
+            self.day.wrapping_mul(0x9e3779b9) ^ (self.chapter as u32).wrapping_mul(0x85ebca77);
+        let seed = (seed ^ (seed >> 16)).wrapping_mul(0x45d9f3b);
+        let stage = harbor_stage(self.chapter);
+        if stage >= 3 && self.day >= 2 && seed % 5 < 2 {
+            let rough = matches!(
+                self.weather(chapter),
+                Weather::Wind | Weather::Rain | Weather::Storm
+            );
+            let options = if rough {
+                [
+                    Favor::Crates,
+                    Favor::ShadeSail,
+                    Favor::BrokenJars,
+                    Favor::LostGuests,
+                ]
+            } else {
+                [
+                    Favor::Fire,
+                    Favor::LostGuests,
+                    Favor::BrokenJars,
+                    Favor::ShadeSail,
+                ]
             };
-            if self.incident_lot(chapter, event).is_some() {
-                return event;
+            let start = ((seed >> 13) as usize) % options.len();
+            for event in options.into_iter().cycle().skip(start).take(options.len()) {
+                if stage < 5 && matches!(event, Favor::ShadeSail | Favor::LostGuests) {
+                    continue;
+                }
+                if self.incident_lot(chapter, event).is_some() {
+                    return event;
+                }
             }
         }
         chapter.favors[(self.day.saturating_sub(1) as usize) % chapter.favors.len()]
@@ -880,11 +1207,24 @@ impl Town {
         let Phase::Open(day) = &self.phase else {
             return None;
         };
-        if day.favor.incident() && day.seconds >= 8.0 && day.favor_at.is_none() {
+        if day.favor.incident()
+            && day.favor_at.is_none()
+            && (day.seconds >= self.favor_ready_at(chapter, day.favor)
+                || day.route.is_some_and(|route| route.favor))
+        {
             self.incident_lot(chapter, day.favor)
                 .map(|lot| (day.favor, lot))
         } else {
             None
+        }
+    }
+
+    fn favor_ready_at(&self, chapter: &Chapter, favor: Favor) -> f32 {
+        if favor.incident() {
+            let slot = (self.day as usize * 19 + self.chapter * 7) % 13;
+            chapter.day_seconds() * (0.14 + slot as f32 * 0.012)
+        } else {
+            8.0
         }
     }
 
@@ -895,8 +1235,7 @@ impl Town {
             .flatten()
             .map(|b| self.home_visits(*b))
             .sum();
-        let ferry = chapter
-            .ferry
+        let ferry = (chapter.ferry + chapter.extra_ferry_guests())
             .saturating_add_signed(self.weather(chapter).ferry_change());
         let ferry = match self.harbor {
             HarborPlan::Regular => ferry,
@@ -979,6 +1318,29 @@ impl Town {
                 && other != lot
                 && distance(lot, other) <= range
         })
+    }
+
+    pub fn herb_support(&self, lot: usize) -> u16 {
+        self.lots
+            .iter()
+            .enumerate()
+            .filter_map(|(garden, b)| {
+                let b = b.filter(|b| b.kind == Kind::HerbGarden)?;
+                (distance(lot, garden) <= herb_range(b.level)).then_some(u16::from(b.level) + 1)
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
+    pub fn kitchens_in_reach(&self, lot: usize, level: u8) -> usize {
+        self.lots
+            .iter()
+            .enumerate()
+            .filter(|(kitchen, b)| {
+                distance(lot, *kitchen) <= herb_range(level)
+                    && b.is_some_and(|b| matches!(b.kind, Kind::Taverna | Kind::Bakery))
+            })
+            .count()
     }
 
     pub fn production(&self, chapter: &Chapter) -> Production {
@@ -1095,6 +1457,9 @@ impl Town {
                     .unwrap_or(0);
                 plan.stock[lot] += supported;
             }
+            if matches!(b.kind, Kind::Bakery | Kind::Taverna) {
+                plan.stock[lot] += self.herb_support(lot);
+            }
         }
         plan
     }
@@ -1134,6 +1499,32 @@ impl Town {
             .map(|(i, _)| i)
     }
 
+    pub fn household(&self, lot: usize) -> [u16; 3] {
+        let mut ages = [0; 3];
+        if let Some(building) = self.lots.get(lot).copied().flatten() {
+            for person in 0..usize::from(building.residents()) {
+                ages[resident_age(building.kind, lot, person).on_island(self.chapter) as usize] +=
+                    1;
+            }
+        }
+        ages
+    }
+
+    pub fn age_forecast(&self, chapter: &Chapter) -> [u16; 3] {
+        let mut ages = [0; 3];
+        let mut count = |visits: &[Visit]| {
+            for (index, visit) in visits.iter().enumerate() {
+                ages[visit.age(index) as usize] += 1;
+            }
+        };
+        match &self.phase {
+            Phase::Open(day) => count(&day.visits),
+            Phase::Report(_) => count(&self.last_visits),
+            Phase::Plan => count(&self.visit_plan(chapter)),
+        }
+        ages
+    }
+
     pub fn visit_plan(&self, chapter: &Chapter) -> Vec<Visit> {
         let (residents, ferry) = self.visitors(chapter);
         let count = usize::from(residents + ferry);
@@ -1152,6 +1543,8 @@ impl Town {
                     && chapter.allowed().contains(&Kind::Stoa);
                 visitors.push(Visit {
                     origin: Origin::Home(lot as u8),
+                    age: Some(resident_age(b.kind, lot, local).on_island(self.chapter)),
+                    specialty_bonus: 0,
                     wants: if heat_shade {
                         Service::Shade
                     } else {
@@ -1183,6 +1576,11 @@ impl Town {
             };
             visitors.push(Visit {
                 origin: Origin::Ferry,
+                age: Some(
+                    Age::guest(n + offset + self.chapter + self.harbor as usize * 2)
+                        .on_island(self.chapter),
+                ),
+                specialty_bonus: 0,
                 wants: chapter.guests[(n + offset) % chapter.guests.len()],
                 budget,
                 at: 0.0,
@@ -1227,15 +1625,13 @@ impl Town {
             .collect();
         visits.sort_by(|a, b| a.1.at.total_cmp(&b.1.at));
         let mut guests = 0;
-        let mut ages = [0; 3];
-        for (index, visit) in visits
+        for (_, visit) in visits
             .iter()
             .filter(|(_, v)| !v.resolved && v.wants == service)
         {
             if let Ok(shop) = target(&self.lots, &day, visit, chapter) {
                 if shop == lot {
                     guests += 1;
-                    ages[Age::guest(*index) as usize] += 1;
                 } else {
                     day.stock[shop] -= 1;
                 }
@@ -1245,8 +1641,49 @@ impl Town {
             stock,
             guests,
             short_water: production.short_water[lot],
-            ages,
         })
+    }
+
+    pub fn offer_forecast(
+        &self,
+        chapter: &Chapter,
+        lot: usize,
+        production: &Production,
+    ) -> Option<OfferForecast> {
+        let building = self.lots.get(lot).copied().flatten()?;
+        if !self.planning() || !Assortment::supported(building.kind) {
+            return None;
+        }
+        let mut forecast = OfferForecast {
+            matches: [0; Assortment::ALL.len()],
+            extra_coins: [0; Assortment::ALL.len()],
+        };
+        let base = self.day_plan(chapter, production);
+        let mut lots = self.lots;
+        for choice in Assortment::ALL
+            .into_iter()
+            .filter(|choice| choice.unlocked(building.level))
+        {
+            let Some(age) = choice.flavor() else { continue };
+            lots[lot] = Some(Building {
+                assortment: choice,
+                ..building
+            });
+            let mut market = base.clone();
+            resolve_visits(&lots, &mut market, chapter, chapter.day_seconds());
+            let served = market
+                .visits
+                .iter()
+                .filter(|visit| {
+                    visit.shop == Some(lot as u8)
+                        && visit.age == Some(age)
+                        && visit.specialty_bonus > 0
+                })
+                .count() as u16;
+            forecast.matches[choice as usize] = served;
+            forecast.extra_coins[choice as usize] = u32::from(served) * choice.extra_coins();
+        }
+        Some(forecast)
     }
 
     pub fn set_assortment(&mut self, lot: usize, value: Assortment) -> bool {
@@ -1256,7 +1693,12 @@ impl Town {
         let Some(building) = self.lots.get_mut(lot).and_then(Option::as_mut) else {
             return false;
         };
-        if !Assortment::supported(building.kind) {
+        if !Assortment::supported(building.kind)
+            || !value.unlocked(building.level)
+            || value
+                .flavor()
+                .is_some_and(|age| !age.available(self.chapter))
+        {
             return false;
         }
         building.assortment = value;
@@ -1284,6 +1726,7 @@ impl Town {
             nili_at: Stop::Quay,
             route: None,
             nili: None,
+            street_claims: 0,
         }
     }
 
@@ -1301,7 +1744,7 @@ impl Town {
             return None;
         };
         let kind = self.lots.get(lot)?.as_ref()?.kind;
-        if day.seconds < 8.0
+        if day.seconds < self.favor_ready_at(chapter, day.favor)
             || day.route.is_some()
             || day.favor_at.is_some()
             || !chapter.layout.contains(lot)
@@ -1312,8 +1755,15 @@ impl Town {
         }
         let target = Stop::Parcel(lot as u8);
         let pickup = match day.favor {
-            Favor::Cargo => Stop::Quay,
+            Favor::Cargo | Favor::LostGuests => Stop::Quay,
             Favor::Crates => Stop::Pier,
+            Favor::BrokenJars => target,
+            Favor::ShadeSail => chapter
+                .layout
+                .lots()
+                .filter(|&i| self.lots[i].is_some_and(|b| b.kind == Kind::Storehouse))
+                .min_by_key(|&i| distance(lot, i))
+                .map_or(Stop::Quay, |i| Stop::Parcel(i as u8)),
             Favor::Fire => chapter
                 .layout
                 .lots()
@@ -1351,33 +1801,24 @@ impl Town {
     }
 
     pub fn tick(&mut self, chapter: &Chapter, elapsed: f32) -> bool {
-        if matches!(&self.phase, Phase::Open(day) if day.manual_route().is_some()) {
-            return false;
-        }
-        self.tick_market(chapter, elapsed)
-    }
-
-    pub fn finish_controlled(&mut self, chapter: &Chapter) -> Option<(Route, bool)> {
-        let Phase::Open(day) = &self.phase else {
-            return None;
-        };
-        let (route, nili) = day.manual_route()?;
-        if !matches!(nili.stage, ManualStage::Unload(progress) if progress >= 1.0) {
-            return None;
-        }
-        let elapsed = route.finish - day.seconds;
-        // Keep the original market timing and settle the reward at the planned arrival.
-        Some((route, self.tick_market(chapter, elapsed + 0.0001)))
-    }
-
-    fn tick_market(&mut self, chapter: &Chapter, elapsed: f32) -> bool {
+        let contract = self.daily_contract(chapter);
         let Phase::Open(day) = &mut self.phase else {
             return false;
         };
         let until = (day.seconds + elapsed).min(chapter.day_seconds());
-        if let Some(route) = day.route.filter(|route| route.finish <= until) {
+        if let Some(route) = day
+            .route
+            .filter(|route| day.nili.is_none() && route.finish <= until)
+        {
             resolve_visits(&self.lots, day, chapter, route.finish);
-            finish_route(&self.lots, day, route);
+            finish_route(
+                &self.lots,
+                day,
+                route,
+                route.finish,
+                chapter.day_seconds(),
+                self.chapter,
+            );
         }
         resolve_visits(&self.lots, day, chapter, until);
         day.seconds = until;
@@ -1385,6 +1826,7 @@ impl Town {
             return false;
         }
         let mut tally = day.tally.clone();
+        tally.reputation += tally.street_bonus;
         self.last_visits = std::mem::take(&mut day.visits);
         tally.widest_day = tally.served.iter().filter(|&&served| served > 0).count() as u32;
         tally.record_income = tally.income;
@@ -1398,7 +1840,11 @@ impl Town {
         }
         self.totals.add(&tally);
         self.last_day = Some(tally.clone());
-        let grant = 6 + u32::from(tally.served_total() == 0) * 3;
+        let contract_bonus = contract.map_or(0, |goal| {
+            let (have, need) = goal.progress(&tally);
+            if have >= need { goal.reward() } else { 0 }
+        });
+        let grant = 6 + u32::from(tally.served_total() == 0) * 3 + contract_bonus;
         self.coins += tally.income + grant;
         let stars = if chapter
             .goals
@@ -1414,8 +1860,28 @@ impl Town {
             tally,
             grant,
             stars,
+            contract_bonus,
         });
         true
+    }
+
+    pub fn finish_controlled(&mut self, chapter: &Chapter) -> Option<Route> {
+        let Phase::Open(day) = &mut self.phase else {
+            return None;
+        };
+        let (route, nili) = day.manual_route()?;
+        if !matches!(nili.stage, ManualStage::Unload(progress) if progress >= 1.0) {
+            return None;
+        }
+        finish_route(
+            &self.lots,
+            day,
+            route,
+            day.seconds,
+            chapter.day_seconds(),
+            self.chapter,
+        );
+        Some(route)
     }
 
     pub fn advance(&mut self) -> bool {
@@ -1464,6 +1930,20 @@ impl Town {
     }
 }
 
+fn herb_range(level: u8) -> usize {
+    1 + usize::from(level >= 3)
+}
+
+fn resident_age(kind: Kind, lot: usize, person: usize) -> Age {
+    use Age::*;
+    let order = if kind == Kind::Villa {
+        [Senior, Adult, Senior, Adult, Child, Adult]
+    } else {
+        [Adult, Child, Adult, Child, Senior, Adult]
+    };
+    order[(person + lot % 3) % order.len()]
+}
+
 fn resolve_visits(lots: &[Option<Building>; LOTS], day: &mut Day, chapter: &Chapter, until: f32) {
     let mut due: Vec<_> = day
         .visits
@@ -1486,10 +1966,17 @@ fn resolve_visits(lots: &[Option<Building>; LOTS], day: &mut Day, chapter: &Chap
                 let b = lots[shop].expect("a sale requires a building");
                 day.stock[shop] -= 1;
                 day.tally.served[service] += 1;
-                day.tally.income += b.price.coins(visit.wants);
+                let age = visit.age(index);
+                let specialty = b.assortment.flavor() == Some(age);
+                if specialty {
+                    visit.specialty_bonus = b.assortment.extra_coins();
+                    day.tally.specialty_income += visit.specialty_bonus;
+                    day.tally.specialties[age as usize] += 1;
+                }
+                day.tally.income += b.price.coins(visit.wants) + visit.specialty_bonus;
                 day.tally.reputation += 1
                     + u32::from(b.price == Price::Fair && visit.budget == Price::Fine)
-                    + u32::from(b.assortment.flavor() == Some(Age::guest(index)));
+                    + u32::from(specialty);
                 day.tally.ferry_served += u32::from(visit.origin == Origin::Ferry);
                 visit.shop = Some(shop as u8);
             }
@@ -1503,12 +1990,19 @@ fn resolve_visits(lots: &[Option<Building>; LOTS], day: &mut Day, chapter: &Chap
     }
 }
 
-fn finish_route(lots: &[Option<Building>; LOTS], day: &mut Day, route: Route) {
+fn finish_route(
+    lots: &[Option<Building>; LOTS],
+    day: &mut Day,
+    route: Route,
+    at: f32,
+    closing: f32,
+    island: usize,
+) {
     day.route = None;
     day.nili_at = route.delivery;
     if route.favor {
         if let Stop::Parcel(lot) = route.delivery {
-            finish_favor(lots, day, usize::from(lot));
+            finish_favor(lots, day, usize::from(lot), at, closing, island);
         }
         return;
     }
@@ -1533,23 +2027,7 @@ fn finish_route(lots: &[Option<Building>; LOTS], day: &mut Day, route: Route) {
             day.stock[lot] += 4;
             day.water += 2;
         }
-        Job::Welcome => {
-            if let Some(wants) = lots[lot].and_then(|b| b.kind.service()) {
-                for delay in [0.6, 1.8] {
-                    day.visits.push(Visit {
-                        origin: Origin::Ferry,
-                        wants,
-                        budget: Price::Regular,
-                        at: route.finish + delay,
-                        resolved: false,
-                        shop: None,
-                        miss: None,
-                        guided_to: Some(lot as u8),
-                        declined_at: None,
-                    });
-                }
-            }
-        }
+        Job::Welcome => invite_party(lots, day, lot, at, closing, island),
         Job::Shade => day.stock[lot] += 5,
         Job::Quay => {}
     }
@@ -1557,7 +2035,41 @@ fn finish_route(lots: &[Option<Building>; LOTS], day: &mut Day, route: Route) {
     day.tally.reputation += 1 + u32::from(route.job != Job::Freight);
 }
 
-fn finish_favor(lots: &[Option<Building>; LOTS], day: &mut Day, lot: usize) {
+fn invite_party(
+    lots: &[Option<Building>; LOTS],
+    day: &mut Day,
+    lot: usize,
+    at: f32,
+    closing: f32,
+    island: usize,
+) {
+    if let Some(wants) = lots[lot].and_then(|b| b.kind.service()) {
+        for delay in [0.6, 1.8] {
+            day.visits.push(Visit {
+                origin: Origin::Ferry,
+                age: Some(Age::guest(day.visits.len()).on_island(island)),
+                specialty_bonus: 0,
+                wants,
+                budget: Price::Regular,
+                at: (at + delay).min(closing),
+                resolved: false,
+                shop: None,
+                miss: None,
+                guided_to: Some(lot as u8),
+                declined_at: None,
+            });
+        }
+    }
+}
+
+fn finish_favor(
+    lots: &[Option<Building>; LOTS],
+    day: &mut Day,
+    lot: usize,
+    at: f32,
+    closing: f32,
+    island: usize,
+) {
     match day.favor {
         Favor::Jugs => {
             for (neighbor, building) in lots.iter().enumerate() {
@@ -1574,6 +2086,9 @@ fn finish_favor(lots: &[Option<Building>; LOTS], day: &mut Day, lot: usize) {
             }
         }
         Favor::Cargo | Favor::Crates | Favor::Fire => day.stock[lot] += 3,
+        Favor::BrokenJars => day.stock[lot] += 2,
+        Favor::ShadeSail => day.stock[lot] += 5,
+        Favor::LostGuests => invite_party(lots, day, lot, at, closing, island),
     }
     day.tally.income += 6;
     day.tally.reputation += 2;
@@ -1628,7 +2143,9 @@ fn target(
         };
         let steps = distance(origin, lot);
         let range = walking_range(lots, visit.origin, lot, chapter, quay_cleared);
-        let candidate = (steps as u32 * 2 + building.price.coins(visit.wants), lot);
+        let taste = u32::from(visit.age.is_some() && visit.age == building.assortment.flavor()) * 3;
+        let merit = (steps as u32 * 2 + building.price.coins(visit.wants)).saturating_sub(taste);
+        let candidate = (merit, lot);
         let failure = if visit.guided_to.is_none() && steps > range {
             Some(Miss::Walk)
         } else if building.price as u8 > visit.budget as u8 {
@@ -1858,6 +2375,8 @@ mod tests {
         assert!(town.build(chapter, 0, Potter));
         let visit = Visit {
             origin: Origin::Ferry,
+            age: None,
+            specialty_bonus: 0,
             wants: Service::Pottery,
             budget: Price::Fair,
             at: 0.0,
@@ -2028,13 +2547,75 @@ mod tests {
             .collect()
     }
 
+    fn walk_errand(town: &mut Town, chapter: &Chapter, route: Route) {
+        use crate::world::motion;
+        use bevy::prelude::{Vec2, Vec3Swizzles};
+        for stop in [route.pickup, route.delivery] {
+            let Phase::Open(day) = &mut town.phase else {
+                return;
+            };
+            let nili = day.nili.as_mut().unwrap();
+            nili.stage = if stop == route.pickup {
+                ManualStage::Pickup
+            } else {
+                ManualStage::Delivery
+            };
+            let end = motion::ground(motion::stop(stop, chapter.layout), chapter.layout);
+            let current = Vec2::from_array(nili.position);
+            let points = [Vec2::new(current.x, 0.0), Vec2::new(end.x, 0.0), end];
+            for point in points {
+                loop {
+                    let Phase::Open(day) = &mut town.phase else {
+                        return;
+                    };
+                    let nili = day.nili.as_mut().unwrap();
+                    let delta = point - Vec2::from_array(nili.position);
+                    if delta.length_squared() < 0.0025 {
+                        break;
+                    }
+                    assert!(
+                        motion::walk(nili, delta.clamp_length_max(4.55 * 0.20), chapter.layout)
+                            > 0.0
+                    );
+                    if town.tick(chapter, 0.20) {
+                        return;
+                    }
+                }
+            }
+            let Phase::Open(day) = &town.phase else {
+                return;
+            };
+            assert!(
+                motion::stop(stop, chapter.layout)
+                    .xz()
+                    .distance(Vec2::from_array(day.nili.unwrap().position))
+                    < 0.32
+            );
+            if town.tick(chapter, 0.88) {
+                return;
+            }
+        }
+        if let Phase::Open(day) = &mut town.phase {
+            day.nili.as_mut().unwrap().stage = ManualStage::Unload(1.0);
+        }
+        assert!(town.finish_controlled(chapter).is_some());
+    }
+
     fn play_market(mut town: Town, chapter: &Chapter, policy: HarborPlan, tariff: Price) -> Town {
         town.set_harbor(chapter, policy);
         for i in 0..LOTS {
             town.set_price(i, tariff);
         }
         assert!(town.open(chapter));
-        town.tick(chapter, 9.0);
+        let ready = town.favor_ready_at(chapter, town.next_favor(chapter));
+        if let Phase::Open(day) = &mut town.phase {
+            day.nili = Some(NiliControl {
+                position: [0.0, 0.10],
+                yaw: 0.0,
+                stage: ManualStage::Pickup,
+            });
+        }
+        town.tick(chapter, ready + 0.12);
         let demand = town.forecast(chapter);
         let Phase::Open(day) = &town.phase else {
             unreachable!()
@@ -2057,7 +2638,7 @@ mod tests {
             && let Some(route) = town.favor_plan(chapter, lot)
         {
             assert!(town.aid(chapter, lot));
-            town.tick(chapter, route.finish - route.started + 0.01);
+            walk_errand(&mut town, chapter, route);
         }
         let distinct_required = chapter
             .goals
@@ -2100,11 +2681,10 @@ mod tests {
                     Some((benefit, -(planned.finish as i32), lot))
                 })
                 .max();
-            if let Some((_, _, lot)) = selected {
-                let current = day.seconds;
-                if let Ok(route) = town.dispatch(chapter, job, lot) {
-                    town.tick(chapter, route.finish - current + 0.02);
-                }
+            if let Some((_, _, lot)) = selected
+                && let Ok(route) = town.dispatch(chapter, job, lot)
+            {
+                walk_errand(&mut town, chapter, route);
             }
         }
         town.tick(chapter, chapter.day_seconds());
@@ -2231,6 +2811,147 @@ mod tests {
             failures.is_empty(),
             "Unfinished routes: {}",
             failures.join("\n")
+        );
+    }
+
+    #[test]
+    fn weather_varies_inside_each_day_and_big_harbors_have_more_time() {
+        let mut observed = Vec::new();
+        for (index, chapter) in CHAPTERS.iter().enumerate() {
+            let mut town = Town::new(index, chapter);
+            for day_number in 1..=8 {
+                town.day = day_number;
+                let schedule = town.weather_schedule(chapter);
+                assert!(schedule.windows(2).any(|pair| pair[0] != pair[1]));
+                assert_eq!(town.sky(chapter), schedule[0]);
+                observed.extend(schedule);
+                assert!(town.open(chapter));
+                for (step, phase) in [(0.40, 1), (0.40, 2)] {
+                    assert!(!town.tick(chapter, chapter.day_seconds() * step));
+                    assert_eq!(town.sky(chapter), schedule[phase]);
+                }
+                assert!(town.tick(chapter, chapter.day_seconds()));
+                assert!(town.advance());
+            }
+        }
+        assert!(observed.contains(&Weather::Rain));
+        assert!(observed.contains(&Weather::Storm));
+        assert!(CHAPTERS[47].day_seconds() >= 115.0);
+        assert!(CHAPTERS[47].extra_ferry_guests() > CHAPTERS[0].extra_ferry_guests());
+    }
+
+    #[test]
+    fn each_region_introduces_age_groups_in_the_same_order() {
+        for start in [0, crate::campaign::REGION_SIZE] {
+            for (offset, expected) in [
+                (0, [false, true, false]),
+                (2, [true, true, false]),
+                (4, [true; 3]),
+            ] {
+                let index = start + offset;
+                let chapter = &CHAPTERS[index];
+                let town = Town::new(index, chapter);
+                let ages = town.age_forecast(chapter);
+                assert_eq!(
+                    ages.map(|count| count > 0),
+                    expected,
+                    "{}",
+                    chapter.district
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn matched_offers_predict_the_cash_paid_and_unlock_through_six() {
+        let chapter = &CHAPTERS[4];
+        let mut town = Town::new(4, chapter);
+        town.lots.fill(None);
+        town.coins = 400;
+        assert!(town.build(chapter, 2, Bakery));
+        assert!(town.build(chapter, 8, Well));
+        assert!(town.build(chapter, 1, House));
+        assert!(town.set_price(2, Price::Fair));
+        assert!(!town.set_assortment(2, Assortment::Festival));
+        for step in 2..=MAX_LEVEL {
+            assert!(town.upgrade(2));
+            let new = Assortment::ALL
+                .into_iter()
+                .find(|choice| choice.tier() == step)
+                .unwrap();
+            assert!(town.set_assortment(2, new));
+        }
+        assert!(!town.upgrade(2));
+        let ages = town.age_forecast(chapter);
+        assert_eq!(
+            usize::from(ages.iter().sum::<u16>()),
+            town.visit_plan(chapter).len()
+        );
+        assert_eq!(
+            town.household(1).iter().sum::<u16>(),
+            town.lots[1].unwrap().residents()
+        );
+        let forecast = town
+            .offer_forecast(chapter, 2, &town.production(chapter))
+            .unwrap();
+        let expected = forecast.extra_coins[Assortment::Celebration as usize];
+        assert!(expected > 0);
+        assert!(town.open(chapter));
+        assert!(town.tick(chapter, chapter.day_seconds()));
+        assert_eq!(town.last_day.as_ref().unwrap().specialty_income, expected);
+    }
+
+    #[test]
+    fn herb_beds_supply_only_kitchens_and_do_not_stack() {
+        let chapter = &CHAPTERS[11];
+        let mut town = Town::new(11, chapter);
+        town.lots.fill(None);
+        for (lot, kind) in [(1, Bakery), (7, Taverna), (2, Potter)] {
+            town.lots[lot] = Some(Building::new(kind));
+        }
+        let before = town.production(chapter);
+        town.lots[0] = Some(Building::new(HerbGarden));
+        town.lots[8] = Some(Building::new(HerbGarden));
+        let after = town.production(chapter);
+        assert_eq!(after.water, before.water);
+        assert_eq!(after.stock[1], before.stock[1] + 2);
+        assert_eq!(after.stock[7], before.stock[7] + 2);
+        assert_eq!(after.stock[2], before.stock[2]);
+    }
+
+    #[test]
+    fn guests_can_be_guided_twice_and_unfinished_work_expires_at_dusk() {
+        let chapter = &CHAPTERS[2];
+        let mut town = Town::new(2, chapter);
+        assert!(town.open(chapter));
+        let Phase::Open(day) = &mut town.phase else {
+            unreachable!()
+        };
+        day.nili = Some(NiliControl {
+            position: [0.0, 0.1],
+            yaw: 0.0,
+            stage: ManualStage::Pickup,
+        });
+        for _ in 0..2 {
+            let route = town.dispatch(chapter, Job::Welcome, 7).unwrap();
+            walk_errand(&mut town, chapter, route);
+        }
+        assert!(matches!(
+            Job::Welcome.plan(&town, chapter, 7),
+            Err(Blocked::Done)
+        ));
+        assert_eq!(
+            town.guest_history()
+                .iter()
+                .filter(|visit| visit.guided_to.is_some())
+                .count(),
+            4
+        );
+        assert!(town.dispatch(chapter, Job::Freight, 7).is_ok());
+        assert!(town.tick(chapter, chapter.day_seconds()));
+        assert_eq!(
+            town.last_day.as_ref().unwrap().routes[Job::Freight as usize],
+            0
         );
     }
 }

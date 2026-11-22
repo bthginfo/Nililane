@@ -16,6 +16,8 @@ const VERSION: u32 = 2;
 pub struct Record {
     pub stars: u8,
     pub best_day: u32,
+    #[serde(default)]
+    pub best_income: u32,
 }
 
 #[derive(Resource, Deserialize, Serialize)]
@@ -90,6 +92,21 @@ impl Campaign {
                 }
             }
         }
+        for town in progress.town.iter_mut().chain(&mut progress.tutorial) {
+            let chapter = town.chapter;
+            let adjust = |visits: &mut [crate::model::Visit]| {
+                for (index, visit) in visits.iter_mut().enumerate() {
+                    let age = visit.age(index).on_island(chapter);
+                    if !visit.age(index).available(chapter) {
+                        visit.age = Some(age);
+                    }
+                }
+            };
+            if let Phase::Open(day) = &mut town.phase {
+                adjust(&mut day.visits);
+            }
+            adjust(&mut town.last_visits);
+        }
         progress.version = VERSION;
         progress.records.resize(CHAPTERS.len(), Record::default());
         Some(progress)
@@ -144,11 +161,23 @@ impl Campaign {
         }
         let record = &mut self.records[chapter];
         if stars > record.stars || (stars == record.stars && day < record.best_day) {
-            *record = Record {
-                stars,
-                best_day: day,
-            };
+            record.stars = stars;
+            record.best_day = day;
         }
+    }
+
+    pub fn record_income(&mut self, chapter: usize, income: u32) {
+        if !self.in_tutorial() {
+            let record = &mut self.records[chapter];
+            record.best_income = record.best_income.max(income);
+        }
+    }
+
+    pub fn travel_bonus(&self, next: usize) -> u32 {
+        next.checked_sub(1)
+            .and_then(|prior| self.records.get(prior))
+            .filter(|record| record.stars > 0)
+            .map_or(0, |record| travel_bonus(next, record.best_income))
     }
 
     pub fn available_stars(&self) -> u16 {
@@ -163,6 +192,12 @@ impl Campaign {
     pub fn equip(&mut self, item: Cosmetic) -> bool {
         self.wardrobe.equip(item, self.available_stars())
     }
+}
+
+pub fn travel_bonus(next: usize, income: u32) -> u32 {
+    CHAPTERS.get(next).map_or(0, |chapter| {
+        (income.saturating_mul(15) / 100).min((chapter.coins / 3).clamp(12, 36))
+    })
 }
 
 fn valid_town(town: &Town) -> bool {
@@ -192,7 +227,7 @@ fn valid_town(town: &Town) -> bool {
             && day.nili.is_none_or(crate::errands::NiliControl::valid)
             && day
                 .route
-                .is_none_or(|route| route.valid(town, chapter, day.seconds));
+                .is_none_or(|route| route.valid(town, chapter, day.seconds, day.nili.is_some()));
     }
     true
 }
@@ -269,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn a_controlled_delivery_pauses_the_market_and_is_paid_once_after_reload() {
+    fn a_controlled_delivery_runs_late_and_is_paid_once_after_reload() {
         use crate::errands::{Job, ManualStage, NiliControl};
         let chapter = &CHAPTERS[1];
         let mut town = Town::new(1, chapter);
@@ -285,18 +320,19 @@ mod tests {
             yaw: 0.0,
             stage: ManualStage::Delivery,
         });
+        let due = route.finish + 0.5;
+        assert!(!town.tick(chapter, due - 3.0));
         let progress = Campaign {
             town: Some(town),
             ..Campaign::default()
         };
         let data = serde_json::to_vec(&progress).unwrap();
         let mut town = Campaign::decode(data.as_slice()).unwrap().town.unwrap();
-        assert!(!town.tick(chapter, 60.0));
         assert!(town.finish_controlled(chapter).is_none());
         let Phase::Open(day) = &mut town.phase else {
             unreachable!()
         };
-        assert_eq!(day.seconds, 3.0);
+        assert!((day.seconds - due).abs() < 0.001);
         let nili = day.nili.as_mut().unwrap();
         assert_eq!(nili.position, [-1.6, 0.8]);
         nili.stage = ManualStage::Unload(1.0);
@@ -305,7 +341,7 @@ mod tests {
         let Phase::Open(day) = &town.phase else {
             unreachable!()
         };
-        assert!((day.seconds - route.finish).abs() < 0.001);
+        assert!((day.seconds - due).abs() < 0.001);
         assert_eq!(day.tally.routes[Job::Water as usize], 1);
         assert!(day.route.is_none());
     }

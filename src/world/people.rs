@@ -815,7 +815,7 @@ pub fn animate(
             }
             if let Some(walk) = visit_walk(visit, i, day.seconds, layout) {
                 if let (Some(seconds), Some(verdict)) = (walk.reacting_for, visit.verdict()) {
-                    let height = 1.09 * person_scale(i);
+                    let height = 1.09 * person_scale(visit.age(i), i);
                     reactions.0.push(Reaction {
                         guest: i,
                         head: walk.motion.at + Vec3::Y * height,
@@ -858,7 +858,11 @@ pub fn animate(
             continue;
         };
         *visible = Visibility::Inherited;
-        let style = Age::guest(*i) as usize * 8 + (i * 7 + town.chapter / 3) % 8;
+        let age = town.guest_history().get(*i).map_or_else(
+            || Age::guest(*i).on_island(town.chapter),
+            |visit| visit.age(*i),
+        );
+        let style = age as usize * 8 + (i * 7 + town.chapter / 3) % 8;
         let look = &cast.clothes[region as usize][style];
         if mesh.0 != look.mesh {
             mesh.0 = look.mesh.clone();
@@ -866,7 +870,7 @@ pub fn animate(
         }
         transform.translation = walk.motion.at;
         transform.rotation = Quat::from_rotation_y(walk.motion.yaw);
-        transform.scale = Vec3::splat(person_scale(*i));
+        transform.scale = Vec3::splat(person_scale(age, *i));
         let reaction = walk.reacting_for.and_then(|age| {
             town.guest_history()
                 .get(*i)?
@@ -888,8 +892,8 @@ pub fn animate(
     }
 }
 
-fn person_scale(index: usize) -> f32 {
-    let base = match Age::guest(index) {
+fn person_scale(age: Age, index: usize) -> f32 {
+    let base = match age {
         Age::Child => 0.73,
         Age::Adult => 1.01,
         Age::Senior => 0.94,
