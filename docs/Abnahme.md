@@ -1,4 +1,4 @@
-# Spielreview und Abnahme · Nililane 2.0
+# Spielreview und Abnahme · Nililane 2.1
 
 ## Einstieg als neuer Spieler
 
@@ -40,19 +40,43 @@ im Offline-Paket. Die README führt zur APK und ihrer SHA-256-Prüfsumme.
 Die Kampagnenkarte ergänzt die Hafenbilder um Größe, Küstenform und die
 beiden Parzellenreihen. Im Grundstücksmenü stehen der nächste sichtbare
 Ausbau und seine Wirkung. Bei gezoomter Kamera folgt der Ausschnitt
-der Auswahl am Rand. Die Zufriedenheit bleibt in der Hauptanzeige.
-Das Hafenbuch zeigt bei geöffnetem Hafen zwei aktuelle Gästestimmen
-zusammen mit den häufigsten Gründen für unerfüllte Wünsche.
+der Auswahl am Rand.
+
+Die Zufriedenheitskarte zeigt Anteil und Anzahl erfüllter Wünsche. Die
+Gesichter, Warenbilder und Texte tauchen über den Gästen auf, sobald sie
+das Ziel erreicht haben. Über **View**, **F** oder per Tipp öffnet sich das
+Gästebuch. Dort führen Filter zum jeweiligen Grund und Karten zum
+betroffenen Laden. Zum Preis steht das Budget des Gastes. Gespeicherte
+Stimmen stehen am Folgemorgen noch zur Verfügung. Die Bestandsübersicht
+während des Tages berücksichtigt die noch anstehenden Wünsche.
+
+## Abgleich mit Minami Lane
+
+| Mechanik | Stand in Nililane |
+| --- | --- |
+| Einzelne Gästereaktionen als Entscheidungshilfe | Sprechblasen in der Gasse, Gründe und Gastbudget im Gästebuch, Sprung zum betroffenen Laden. |
+| Rezepte und Sortimente pro Laden | Preise und Produktionsketten für Wasser, Oliven und Warenvorräte. Ein wählbares Angebot innerhalb eines Ladens ist offen. |
+| Straßengestaltung | Unterschiedliche Küsten, Bauplätze und sichtbare Ausbauten. Frei platzierbare Bepflanzung und Dekoration ist offen. |
+| Kleine Aufgaben während des Tages | Nili übernimmt Lieferungen, Gästeführung und Hilfe nach Unwettern. |
+| Freies Bauen | Nach dem Kapitelabschluss kann man im Hafen weiterspielen. Ein eigener Einstieg ohne Kampagnenziele ist offen. |
+
+[Spielbeschreibung des Minami-Lane-Teams](https://doottinygames.itch.io/minami-lane)
 
 ## Prüfungen
 
-- Formatierung, Clippy mit Warnungen als Fehler und neun Rust-Tests.
-- Gerenderte Stichproben in Griechenland und Rom im Querformat.
+- Formatierung, Clippy mit Warnungen als Fehler und elf Rust-Tests.
+- Gerenderte Stichproben in Griechenland und Rom im Querformat. In Kythnos
+  öffnete ein Tipp auf die Sprechblase die passende Stimme. Der Preisfilter
+  führte zur Stoa und die Zurück-Taste zur ausgewählten Rückmeldung.
 - Android 15 mit Vulkan und simulierten Gamepad-Eingaben. Nach der
   Installation über 1.0.0 haben A und Y den vorhandenen Tag samt Bauplätzen,
   Brotpreis und Verkaufszahlen fortgesetzt. In Amorgos haben R3,
   Steuerkreuz und A einen Wasserlauf ausgewählt und zur Backstube
   geschickt. Der Betrieb erhielt die Lieferung einmal.
+- Für 2.1 wurde im Android-15-Emulator im 4:3-Format ein laufender Tag
+  aus 2.0 fortgesetzt. Simulierte Gamepad-Eingaben öffneten mit View das
+  Gästebuch tagsüber und in der Abendabrechnung. B führte zur Abrechnung
+  zurück, A zum nächsten Morgen. Die Gästestimmen blieben gespeichert.
 - APK-Signatur v2 und v3, 16-KiB-Ausrichtung beider Bibliotheken und
   SHA-256-Abgleich des GitHub-Downloads.
 - Der Test auf einem physischen Android-Tablet steht noch aus.

@@ -2834,7 +2834,7 @@ dependencies = [
 
 [[package]]
 name = "nililane"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "bevy",
  "ndk-sys 0.6.0+11769913",

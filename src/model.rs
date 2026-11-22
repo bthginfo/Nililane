@@ -381,9 +381,7 @@ impl Miss {
             Self::Price => {
                 "Wähle einen günstigeren Preis. Im Grundstücksmenü steht der Betrag pro Verkauf."
             }
-            Self::Empty => {
-                "Ein Ausbau, ein naher Speicher oder eine Hafenbitte kann Vorräte ergänzen."
-            }
+            Self::Empty => "Schick Nili mit Nachschub oder plane für morgen einen Ausbau.",
         }
     }
 }
@@ -400,6 +398,31 @@ pub struct Visit {
     pub miss: Option<Miss>,
     #[serde(default)]
     pub guided_to: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declined_at: Option<u8>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Verdict {
+    Pleased,
+    Missed(Miss),
+}
+
+impl Visit {
+    pub fn verdict(&self) -> Option<Verdict> {
+        if !self.resolved {
+            return None;
+        }
+        if self.shop.is_some() {
+            return Some(Verdict::Pleased);
+        }
+        self.miss.map(Verdict::Missed)
+    }
+}
+
+pub enum GuestTip {
+    Shop(usize),
+    Build(usize, Kind),
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -445,8 +468,7 @@ impl Tally {
     }
 
     pub fn satisfaction(&self) -> Option<u32> {
-        let total = u64::from(self.responses());
-        (total > 0).then(|| ((u64::from(self.served_total()) * 100 + total / 2) / total) as u32)
+        satisfaction_percent(self.served_total(), self.responses())
     }
 
     fn add(&mut self, other: &Self) {
@@ -472,6 +494,11 @@ impl Tally {
         self.best_ferry_day = self.best_ferry_day.max(other.best_ferry_day);
         self.best_mood = self.best_mood.max(other.best_mood);
     }
+}
+
+pub fn satisfaction_percent(served: u32, total: u32) -> Option<u32> {
+    let total = u64::from(total);
+    (total > 0).then(|| ((u64::from(served) * 100 + total / 2) / total) as u32)
 }
 
 fn read_service_counts<'de, D: serde::Deserializer<'de>>(
@@ -565,6 +592,8 @@ pub struct Town {
     pub harbor: HarborPlan,
     #[serde(default)]
     pub last_day: Option<Tally>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub last_visits: Vec<Visit>,
 }
 
 #[derive(Default)]
@@ -609,6 +638,7 @@ impl Town {
             phase: Phase::Plan,
             harbor: HarborPlan::Regular,
             last_day: None,
+            last_visits: Vec::new(),
         }
     }
 
@@ -629,6 +659,49 @@ impl Town {
             Phase::Open(day) => Some(&day.tally),
             Phase::Report(report) => Some(&report.tally),
             Phase::Plan => self.last_day.as_ref(),
+        }
+    }
+
+    pub fn guest_history(&self) -> &[Visit] {
+        if let Phase::Open(day) = &self.phase {
+            &day.visits
+        } else {
+            &self.last_visits
+        }
+    }
+
+    pub fn guest_tip(&self, chapter: &Chapter, guest: usize) -> Option<GuestTip> {
+        let visit = self.guest_history().get(guest)?;
+        match (visit.verdict()?, &self.phase) {
+            (_, Phase::Report(_)) => None,
+            (Verdict::Missed(Miss::Price | Miss::Empty), _) => {
+                let lot = usize::from(visit.declined_at.or(visit.guided_to)?);
+                self.lots[lot]
+                    .is_some_and(|b| b.kind.service() == Some(visit.wants))
+                    .then_some(GuestTip::Shop(lot))
+            }
+            (Verdict::Missed(Miss::NoShop | Miss::Walk), Phase::Plan) => {
+                let kind = chapter
+                    .allowed()
+                    .iter()
+                    .copied()
+                    .find(|kind| kind.service() == Some(visit.wants))?;
+                let origin = match visit.origin {
+                    Origin::Home(lot) => usize::from(lot),
+                    Origin::Ferry => chapter.layout.dock(),
+                };
+                chapter
+                    .layout
+                    .lots()
+                    .filter(|&lot| self.lots[lot].is_none())
+                    .filter(|&lot| {
+                        distance(origin, lot)
+                            <= walking_range(&self.lots, visit.origin, lot, chapter, false)
+                    })
+                    .min_by_key(|&lot| distance(origin, lot))
+                    .map(|lot| GuestTip::Build(lot, kind))
+            }
+            _ => None,
         }
     }
 
@@ -910,6 +983,7 @@ impl Town {
                     shop: None,
                     miss: None,
                     guided_to: None,
+                    declined_at: None,
                 });
             }
         }
@@ -930,6 +1004,7 @@ impl Town {
                 shop: None,
                 miss: None,
                 guided_to: None,
+                declined_at: None,
             });
         }
         let total = count.saturating_sub(1).max(1) as f32;
@@ -1030,6 +1105,7 @@ impl Town {
             return false;
         }
         let mut tally = day.tally.clone();
+        self.last_visits = std::mem::take(&mut day.visits);
         tally.widest_day = tally.served.iter().filter(|&&served| served > 0).count() as u32;
         tally.record_income = tally.income;
         tally.peak_water = u32::from(day.water);
@@ -1136,10 +1212,11 @@ fn resolve_visits(lots: &[Option<Building>; LOTS], day: &mut Day, chapter: &Chap
                 day.tally.ferry_served += u32::from(visit.origin == Origin::Ferry);
                 visit.shop = Some(shop as u8);
             }
-            Err(reason) => {
+            Err(decline) => {
                 day.tally.missed[service] += 1;
-                day.tally.gaps[reason as usize] += 1;
-                visit.miss = Some(reason);
+                day.tally.gaps[decline.reason as usize] += 1;
+                visit.miss = Some(decline.reason);
+                visit.declined_at = decline.lot;
             }
         }
     }
@@ -1181,6 +1258,7 @@ fn finish_route(lots: &[Option<Building>; LOTS], day: &mut Day, route: Route) {
                         shop: None,
                         miss: None,
                         guided_to: Some(lot as u8),
+                        declined_at: None,
                     });
                 }
             }
@@ -1192,18 +1270,44 @@ fn finish_route(lots: &[Option<Building>; LOTS], day: &mut Day, route: Route) {
     day.tally.reputation += 1 + u32::from(route.job != Job::Freight);
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Decline {
+    reason: Miss,
+    lot: Option<u8>,
+}
+
+fn walking_range(
+    lots: &[Option<Building>; LOTS],
+    origin: Origin,
+    lot: usize,
+    chapter: &Chapter,
+    quay_cleared: bool,
+) -> usize {
+    match origin {
+        Origin::Home(_) => 4,
+        Origin::Ferry => {
+            chapter.walk
+                + 2 * usize::from(quay_cleared)
+                + usize::from(lots.iter().enumerate().any(|(i, b)| {
+                    b.is_some_and(|b| b.kind == Kind::Forum) && distance(i, lot) <= 2
+                }))
+        }
+    }
+}
+
 fn target(
     lots: &[Option<Building>; LOTS],
     day: &Day,
     visit: &Visit,
     chapter: &Chapter,
-) -> Result<usize, Miss> {
+) -> Result<usize, Decline> {
     let origin = match visit.origin {
         Origin::Home(lot) => usize::from(lot),
         Origin::Ferry => chapter.layout.dock(),
     };
     let mut best = None;
-    let mut cause = Miss::NoShop;
+    let mut declined = None;
+    let quay_cleared = day.tally.routes[Job::Quay as usize] > 0;
     for (lot, building) in lots.iter().enumerate() {
         if visit.guided_to.is_some_and(|i| usize::from(i) != lot) {
             continue;
@@ -1212,16 +1316,8 @@ fn target(
             continue;
         };
         let steps = distance(origin, lot);
-        let range = match visit.origin {
-            Origin::Home(_) => 4,
-            Origin::Ferry => {
-                chapter.walk
-                    + 2 * usize::from(day.tally.routes[Job::Quay as usize] > 0)
-                    + usize::from(lots.iter().enumerate().any(|(i, b)| {
-                        b.is_some_and(|b| b.kind == Kind::Forum) && distance(i, lot) <= 2
-                    }))
-            }
-        };
+        let range = walking_range(lots, visit.origin, lot, chapter, quay_cleared);
+        let candidate = (steps as u32 * 2 + building.price.coins(visit.wants), lot);
         let failure = if visit.guided_to.is_none() && steps > range {
             Some(Miss::Walk)
         } else if building.price as u8 > visit.budget as u8 {
@@ -1231,18 +1327,30 @@ fn target(
         } else {
             None
         };
-        if let Some(failure) = failure {
-            if failure as u8 > cause as u8 {
-                cause = failure;
+        if let Some(reason) = failure {
+            let rank = (std::cmp::Reverse(reason as u8), candidate);
+            if declined.is_none_or(|(prior, _)| rank < prior) {
+                declined = Some((
+                    rank,
+                    Decline {
+                        reason,
+                        lot: Some(lot as u8),
+                    },
+                ));
             }
-        } else {
-            let candidate = (steps as u32 * 2 + building.price.coins(visit.wants), lot);
-            if best.is_none_or(|score| candidate < score) {
-                best = Some(candidate);
-            }
+        } else if best.is_none_or(|score| candidate < score) {
+            best = Some(candidate);
         }
     }
-    best.map(|(_, lot)| lot).ok_or(cause)
+    best.map(|(_, lot)| lot).ok_or_else(|| {
+        declined.map_or(
+            Decline {
+                reason: Miss::NoShop,
+                lot: None,
+            },
+            |(_, decline)| decline,
+        )
+    })
 }
 
 #[cfg(test)]
@@ -1366,6 +1474,55 @@ mod tests {
     }
 
     #[test]
+    fn complaints_remain_actionable_the_next_morning_after_a_reload() {
+        let chapter = &CHAPTERS[0];
+        let mut town = Town::new(0, chapter);
+        assert!(town.build(chapter, 2, Bakery));
+        assert!(town.set_price(2, Price::Fine));
+        assert!(town.open(chapter));
+        assert!(town.tick(chapter, chapter.day_seconds()));
+        let guest = town
+            .guest_history()
+            .iter()
+            .position(|v| v.verdict() == Some(Verdict::Missed(Miss::Price)))
+            .unwrap();
+        assert_eq!(town.guest_history()[guest].declined_at, Some(2));
+        assert!(town.guest_tip(chapter, guest).is_none());
+        let mut town: Town = serde_json::from_slice(&serde_json::to_vec(&town).unwrap()).unwrap();
+        assert!(town.advance());
+        assert!(matches!(
+            town.guest_tip(chapter, guest),
+            Some(GuestTip::Shop(2))
+        ));
+        assert!(town.remove(2));
+        assert!(town.guest_tip(chapter, guest).is_none());
+        assert_eq!(
+            town.guest_history()[guest].verdict(),
+            Some(Verdict::Missed(Miss::Price))
+        );
+    }
+
+    #[test]
+    fn a_missing_shop_points_to_a_buildable_plot_within_walking_range() {
+        let chapter = &CHAPTERS[0];
+        let mut town = Town::new(0, chapter);
+        assert!(town.open(chapter));
+        assert!(town.tick(chapter, chapter.day_seconds()));
+        assert!(town.advance());
+        let guest = town
+            .guest_history()
+            .iter()
+            .position(|v| matches!(v.origin, Origin::Home(1)))
+            .unwrap();
+        let Some(GuestTip::Build(lot, Bakery)) = town.guest_tip(chapter, guest) else {
+            panic!("expected a recommendation for a bakery");
+        };
+        assert!(is_open(chapter, lot));
+        assert!(distance(1, lot) <= 4);
+        assert!(town.build(chapter, lot, Bakery));
+    }
+
+    #[test]
     fn tavern_uses_two_breads_and_rewards_an_adjacent_oven() {
         let chapter = &CHAPTERS[4];
         let mut town = Town::new(4, chapter);
@@ -1392,6 +1549,7 @@ mod tests {
             shop: None,
             miss: None,
             guided_to: None,
+            declined_at: None,
         };
         let review = |town: &Town| {
             let mut market = town.clone();
@@ -1401,10 +1559,22 @@ mod tests {
             };
             target(&market.lots, day, &visit, chapter)
         };
-        assert_eq!(review(&town), Err(Miss::Walk));
+        assert_eq!(
+            review(&town),
+            Err(Decline {
+                reason: Miss::Walk,
+                lot: Some(0)
+            })
+        );
         assert!(town.remove(0));
         assert!(town.build(chapter, 9, Potter));
-        assert_eq!(review(&town), Err(Miss::Price));
+        assert_eq!(
+            review(&town),
+            Err(Decline {
+                reason: Miss::Price,
+                lot: Some(9)
+            })
+        );
         assert!(town.set_price(9, Price::Fair));
         assert_eq!(review(&town), Ok(9));
         assert!(town.open(chapter));
@@ -1412,7 +1582,13 @@ mod tests {
             unreachable!()
         };
         day.stock[9] = 0;
-        assert_eq!(target(&town.lots, day, &visit, chapter), Err(Miss::Empty));
+        assert_eq!(
+            target(&town.lots, day, &visit, chapter),
+            Err(Decline {
+                reason: Miss::Empty,
+                lot: Some(9)
+            })
+        );
     }
 
     #[test]

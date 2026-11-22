@@ -11,12 +11,11 @@ use crate::{
     campaign::{CHAPTERS, Region},
     game::{Game, View},
     layout::Layout,
-    model::{Origin, Phase, Visit},
+    model::{Miss, Origin, Phase, Verdict, Visit},
     save::Campaign,
 };
 
 use super::{
-    actors,
     buildings::{CREAM, GOLD, MARBLE, OAK},
     mesh::{Batch, Tint, shift, v},
     motion::{self, Motion, Path},
@@ -36,8 +35,17 @@ pub struct Joint;
 #[derive(Component)]
 pub struct Resident(usize);
 
-#[derive(Component)]
-pub struct Receipt(usize);
+pub const REACTION_TIME: f32 = 3.8;
+
+pub struct Reaction {
+    pub guest: usize,
+    pub head: Vec3,
+    pub verdict: Verdict,
+    pub seconds: f32,
+}
+
+#[derive(Resource, Default)]
+pub struct Reactions(pub Vec<Reaction>);
 
 struct Outfit {
     mesh: Handle<Mesh>,
@@ -48,7 +56,6 @@ struct Outfit {
 #[derive(Resource)]
 pub struct Cast {
     clothes: [[Outfit; STYLES]; 2],
-    receipts: [Handle<Mesh>; 2],
 }
 
 pub fn stage(
@@ -57,7 +64,6 @@ pub fn stage(
     bind_poses: &mut Assets<SkinnedMeshInverseBindposes>,
     materials: &mut Assets<StandardMaterial>,
     matte: &Handle<StandardMaterial>,
-    unlit: &Handle<StandardMaterial>,
 ) {
     let clothes = [Region::Greece, Region::Rome].map(|region| {
         std::array::from_fn(|index| {
@@ -114,18 +120,7 @@ pub fn stage(
             NotShadowCaster,
         ));
     }
-    let receipts = [false, true].map(|served| meshes.add(actors::response_marker(served)));
-    for n in 0..12 {
-        commands.spawn((
-            Receipt(n),
-            Mesh3d(receipts[1].clone()),
-            MeshMaterial3d(unlit.clone()),
-            Transform::default(),
-            Visibility::Hidden,
-            NotShadowCaster,
-        ));
-    }
-    commands.insert_resource(Cast { clothes, receipts });
+    commands.insert_resource(Cast { clothes });
 }
 
 fn outfit(index: usize, region: Region) -> (Mesh, [Vec3; BONES]) {
@@ -554,21 +549,43 @@ fn head(b: &mut Batch, index: usize, roman: bool, skin: Tint, hair: Tint, cloth:
     }
 }
 
-fn pose(outfit: &Outfit, distance: f32, movement: f32, idle: f32) -> [Transform; BONES] {
+fn pose(
+    outfit: &Outfit,
+    distance: f32,
+    movement: f32,
+    idle: f32,
+    reaction: Option<(Verdict, f32)>,
+) -> [Transform; BONES] {
     let mut joints = outfit.rest.map(Transform::from_translation);
     let cycle = distance / 0.56;
     let beat = cycle * std::f32::consts::TAU;
     let bob = (0.018 * (beat * 2.0).cos().abs() - 0.007) * movement;
     joints[0].translation.y += bob + 0.004 * idle;
-    joints[0].rotation = Quat::from_rotation_z(beat.sin() * 0.037 * movement);
+    let gesture = reaction.map_or(0.0, |(verdict, age)| {
+        let strength = if verdict == Verdict::Pleased {
+            1.0
+        } else {
+            -1.0
+        };
+        let progress = (age / 1.28).clamp(0.0, 1.0);
+        (progress * std::f32::consts::PI).sin() * strength
+    });
+    joints[0].rotation = Quat::from_rotation_z(beat.sin() * 0.037 * movement)
+        * Quat::from_rotation_x(gesture * 0.11);
     for (side, offset) in [0.0, 0.5].into_iter().enumerate() {
         let phase = (cycle + offset).rem_euclid(1.0);
         let base = 1 + side * 4;
         let shoulder = outfit.rest[base];
         joints[base].translation =
             joints[0].rotation * (shoulder - outfit.rest[0]) + joints[0].translation;
-        joints[base].rotation =
-            Quat::from_rotation_x(-0.33 * (phase * std::f32::consts::TAU).cos() * movement - 0.06);
+        let swing = -0.33 * (phase * std::f32::consts::TAU).cos() * movement - 0.06;
+        let hand = if side == 1 {
+            -0.72 * gesture.max(0.0)
+        } else {
+            0.0
+        };
+        let shrug = gesture.min(0.0) * (side as f32 * 2.0 - 1.0) * 0.22;
+        joints[base].rotation = Quat::from_rotation_z(shrug) * Quat::from_rotation_x(swing + hand);
 
         let hip = outfit.rest[base + 1] + v(0.0, bob, 0.0);
         let (z, y, pivot) = if phase < 0.60 {
@@ -606,7 +623,7 @@ fn pose(outfit: &Outfit, distance: f32, movement: f32, idle: f32) -> [Transform;
 
 struct Walk {
     motion: Motion,
-    marked: Option<(Vec3, bool, f32)>,
+    reacting_for: Option<f32>,
     effort: f32,
 }
 
@@ -630,7 +647,7 @@ fn visit_walk(visit: &Visit, index: usize, seconds: f32, layout: Layout) -> Opti
                     0.23,
                     0.0,
                 ),
-                marked: None,
+                reacting_for: None,
                 effort: 0.0,
             });
         }
@@ -642,12 +659,16 @@ fn visit_walk(visit: &Visit, index: usize, seconds: f32, layout: Layout) -> Opti
     if age < 0.0 {
         return (age >= -pre).then(|| Walk {
             motion: approach.sample(age + pre, pre, index as f32 * 0.127),
-            marked: None,
+            reacting_for: None,
             effort: ((age + pre) * 5.0).clamp(0.0, 1.0),
         });
     }
 
-    let goal = if let Some(lot) = visit.shop.or(companion) {
+    let declined_at = match visit.miss {
+        Some(Miss::Price | Miss::Empty) => visit.declined_at,
+        _ => None,
+    };
+    let goal = if let Some(lot) = visit.shop.or(companion).or(declined_at) {
         motion::entrance(usize::from(lot), layout)
     } else {
         let x = origin.x - origin.x.signum() * (1.0 + (index % 4) as f32 * 0.37);
@@ -671,21 +692,21 @@ fn visit_walk(visit: &Visit, index: usize, seconds: f32, layout: Layout) -> Opti
         step.yaw = motion::turn(entering_yaw, step.yaw, age * 4.0);
         return Some(Walk {
             motion: step,
-            marked: None,
+            reacting_for: None,
             effort: 1.0,
         });
     }
-    let pause = 1.18;
+    let pause = 1.62;
     let exit = Path::road(goal, origin, lane);
     let wait = age - travel;
     let stop = towards.sample(travel, travel, start);
-    let marked = (wait < 1.27).then_some((goal, visit.shop.is_some(), wait / 1.27));
+    let reacting_for = (wait < REACTION_TIME).then_some(wait);
     if wait < pause {
         let turn = (wait - 0.43).max(0.0) / (pause - 0.43);
         let yaw = motion::turn(stop.yaw, exit.sample(0.0, 1.0, 0.0).yaw, turn);
         return Some(Walk {
             motion: Motion::still(goal, yaw, stop.distance),
-            marked,
+            reacting_for,
             effort: (1.0 - wait * 4.0).max(0.0),
         });
     }
@@ -693,7 +714,7 @@ fn visit_walk(visit: &Visit, index: usize, seconds: f32, layout: Layout) -> Opti
     let duration = (exit.length() / 1.85).max(0.55);
     (going < duration).then(|| Walk {
         motion: exit.sample(going, duration, stop.distance),
-        marked,
+        reacting_for,
         effort: (going * 4.0).min((duration - going) * 5.0).clamp(0.0, 1.0),
     })
 }
@@ -708,7 +729,7 @@ type Residents<'w, 's> = Query<
         &'static mut Mesh3d,
         &'static mut SkinnedMesh,
     ),
-    (Without<Joint>, Without<Receipt>),
+    Without<Joint>,
 >;
 
 #[allow(clippy::type_complexity)]
@@ -717,17 +738,14 @@ pub fn animate(
     save: Res<Campaign>,
     cast: Res<Cast>,
     mut residents: Residents,
-    mut joints: Query<&mut Transform, (With<Joint>, Without<Receipt>)>,
-    mut receipts: Query<
-        (&Receipt, &mut Transform, &mut Visibility, &mut Mesh3d),
-        (Without<Joint>, Without<Resident>),
-    >,
+    mut joints: Query<&mut Transform, With<Joint>>,
+    mut reactions: ResMut<Reactions>,
 ) {
     let town = game.visible_town(&save);
     let region = Region::of(town.chapter);
     let layout = CHAPTERS[town.chapter].layout;
     let mut active = Vec::with_capacity(RESIDENTS);
-    let mut notices = Vec::with_capacity(12);
+    reactions.0.clear();
     if let Phase::Open(day) = &town.phase {
         if let Some(route) = day.route.filter(|route| {
             route.job == crate::errands::Job::Welcome && day.seconds >= route.depart_at
@@ -746,7 +764,7 @@ pub fn animate(
                     day.visits.len() + n,
                     Walk {
                         motion,
-                        marked: None,
+                        reacting_for: None,
                         effort,
                     },
                 ));
@@ -757,8 +775,14 @@ pub fn animate(
                 break;
             }
             if let Some(walk) = visit_walk(visit, i, day.seconds, layout) {
-                if let Some(mark) = walk.marked {
-                    notices.push(mark);
+                if let (Some(seconds), Some(verdict)) = (walk.reacting_for, visit.verdict()) {
+                    let height = 1.09 * (0.98 + (i % 7) as f32 * 0.047);
+                    reactions.0.push(Reaction {
+                        guest: i,
+                        head: walk.motion.at + Vec3::Y * height,
+                        verdict,
+                        seconds,
+                    });
                 }
                 active.push((i, walk));
             }
@@ -781,7 +805,7 @@ pub fn animate(
                 i,
                 Walk {
                     motion: walk,
-                    marked: None,
+                    reacting_for: None,
                     effort: speed.abs().min(1.0),
                 },
             ));
@@ -803,29 +827,23 @@ pub fn animate(
         transform.translation = walk.motion.at;
         transform.rotation = Quat::from_rotation_y(walk.motion.yaw);
         transform.scale = Vec3::splat(0.98 + (i % 7) as f32 * 0.047);
+        let reaction = walk.reacting_for.and_then(|age| {
+            town.guest_history()
+                .get(*i)?
+                .verdict()
+                .map(|verdict| (verdict, age))
+        });
         let pose = pose(
             look,
             walk.motion.distance,
             walk.effort,
             (game.clock * 2.3 + *i as f32).sin(),
+            reaction,
         );
         for (&joint, placed) in skin.joints.iter().zip(pose) {
             if let Ok(mut transform) = joints.get_mut(joint) {
                 *transform = placed;
             }
-        }
-    }
-    for (mark, mut transform, mut visible, mut mesh) in &mut receipts {
-        if let Some(&(p, success, fraction)) = notices.get(mark.0) {
-            *visible = Visibility::Inherited;
-            transform.translation = p + v(0.11, 1.29 + fraction * 0.32, 0.11);
-            transform.scale = Vec3::splat(0.78 + (fraction * std::f32::consts::PI).sin() * 0.50);
-            let icon = &cast.receipts[usize::from(success)];
-            if &mesh.0 != icon {
-                mesh.0 = icon.clone();
-            }
-        } else if *visible != Visibility::Hidden {
-            *visible = Visibility::Hidden;
         }
     }
 }

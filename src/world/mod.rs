@@ -254,7 +254,6 @@ pub fn setup(
         &mut bind_poses,
         &mut materials,
         &art.matte,
-        &art.sea,
     );
     let bird = meshes.add(actors::bird());
     for i in 0..4 {
@@ -508,7 +507,7 @@ type Extras<'w, 's> = Query<
     Or<(With<Wave>, With<Boat>, With<Bird>, With<Sail>, With<Wake>)>,
 >;
 
-pub use people::animate as animate_people;
+pub use people::{Reactions, animate as animate_people};
 pub use sky::{animate as animate_weather, setup as setup_weather};
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn animate(

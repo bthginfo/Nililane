@@ -120,18 +120,17 @@ fn valid_town(town: &Town) -> bool {
     {
         return false;
     }
+    let valid_slot = |slot| is_open(chapter, usize::from(slot));
+    if !town
+        .last_visits
+        .iter()
+        .all(|visit| visit.resolved && valid_visit(visit, chapter))
+    {
+        return false;
+    }
     if let Phase::Open(day) = &town.phase {
-        let valid_slot = |slot| is_open(chapter, usize::from(slot));
         return (0.0..chapter.day_seconds()).contains(&day.seconds)
-            && day.visits.iter().all(|visit| {
-                (0.0..=chapter.day_seconds()).contains(&visit.at)
-                    && visit.shop.is_none_or(valid_slot)
-                    && visit.guided_to.is_none_or(valid_slot)
-                    && match visit.origin {
-                        Origin::Home(slot) => valid_slot(slot),
-                        Origin::Ferry => true,
-                    }
-            })
+            && day.visits.iter().all(|visit| valid_visit(visit, chapter))
             && day.favor_at.is_none_or(valid_slot)
             && day.nili_at.valid(town, chapter)
             && day
@@ -139,6 +138,18 @@ fn valid_town(town: &Town) -> bool {
                 .is_none_or(|route| route.valid(town, chapter, day.seconds));
     }
     true
+}
+
+fn valid_visit(visit: &crate::model::Visit, chapter: &crate::campaign::Chapter) -> bool {
+    let valid_slot = |slot| is_open(chapter, usize::from(slot));
+    (0.0..=chapter.day_seconds()).contains(&visit.at)
+        && visit.shop.is_none_or(&valid_slot)
+        && visit.guided_to.is_none_or(&valid_slot)
+        && visit.declined_at.is_none_or(&valid_slot)
+        && match visit.origin {
+            Origin::Home(slot) => valid_slot(slot),
+            Origin::Ferry => true,
+        }
 }
 
 fn path() -> PathBuf {

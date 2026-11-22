@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     campaign::{Chapter, REGION_SIZE, Region},
     errands::Job,
-    model::{HarborPlan, MAX_LEVEL, Miss, Origin, Price, Report, SERVICES, Town},
+    model::{HarborPlan, MAX_LEVEL, Price, Report, SERVICES, Town},
 };
 
 pub fn street_panel(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town) {
@@ -352,6 +352,30 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                     ),
                     service_icon(service),
                 );
+                if let Phase::Open(day) = &town.phase {
+                    if day.stock[lot] == 0 && Job::Freight.plan(town, chapter, lot).is_ok() {
+                        button(
+                            page,
+                            hud,
+                            Action::ChooseJob(Job::Freight),
+                            "Nili mit Nachschub schicken",
+                            "guest_empty",
+                            "",
+                            Style::Quiet,
+                            false,
+                        );
+                    }
+                    if game.return_to_guests {
+                        label(
+                            page,
+                            hud,
+                            "Preise und Ausbauten kannst du morgen in der Planung ändern.",
+                            16.0,
+                            Face::Body,
+                            MUTED,
+                        );
+                    }
+                }
                 if town.planning() {
                     label(page, hud, "Preis pro Besuch", 17.0, Face::Bold, GOLD);
                     page.spawn(row(9.0)).with_children(|prices| {
@@ -555,43 +579,59 @@ fn goals(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter
 }
 
 fn forecast(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, chapter: &Chapter) {
-    let books = ["Vorräte", "Zufriedenheit", "Tagesplan"];
+    let books = [
+        ("Vorräte", "storehouse"),
+        ("Gästebuch", "guest_book"),
+        ("Tagesplan", "sun"),
+    ];
     modal(
         p,
         hud,
         900.0,
-        "GÄSTE & WERKSTÄTTEN",
+        if town.planning() && game.ledger_page == 1 && town.feedback().is_some() {
+            "GESTRIGE RÜCKMELDUNGEN"
+        } else {
+            chapter.district
+        },
         "Das Hafenbuch",
-        "ferry",
+        if game.ledger_page == 1 {
+            "guest_book"
+        } else {
+            "ferry"
+        },
         |page| {
             page.spawn(row(8.0)).with_children(|tabs| {
-                for (i, name) in books.into_iter().enumerate() {
+                for (i, (name, pic)) in books.into_iter().enumerate() {
                     button(
                         tabs,
                         hud,
                         Action::LedgerPage(i),
                         name,
-                        if i == 1 { "mood" } else { "" },
+                        pic,
                         "",
                         if game.ledger_page == i {
                             Style::Primary
                         } else {
                             Style::Quiet
                         },
-                        false,
+                        i != 1 && matches!(town.phase, Phase::Report(_)),
                     );
                 }
             });
             match game.ledger_page {
                 0 => supplies(page, hud, town, chapter),
-                1 => mood(page, hud, town),
+                1 => guests::book(page, hud, game, town, chapter),
                 _ => day_plan(page, hud, town, chapter),
             }
             button(
                 page,
                 hud,
                 Action::Back,
-                "Zur Gasse",
+                if matches!(town.phase, Phase::Report(_)) {
+                    "Zur Abrechnung"
+                } else {
+                    "Zur Gasse"
+                },
                 "",
                 "B",
                 Style::Quiet,
@@ -602,8 +642,23 @@ fn forecast(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, c
 }
 
 fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter) {
-    let (home, ferry) = town.visitors(chapter);
-    let predicted = town.forecast(chapter);
+    let live = matches!(town.phase, Phase::Open(_));
+    let (home, ferry, predicted) = if let Phase::Open(day) = &town.phase {
+        let mut wishes = [0; SERVICES];
+        let (mut home, mut ferry) = (0, 0);
+        for visit in day.visits.iter().filter(|visit| !visit.resolved) {
+            wishes[visit.wants as usize] += 1;
+            if visit.origin == crate::model::Origin::Ferry {
+                ferry += 1;
+            } else {
+                home += 1;
+            }
+        }
+        (home, ferry, wishes)
+    } else {
+        let (home, ferry) = town.visitors(chapter);
+        (home, ferry, town.forecast(chapter))
+    };
     let production = town.production(chapter);
     let mut supply = [0; SERVICES];
     for (lot, building) in town.lots.iter().enumerate() {
@@ -616,8 +671,28 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
         };
     }
     page.spawn(row(22.0)).with_children(|figures| {
-        super::screens::stat(figures, hud, "house", &home.to_string(), "Nachbarn");
-        super::screens::stat(figures, hud, "ferry", &ferry.to_string(), "Fährgäste");
+        super::screens::stat(
+            figures,
+            hud,
+            "house",
+            &home.to_string(),
+            if live {
+                "Nachbarn unterwegs"
+            } else {
+                "Nachbarn"
+            },
+        );
+        super::screens::stat(
+            figures,
+            hud,
+            "ferry",
+            &ferry.to_string(),
+            if live {
+                "Fährgäste unterwegs"
+            } else {
+                "Fährgäste"
+            },
+        );
         super::screens::stat(
             figures,
             hud,
@@ -669,7 +744,11 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
                     label(
                         tile,
                         hud,
-                        format!("{} gefragt", predicted[i]),
+                        format!(
+                            "{} {}",
+                            predicted[i],
+                            if live { "noch erwartet" } else { "gefragt" }
+                        ),
                         15.0,
                         Face::Body,
                         MUTED,
@@ -696,158 +775,6 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
                 });
             }
         });
-    }
-}
-
-fn mood(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town) {
-    let Some(day) = town.feedback().filter(|day| day.responses() > 0) else {
-        hint(
-            page,
-            hud,
-            "Die ersten Gäste sind noch unterwegs. Hier siehst du, was ihnen gefällt und was ihnen fehlt.",
-            "mood",
-        );
-        return;
-    };
-    page.spawn(row(24.0)).with_children(|figures| {
-        super::screens::stat(
-            figures,
-            hud,
-            "mood",
-            &format!("{} %", day.satisfaction().unwrap_or(0)),
-            if town.planning() {
-                "Zufrieden gestern"
-            } else {
-                "Zufrieden heute"
-            },
-        );
-        super::screens::stat(
-            figures,
-            hud,
-            "check",
-            &format!("{}/{}", day.served_total(), day.responses()),
-            "Wünsche erfüllt",
-        );
-    });
-    page.spawn(row(8.0)).with_children(|reasons| {
-        for (reason, image) in Miss::ALL
-            .into_iter()
-            .zip(["hammer", "ferry", "coin", "storehouse"])
-        {
-            card(
-                reasons,
-                Node {
-                    flex_grow: 1.0,
-                    flex_basis: Val::Px(0.0),
-                    padding: UiRect::all(Val::Px(9.0)),
-                    ..column(2.0)
-                },
-                CARD,
-            )
-            .with_children(|item| {
-                icon(item, hud, image, 31.0);
-                label(
-                    item,
-                    hud,
-                    day.gaps[reason as usize].to_string(),
-                    22.0,
-                    Face::Bold,
-                    GOLD,
-                );
-                label(item, hud, reason.label(), 16.0, Face::Body, SAND);
-            });
-        }
-    });
-    if let Some(why) = Miss::ALL
-        .into_iter()
-        .filter(|m| day.gaps[*m as usize] > 0)
-        .max_by_key(|m| day.gaps[*m as usize])
-    {
-        hint(page, hud, why.hint(), "nili");
-    } else {
-        hint(
-            page,
-            hud,
-            "Alle bisherigen Gäste haben gefunden, was sie gesucht haben.",
-            "check",
-        );
-    }
-
-    if let Phase::Open(day) = &town.phase {
-        let mut recent: Vec<_> = day
-            .visits
-            .iter()
-            .enumerate()
-            .filter(|(_, v)| v.resolved)
-            .collect();
-        recent.sort_by(|a, b| b.1.at.total_cmp(&a.1.at));
-        if !recent.is_empty() {
-            label(page, hud, "Stimmen aus der Gasse", 18.0, Face::Bold, GOLD);
-            page.spawn(Node {
-                align_items: AlignItems::Stretch,
-                ..row(8.0)
-            })
-            .with_children(|voices| {
-                for (i, visit) in recent.into_iter().take(2) {
-                    let names = match Region::of(town.chapter) {
-                        Region::Greece => [
-                            "Kleio", "Doros", "Eleni", "Mara", "Ion", "Thaleia", "Nikos", "Ione",
-                        ],
-                        Region::Rome => [
-                            "Flavia", "Gaius", "Livia", "Felix", "Tertia", "Lucius", "Junia",
-                            "Marius",
-                        ],
-                    };
-                    let guest = match visit.origin {
-                        Origin::Home(_) => "Aus der Gasse",
-                        Origin::Ferry if visit.guided_to.is_some() => "Mit Nili unterwegs",
-                        Origin::Ferry => "Von der Fähre",
-                    };
-                    let quote = match visit.miss {
-                        Some(Miss::NoShop) => "Das habe ich hier vermisst.",
-                        Some(Miss::Walk) => "Der Laden war mir zu weit weg.",
-                        Some(Miss::Price) => "Das war für meinen Beutel zu teuer.",
-                        Some(Miss::Empty) => "Als ich ankam, war schon alles weg.",
-                        None if visit.shop.is_some() => "Ich habe gefunden, was ich wollte.",
-                        None => "Ich schaue mich noch um.",
-                    };
-                    card(
-                        voices,
-                        Node {
-                            flex_grow: 1.0,
-                            flex_basis: Val::Px(0.0),
-                            padding: UiRect::all(Val::Px(9.0)),
-                            ..row(8.0)
-                        },
-                        CARD,
-                    )
-                    .with_children(|voice| {
-                        icon(voice, hud, service_icon(visit.wants), 34.0);
-                        voice.spawn(column(2.0)).with_children(|words| {
-                            label(
-                                words,
-                                hud,
-                                format!(
-                                    "{} · {guest}",
-                                    names[(i + town.day as usize) % names.len()]
-                                ),
-                                15.0,
-                                Face::Bold,
-                                GOLD,
-                            );
-                            label(
-                                words,
-                                hud,
-                                format!("{}  ·  „{quote}“", visit.wants.name()),
-                                16.0,
-                                Face::Body,
-                                SAND,
-                            );
-                        });
-                    });
-                }
-            });
-        }
     }
 }
 
@@ -950,6 +877,16 @@ fn evening(
                 super::screens::stat(
                     figures,
                     hud,
+                    guests::total_symbol(&report.tally),
+                    &report
+                        .tally
+                        .satisfaction()
+                        .map_or_else(|| "—".into(), |n| format!("{n} %")),
+                    "Zufriedenheit",
+                );
+                super::screens::stat(
+                    figures,
+                    hud,
                     "coin",
                     &format!("+{}", report.tally.income + report.grant),
                     &format!("{} heute", Region::of(town.chapter).currency()),
@@ -980,10 +917,6 @@ fn evening(
                     super::screens::stat(figures, hud, "nili", "1", "Hafenbitte");
                 }
             });
-            let peak = Service::ALL
-                .into_iter()
-                .filter(|s| report.tally.missed[*s as usize] > 0)
-                .max_by_key(|s| report.tally.missed[*s as usize]);
             if clear {
                 page.spawn(row(5.0)).with_children(|stars| {
                     for _ in 0..report.stars {
@@ -1014,26 +947,9 @@ fn evening(
                 for goal in chapter.goals {
                     super::screens::goal(page, hud, town, goal);
                 }
-                if let Some(s) = peak {
-                    hint(
-                        page,
-                        hud,
-                        &format!(
-                            "{} Gäste suchten vergeblich nach {}. Mehr Vorrat, kürzere Wege oder ein günstigerer Preis helfen.",
-                            report.tally.missed[s as usize],
-                            s.name()
-                        ),
-                        service_icon(s),
-                    );
-                } else {
-                    hint(
-                        page,
-                        hud,
-                        "Alle Wünsche erfüllt. Plane morgen weiter, um die Aufträge des Hafens abzuschließen.",
-                        "check",
-                    );
-                }
             }
+            let (advice, image) = guests::evening_hint(town, &report.tally);
+            hint(page, hud, &advice, image);
             page.spawn(Node {
                 justify_content: JustifyContent::SpaceBetween,
                 ..row(9.0)
@@ -1046,6 +962,16 @@ fn evening(
                     "Kampagnenkarte",
                     "chart",
                     "B",
+                    Style::Quiet,
+                    false,
+                );
+                button(
+                    actions,
+                    hud,
+                    Action::Feedback,
+                    "Gästebuch",
+                    "guest_book",
+                    "View",
                     Style::Quiet,
                     false,
                 );
@@ -1345,9 +1271,9 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                     "Wähle einen Platz aus und baue. Bei einem fertigen Gebäude kannst du Preise festlegen, ausbauen und zurückbauen.",
                 ),
                 (
-                    "ferry",
-                    "Gäste beobachten",
-                    "Nachbarn starten an ihren Wohnhöfen. Fährgäste kommen von rechts. Im Hafenbuch siehst du Wünsche und Vorräte. Offene Menüs halten die Uhr an.",
+                    "guest_book",
+                    "Gäste verstehen",
+                    "Die Gesichter und Symbole über Gästen zeigen, ob ihr Wunsch erfüllt wurde. Tippe die Sprechblase an oder öffne mit View das Gästebuch. Beim Lesen wartet der Tag.",
                 ),
                 (
                     "sun",

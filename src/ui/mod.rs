@@ -1,3 +1,5 @@
+mod bubbles;
+mod guests;
 mod panels;
 mod screens;
 
@@ -47,6 +49,7 @@ enum Style {
     Quiet,
     Selected,
     Danger,
+    Speech,
 }
 
 #[derive(Clone, Copy)]
@@ -63,7 +66,6 @@ pub(crate) enum Dynamic {
     Toast,
     Goal(crate::campaign::Goal),
     Stock(usize),
-    Mood,
     Route,
 }
 
@@ -85,7 +87,7 @@ pub fn setup(mut hud: ResMut<Hud>, assets: Res<AssetServer>) {
         assets.load("embedded://fonts/DMSans-Bold.ttf"),
         assets.load("embedded://fonts/DMSerifText-Regular.ttf"),
     ];
-    let icons = "house well bakery grove potter stoa taverna inn bread olive meze bed coin star sun water wind ferry chart book guide hammer lock check nili title_fade storehouse press shrine aqueduct baths forum villa mood cloud rain storm";
+    let icons = "house well bakery grove potter stoa taverna inn bread olive meze bed coin star sun water wind ferry chart book guide hammer lock check nili title_fade storehouse press shrine aqueduct baths forum villa mood cloud rain storm guest_book guest_down guest_empty guest_happy guest_mixed guest_steps guest_wait";
     for key in icons
         .split_whitespace()
         .map(str::to_owned)
@@ -130,6 +132,9 @@ pub fn draw(
                 (View::Street, panel) => {
                     let Some(town) = &save.town else { return };
                     if panel == Panel::None {
+                        if matches!(town.phase, Phase::Open(_)) {
+                            bubbles::spawn(base, &hud);
+                        }
                         screens::street(base, &hud, &game, town);
                     } else {
                         panels::street_panel(base, &hud, &game, town);
@@ -251,6 +256,9 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
 #[derive(Component)]
 pub(crate) struct Root;
 
+pub use bubbles::update as update_reactions;
+pub use guests::refresh as refresh_guest_summary;
+
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn refresh(
     game: Res<Game>,
@@ -311,6 +319,8 @@ pub fn refresh(
         outline.color = if focused { GOLD } else { Color::NONE };
         (fill.0, border.0) = if button.disabled {
             (DEEP, CARD)
+        } else if matches!(button.style, Style::Speech) {
+            (if hovered { PAPER } else { SAND }, PAPER)
         } else if focused {
             (
                 if matches!(button.style, Style::Primary) {
@@ -335,6 +345,7 @@ pub fn refresh(
                 Style::Quiet => (CARD, LINE),
                 Style::Selected => (JADE, LINE),
                 Style::Danger => (RUST, Color::srgb(0.61, 0.35, 0.29)),
+                Style::Speech => (SAND, PAPER),
             }
         };
     }
@@ -405,15 +416,6 @@ pub fn refresh(
                     if text.0 != stage {
                         text.0 = stage;
                     }
-                }
-            }
-            Dynamic::Mood => {
-                let rating = town
-                    .and_then(|town| town.feedback())
-                    .and_then(|day| day.satisfaction());
-                let value = rating.map_or_else(|| "—".to_owned(), |rating| format!("{rating} %"));
-                if text.0 != value {
-                    text.0 = value;
                 }
             }
             Dynamic::Clock => {

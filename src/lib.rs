@@ -56,6 +56,7 @@ pub fn run() {
         .init_resource::<Game>()
         .init_resource::<Controls>()
         .init_resource::<Hud>()
+        .init_resource::<world::Reactions>()
         .insert_resource(AmbientLight {
             color: Color::srgb_u8(231, 230, 252),
             brightness: 245.0,
@@ -69,10 +70,12 @@ pub fn run() {
                 frame,
                 ui::draw,
                 ui::refresh,
+                ui::refresh_guest_summary,
                 game::audio,
                 world::sync,
                 world::animate,
                 world::animate_people,
+                ui::update_reactions,
                 world::animate_construction,
                 world::animate_weather,
             )
@@ -163,6 +166,13 @@ fn embed_assets(app: &App) {
         "ui/forum.png",
         "ui/grove.png",
         "ui/guide.png",
+        "ui/guest_book.png",
+        "ui/guest_down.png",
+        "ui/guest_empty.png",
+        "ui/guest_happy.png",
+        "ui/guest_mixed.png",
+        "ui/guest_steps.png",
+        "ui/guest_wait.png",
         "ui/hammer.png",
         "ui/house.png",
         "ui/inn.png",

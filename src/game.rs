@@ -9,7 +9,7 @@ use crate::{
     controls::{self, Controls, Direction},
     errands::{Job, Route},
     layout::{lot_col, lot_id, lot_row},
-    model::{self, HarborPlan, Kind, LOTS, Phase, Price, Town, Weather},
+    model::{self, GuestTip, HarborPlan, Kind, LOTS, Miss, Phase, Price, Town, Weather},
     save::Campaign,
     ui::{self, Hud},
     world::StreetCamera,
@@ -64,6 +64,10 @@ pub enum Action {
     Plot,
     Goals,
     Forecast,
+    Feedback,
+    GuestReview(usize),
+    GuestAdvice(usize),
+    ReviewReason(Miss),
     LedgerPage(usize),
     HarborPlan(HarborPlan),
     Build(Kind),
@@ -112,6 +116,9 @@ pub struct Game {
     pub guide: usize,
     pub build_page: usize,
     pub ledger_page: usize,
+    pub review_guest: Option<usize>,
+    pub review_reason: Option<Miss>,
+    pub return_to_guests: bool,
     pub job: Option<Job>,
     pub focus: Option<Action>,
     pub dirty: bool,
@@ -179,6 +186,9 @@ impl Default for Game {
             guide: 0,
             build_page: 0,
             ledger_page: 0,
+            review_guest: None,
+            review_reason: None,
+            return_to_guests: false,
             job: None,
             focus: None,
             dirty: true,
@@ -225,9 +235,19 @@ impl Game {
     }
 
     fn show(&mut self, panel: Panel) {
+        if !matches!(panel, Panel::Build | Panel::Details | Panel::Demolish) {
+            self.return_to_guests = false;
+        }
         self.panel = panel;
         self.focus = None;
         self.dirty = true;
+    }
+
+    fn guest_book(&mut self, guest: Option<usize>) {
+        self.ledger_page = 1;
+        self.review_guest = guest;
+        self.show(Panel::Forecast);
+        self.focus = Some(Action::LedgerPage(1));
     }
 
     fn build_effect(&mut self, from: u8) {
@@ -366,6 +386,19 @@ pub fn frame(
             &mut game,
             &mut save,
         );
+        return;
+    }
+
+    if game.view == View::Street
+        && controls.got(controls::VIEW)
+        && matches!(game.panel, Panel::None | Panel::Forecast | Panel::Report)
+    {
+        let action = if game.panel == Panel::Forecast && game.ledger_page == 1 {
+            Action::Back
+        } else {
+            Action::Feedback
+        };
+        apply(action, &mut game, &mut save);
         return;
     }
 
@@ -640,6 +673,18 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                     });
                     game.focus = Some(invoking);
                 }
+                Panel::Details | Panel::Build if game.return_to_guests => {
+                    game.guest_book(game.review_guest);
+                    game.focus = game.review_guest.map(Action::GuestAdvice);
+                }
+                Panel::Forecast
+                    if save
+                        .town
+                        .as_ref()
+                        .is_some_and(|town| matches!(town.phase, Phase::Report(_))) =>
+                {
+                    game.show(Panel::Report);
+                }
                 Panel::Demolish => game.show(Panel::Details),
                 Panel::Report => game.transition(View::Chart, Panel::None),
                 Panel::None => match game.view {
@@ -684,6 +729,7 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
         Action::Plot => {
             if let Some(town) = &save.town {
                 game.build_page = 0;
+                game.return_to_guests = false;
                 game.show(if town.lots[game.selected].is_none() && town.planning() {
                     Panel::Build
                 } else {
@@ -736,11 +782,69 @@ fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
         Action::Goals => game.show(Panel::Goals),
         Action::Forecast => {
             game.ledger_page = 0;
+            game.review_guest = None;
+            game.review_reason = None;
             game.show(Panel::Forecast);
             game.focus = Some(Action::LedgerPage(0));
         }
+        Action::Feedback => {
+            game.review_reason = None;
+            game.guest_book(None);
+        }
+        Action::GuestReview(guest) => {
+            if save.town.as_ref().is_some_and(|town| {
+                town.guest_history()
+                    .get(guest)
+                    .is_some_and(|v| v.verdict().is_some())
+            }) {
+                game.review_reason = None;
+                game.guest_book(Some(guest));
+            }
+        }
+        Action::GuestAdvice(guest) => {
+            let Some(town) = &save.town else { return };
+            let chapter = &CHAPTERS[town.chapter];
+            let Some(tip) = town.guest_tip(chapter, guest) else {
+                return;
+            };
+            game.review_guest = Some(guest);
+            match tip {
+                GuestTip::Shop(lot) => {
+                    select(game, lot);
+                    game.show(Panel::Details);
+                }
+                GuestTip::Build(lot, kind) => {
+                    select(game, lot);
+                    game.build_page = usize::from(
+                        chapter
+                            .allowed()
+                            .iter()
+                            .skip(8)
+                            .any(|&choice| choice == kind),
+                    );
+                    game.show(Panel::Build);
+                    if town.coins >= kind.cost() {
+                        game.focus = Some(Action::Build(kind));
+                    }
+                }
+            }
+            game.return_to_guests = true;
+        }
+        Action::ReviewReason(reason) => {
+            game.review_guest = None;
+            game.review_reason = if game.review_reason == Some(reason) {
+                None
+            } else {
+                Some(reason)
+            };
+            game.focus = Some(action);
+            game.dirty = true;
+        }
         Action::LedgerPage(page) => {
             game.ledger_page = page;
+            if page != 1 {
+                game.review_guest = None;
+            }
             game.focus = Some(action);
             game.dirty = true;
         }

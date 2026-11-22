@@ -536,31 +536,7 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town)
                 "Ansehen",
             );
         });
-        card(
-            rail,
-            Node {
-                padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)),
-                justify_content: JustifyContent::SpaceBetween,
-                ..row(4.0)
-            },
-            CARD,
-        )
-        .with_children(|meter| {
-            meter.spawn(row(4.0)).with_children(|caption| {
-                icon(caption, hud, "mood", 30.0);
-                label(caption, hud, "Zufriedenheit", 16.0, Face::Bold, SAND);
-            });
-            meter.spawn((
-                Dynamic::Mood,
-                Text::new("—"),
-                TextColor(GOLD),
-                TextFont {
-                    font: hud.fonts[1].clone(),
-                    font_size: 22.0,
-                    ..default()
-                },
-            ));
-        });
+        guests::summary(rail, hud, town);
         line(rail, LINE);
         label(rail, hud, ch.name, 27.0, Face::Serif, SAND);
         for g in ch.goals {

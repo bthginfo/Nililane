@@ -78,31 +78,6 @@ pub fn bird() -> Mesh {
     b.mesh()
 }
 
-pub fn response_marker(satisfied: bool) -> Mesh {
-    let mut b = Batch::default();
-    let color = if satisfied {
-        [49, 131, 105]
-    } else {
-        [170, 86, 60]
-    };
-    // A small dark-backed sign keeps the shape readable against pale paving.
-    b.block(
-        Vec3::ZERO,
-        v(0.25, 0.23, 0.065),
-        Quat::from_rotation_z(0.12),
-        color,
-    );
-    let z = 0.039;
-    if satisfied {
-        b.beam(v(-0.070, -0.009, z), v(-0.019, -0.046, z), 0.032, MARBLE);
-        b.beam(v(-0.019, -0.046, z), v(0.087, 0.063, z), 0.032, MARBLE);
-    } else {
-        b.beam(v(0.0, 0.057, z), v(0.0, -0.027, z), 0.036, MARBLE);
-        b.slab(v(0.0, -0.068, z), v(0.035, 0.033, 0.03), MARBLE);
-    }
-    b.mesh()
-}
-
 pub fn pack(job: crate::errands::Job) -> Mesh {
     use super::{
         buildings::{TERRACOTTA, amphora},

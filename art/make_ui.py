@@ -102,6 +102,68 @@ def star(a, color=GOLD, middle=(48, 48), radius=34):
     a.poly(points, color)
 
 
+def guest_face(a, mood):
+    # Broad features and different mouth shapes stay legible at HUD size.
+    palettes = {
+        "guest_happy": ("#A9E2B7", "#57A28F", "#DEFFE3"),
+        "guest_mixed": ("#FFE1A1", "#DC9953", "#FFF4D3"),
+        "guest_down": ("#FFC2AE", "#CC735F", "#FFE4D7"),
+        "guest_wait": ("#BFE1DF", "#6FA6A9", "#E2FAF2"),
+    }
+    face, side, light = palettes[mood]
+    a.oval((7, 9, 89, 91), "#172F33")
+    a.oval((11, 10, 85, 86), side)
+    a.oval((13, 10, 81, 78), face)
+    a.line([(23, 25), (29, 20), (39, 17)], light, 3)
+    a.oval((24, 47, 36, 53), side)
+    a.oval((60, 47, 72, 53), side)
+    for x in (33, 55):
+        a.oval((x, 34, x + 8, 44), INK)
+    if mood == "guest_happy":
+        a.poly([(33, 52), (62, 52), (58, 61), (51, 66), (42, 66), (36, 61)], INK)
+        a.line([(37, 54), (58, 54)], light, 2)
+    elif mood == "guest_down":
+        a.line([(34, 62), (40, 55), (47, 53), (54, 55), (61, 62)], INK, 5)
+        a.line([(31, 32), (40, 29)], INK, 3)
+        a.line([(55, 29), (65, 32)], INK, 3)
+    elif mood == "guest_mixed":
+        a.line([(37, 57), (57, 57)], INK, 5)
+    else:
+        for x in (35, 45, 55):
+            a.oval((x, 54, x + 5, 59), INK)
+
+
+def footprints(a):
+    for x, y in [(26, 48), (59, 19)]:
+        a.poly([(x, y + 23), (x - 5, y + 10), (x, y), (x + 10, y - 4),
+                (x + 20, y + 3), (x + 17, y + 16), (x + 9, y + 26)], BLUE)
+        a.box((x - 4, y + 16, x + 12, y + 23), SEA, 2)
+        a.line([(x, y + 6), (x + 12, y + 10)], CREAM, 3)
+
+
+def empty_crate(a):
+    a.poly([(11, 32), (47, 17), (86, 31), (50, 47)], "#E5B682")
+    a.poly([(19, 33), (47, 23), (77, 33), (50, 44)], "#6B483D")
+    a.poly([(13, 36), (49, 49), (49, 78), (14, 66)], "#AD6E4E")
+    a.poly([(51, 49), (84, 36), (83, 66), (51, 78)], "#C8905E")
+    a.line([(25, 43), (25, 70)], GOLD, 6)
+    a.line([(72, 43), (72, 70)], GOLD, 6)
+    a.line([(25, 55), (49, 64), (75, 55)], DEEP, 3)
+
+
+def guest_book(a):
+    a.box((9, 20, 86, 78), "#38645F", 8)
+    a.poly([(14, 19), (33, 14), (48, 20), (63, 14), (82, 19),
+            (82, 68), (63, 65), (48, 73), (32, 65), (14, 69)], CREAM)
+    a.line([(48, 23), (48, 68)], GOLD, 3)
+    a.oval((19, 27, 42, 52), "#92C4A8")
+    a.oval((24, 35, 28, 39), INK)
+    a.oval((33, 35, 37, 39), INK)
+    a.line([(25, 43), (30, 47), (35, 43)], INK, 2)
+    for y in (30, 39, 48, 57):
+        a.line([(55, y + 1), (75, y - 2)], "#B58C66", 2)
+
+
 def make_icon(name):
     a = Art()
     if name == "house":
@@ -260,6 +322,14 @@ def make_icon(name):
         a.box((22, 58, 72, 79), CREAM, 3)
         a.box((30, 62, 67, 74), SEA, 2)
         a.line([(36, 64), (58, 65)], "#C2E2CD", 2)
+    elif name in ("guest_happy", "guest_mixed", "guest_down", "guest_wait"):
+        guest_face(a, name)
+    elif name == "guest_steps":
+        footprints(a)
+    elif name == "guest_empty":
+        empty_crate(a)
+    elif name == "guest_book":
+        guest_book(a)
     elif name == "mood":
         a.oval((13, 13, 83, 83), "#6AA58F")
         a.oval((32, 34, 40, 44), INK)
@@ -285,7 +355,8 @@ def make_icon(name):
 
 
 ICONS = ("house well bakery grove potter stoa taverna inn bread olive meze bed coin star "
-         "sun water wind ferry chart book guide hammer lock check nili storehouse press shrine aqueduct baths forum villa mood cloud rain storm").split()
+         "sun water wind ferry chart book guide hammer lock check nili storehouse press shrine aqueduct baths forum villa mood cloud rain storm "
+         "guest_happy guest_mixed guest_down guest_wait guest_steps guest_empty guest_book").split()
 for item in ICONS:
     make_icon(item)
 

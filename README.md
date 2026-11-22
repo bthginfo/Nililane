@@ -1,4 +1,4 @@
-# Nililane 2.0
+# Nililane 2.1
 
 Nililane ist ein 3D-Straßenmanagementspiel in Rust und Bevy. Mit dem Nilpferd Nili
 reist du zuerst durch das antike Griechenland und danach durch das antike
@@ -6,7 +6,7 @@ Rom. Du planst die Gasse am Morgen, versorgst Nachbarn und Fährgäste und hilfs
 tagsüber dort, wo sich die Lieferungen stauen. Auf der Kampagnenkarte erkennst
 du die Größe des nächsten Hafens schon vor der Überfahrt.
 
-**[Nililane 2.0.0 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/4142059fab2192a9e2e581902ba4c3e02c53b316/Nililane-2.0.0.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/4142059fab2192a9e2e581902ba4c3e02c53b316/Nililane-2.0.0.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.0.0)
+**[Nililane 2.1.0 für Android herunterladen](https://raw.githubusercontent.com/bthginfo/Nililane/4e7a819712b6376bcd631aa47c20cffe3f5c5818/Nililane-2.1.0.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/4e7a819712b6376bcd631aa47c20cffe3f5c5818/Nililane-2.1.0.apk.sha256) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v2.1.0)
 
 ![Nili mit Bewohnern und dem ausgebauten Wohnhof in Naxos](docs/bilder/naxos.jpg)
 
@@ -16,8 +16,8 @@ du die Größe des nächsten Hafens schon vor der Überfahrt.
 
 Die signierte APK benötigt Android 8 oder neuer, Vulkan 1.1 und ein Gerät
 mit ARM64- oder x86_64-Prozessor. Öffne die APK auf dem Tablet und installiere
-sie. Installiere sie über 1.0, um deine laufende Gasse und die Sternrekorde
-mitzunehmen. Nililane läuft offline und öffnet sich im Querformat.
+sie. Installiere das Update über deine bisherige Version, um deine laufende
+Gasse und die Sternrekorde mitzunehmen. Nililane läuft offline und öffnet sich im Querformat.
 
 Kopple den Xbox-Controller über die Android-Bluetooth-Einstellungen oder
 schließe ihn per USB an. Unter **Erste Reise** führt Nili dich durch den
@@ -32,7 +32,8 @@ die Oberfläche vergrößern sowie Musik und Spielklänge separat schalten.
 | B | Zurück, während des Spiels pausieren |
 | X | Aufträge ansehen |
 | Y | Tag eröffnen, während des Tages zwischen 1× und 2× wechseln |
-| RB | Hafenbuch mit Nachfrage, Vorräten und Gästestimmen öffnen |
+| RB | Hafenbuch mit Nachfrage und Vorräten öffnen |
+| View (Taste mit zwei Rechtecken) | Gästebuch direkt öffnen |
 | Rechten Stick drücken (R3) | Ab Amorgos Nilis Touren öffnen |
 | Rechter Stick, LT und RT | Kamera schwenken und zoomen |
 | LB | Kamera zurücksetzen |
@@ -41,6 +42,21 @@ die Oberfläche vergrößern sowie Musik und Spielklänge separat schalten.
 Touch und Maus wählen Bauplätze und Schaltflächen. Mit der Tastatur bedienen
 Pfeiltasten oder WASD die Auswahl, Enter bestätigt, Escape geht zurück.
 X, Y, P, Q und E entsprechen X, Y, Start, LB und RB. N öffnet Nilis Touren.
+F öffnet das Gästebuch.
+
+## Neu in 2.1
+
+- Über Gästen erscheinen Gesichter, das Warensymbol und ein kurzer Hinweis.
+  Tippe eine Sprechblase an, um die Rückmeldung im Gästebuch zu öffnen.
+- Die Zufriedenheitskarte zeigt die Anzahl erfüllter Wünsche und die letzte
+  Stimme. Im Gästebuch lassen sich Nachbarn und Fährgäste vergleichen und
+  Preisprobleme, leere Auslagen, lange Wege und fehlende Angebote filtern.
+- Das Gästebuch führt zum betroffenen Laden oder schlägt morgens einen
+  erreichbaren Bauplatz vor. Im geöffneten Hafen vergleicht die Vorratsseite
+  den restlichen Bestand mit den noch anstehenden Besuchen.
+- Nach der Abrechnung bleiben die Gästestimmen für die Morgenplanung erhalten.
+
+![Gästebuch mit Preisbeschwerde, Gastbudget und Link zum Laden](docs/bilder/gaestebuch.jpg)
 
 ## Neu in 2.0
 
