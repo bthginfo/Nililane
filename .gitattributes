@@ -1,1 +1,2 @@
 Nililane-2.7.0*.apk filter=lfs diff=lfs merge=lfs -text
+Nililane-3.0.0*.apk filter=lfs diff=lfs merge=lfs -text
