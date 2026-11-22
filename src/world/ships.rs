@@ -12,6 +12,69 @@ const PITCH: Tint = [74, 48, 39];
 const WINE: Tint = [169, 69, 52];
 const LENGTHS: [f32; 3] = [2.25, 1.19, 1.52];
 const WIDTHS: [f32; 3] = [0.63, 0.44, 0.54];
+pub(super) const FERRY_SPAR: f32 = 2.11;
+
+pub(super) struct FerryPose {
+    pub hull: Transform,
+    pub wake: Transform,
+    pub gangway: Option<Transform>,
+}
+
+pub(super) fn berth(quay: f32) -> Vec3 {
+    v(quay + 0.86, -0.346, super::landscape::LANDING_EDGE + 1.54)
+}
+
+pub(super) fn ferry(quay: f32, day: f32, seconds: f32, swell: f32) -> FerryPose {
+    let travel = (day - 0.42).max(0.0) * (15.0 + swell * 3.3);
+    let turning = travel / (travel + 1.0);
+    let wave = seconds * (1.1 + swell);
+    let yaw = -0.038 - 0.11 * turning + 0.017 * wave.cos();
+    let angle = Quat::from_rotation_y(yaw);
+    let dip = wave.sin() * (0.025 + swell * 0.049 + 0.055 * turning);
+    let hull = Transform::from_translation(
+        berth(quay) + v(travel + 0.045 * (wave * 0.67).sin(), dip, travel * 0.25),
+    )
+    .with_rotation(
+        angle
+            * Quat::from_rotation_z(wave.cos() * (0.020 + swell * 0.064 + 0.038 * turning))
+            * Quat::from_rotation_x(wave.sin() * swell * (0.061 + 0.034 * turning)),
+    );
+    let gangway = (travel < 0.11).then(|| {
+        let start = v(quay + 0.29, 0.154, super::landscape::LANDING_EDGE - 0.11);
+        let end = hull.transform_point(v(-0.59, 0.427, -0.49));
+        let span = end - start;
+        Transform::from_translation((start + end) * 0.5)
+            .with_rotation(Quat::from_rotation_arc(Vec3::Z, span.normalize()))
+            .with_scale(v(1.0, 1.0, span.length()))
+    });
+    let wake = Transform::from_xyz(hull.translation.x, -0.422, hull.translation.z)
+        .with_rotation(angle)
+        .with_scale(v(
+            0.86 + wave.sin() * 0.10 + swell * 0.32,
+            1.0,
+            0.79 + swell * 0.44,
+        ));
+    FerryPose {
+        hull,
+        wake,
+        gangway,
+    }
+}
+
+pub(super) fn gangway() -> Mesh {
+    let mut b = Batch::default();
+    for i in 0..9 {
+        b.slab(
+            v(0.0, 0.0, -0.448 + i as f32 * 0.112),
+            v(0.43, 0.045, 0.106),
+            shift(OAK, 14 + (i % 3) as i16 * 6),
+        );
+    }
+    for side in [-1.0, 1.0] {
+        b.slab(v(side * 0.19, -0.038, 0.0), v(0.062, 0.051, 1.0), PITCH);
+    }
+    b.mesh()
+}
 
 fn paint(region: Region, class: usize) -> Tint {
     match region {
@@ -223,7 +286,7 @@ pub fn sail(region: Region, class: usize) -> Mesh {
     let mut b = Batch::default();
     let large = class == 0;
     let width = if large { 1.84 } else { 1.34 };
-    let y = if large { 2.11 } else { 1.73 };
+    let y = if large { FERRY_SPAR } else { 1.73 };
     let height = if large { 1.10 } else { 0.87 };
     let tint = paint(region, class);
     let pinned = |u: f32, v_: f32| {
@@ -267,8 +330,10 @@ pub fn sail(region: Region, class: usize) -> Mesh {
         0.061,
         OAK,
     );
-    b.beam(pinned(0.0, 1.0), v(-0.79, 0.46, 0.07), 0.018, CREAM);
-    b.beam(pinned(1.0, 1.0), v(1.18, 0.41, -0.07), 0.018, CREAM);
+    if !large {
+        b.beam(pinned(0.0, 1.0), v(-0.79, 0.46, 0.07), 0.018, CREAM);
+        b.beam(pinned(1.0, 1.0), v(1.18, 0.41, -0.07), 0.018, CREAM);
+    }
     b.face(
         &[
             v(-0.2, y + 0.18, 0.003),
@@ -305,4 +370,36 @@ pub fn wake(class: usize) -> Mesh {
         }
     }
     b.mesh()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::render::mesh::VertexAttributeValues;
+
+    #[test]
+    fn the_ferry_and_its_oars_clear_the_pier_in_both_regions() {
+        for region in [Region::Greece, Region::Rome] {
+            let mesh = hull(region, 0);
+            let Some(VertexAttributeValues::Float32x3(points)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("the ferry has no vertices");
+            };
+            for swell in [0.18, 0.58, 0.78, 1.0] {
+                for day in [0.0, 0.42, 0.43, 0.52, 1.0] {
+                    for step in 0..48 {
+                        let pose = ferry(5.0, day, step as f32 * 0.23, swell);
+                        assert!(points.iter().all(|p| {
+                            pose.hull.transform_point(Vec3::from_array(*p)).z
+                                > super::super::landscape::LANDING_EDGE + 0.14
+                        }));
+                        assert_eq!(pose.gangway.is_some(), day <= 0.42);
+                    }
+                }
+                let pose = ferry(5.0, 0.0, 1.0, swell);
+                assert!(pose.hull.transform_point(v(0.0, -0.19, 0.0)).y < -0.429);
+            }
+        }
+    }
 }

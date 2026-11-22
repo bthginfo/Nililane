@@ -13,6 +13,10 @@ use super::{
     mesh::{Batch, Grain, Tint, shift, v},
 };
 
+const LANDING_CENTER: f32 = 6.95;
+const LANDING_DEPTH: f32 = 0.65;
+pub(super) const LANDING_EDGE: f32 = LANDING_CENTER + LANDING_DEPTH * 0.5;
+
 pub fn quay(layout: Layout) -> f32 {
     lot_position(layout.dock(), layout.width()).x + 1.78
 }
@@ -343,7 +347,11 @@ fn harbor(b: &mut Batch, x: f32) {
             shift([148, 101, 70], (n * 7 % 38) as i16 - 17),
         );
     }
-    b.slab(v(x, 0.057, 6.95), v(2.10, 0.15, 0.65), OAK);
+    b.slab(
+        v(x, 0.057, LANDING_CENTER),
+        v(2.10, 0.15, LANDING_DEPTH),
+        OAK,
+    );
     for i in 0..3 {
         amphora(
             b,

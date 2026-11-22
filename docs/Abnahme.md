@@ -1,4 +1,4 @@
-# Spielreview und Abnahme · Nililane 2.3
+# Spielreview und Abnahme · Nililane 2.3.1
 
 ## Einstieg als neuer Spieler
 
@@ -90,7 +90,14 @@ Der Hafentipp nennt die beiden Häuser und ihren Wasserbedarf.
 
 ## Prüfungen
 
-- Formatierung, Clippy mit Warnungen als Fehler und 15 Rust-Tests einschließlich der drei Einstiegsinseln und des erneuten Ladens während einer Bitte vom Kai.
+- Formatierung, Clippy mit Warnungen als Fehler und 16 Rust-Tests
+  einschließlich der drei Einstiegsinseln und des erneuten Ladens während
+  einer Bitte vom Kai. Die Prüfung der Fährmodelle misst den Abstand von
+  Rumpf und Rudern zum Steg bei vier Wellenstärken.
+- Der Liegeplatz wurde bei Sonne auf Naxos und bei Sturm in Capua im
+  4:3-Format geprüft. In Capua entfernte sich die Fähre mit gesetztem Segel,
+  sobald der Landgang weg war. Im Titelbild ist der Steg mit der ganzen
+  Fähre zu sehen. [Titelbild](bilder/faehre.jpg)
 - Gerenderte Stichproben in Griechenland und Rom im Querformat. In Kythnos
   öffnete ein Tipp auf die Sprechblase die passende Stimme. Der Preisfilter
   führte zur Stoa und die Zurück-Taste zur ausgewählten Rückmeldung.
@@ -115,6 +122,10 @@ Der Hafentipp nennt die beiden Häuser und ihren Wasserbedarf.
   großer Oberfläche zunächst 5 → 3 Schalen. Nach dem Brunnenbau zeigte
   sie 5 → 7 Schalen und der Ausbau gelang. In Capua lieferte Nili die
   Gästeführung, die Schattentour und das Kai-Räumen jeweils einmal ab.
+- Für 2.3 öffnete die simulierte A-Taste im Android-15-Emulator den ersten
+  Naxos-Hinweis im 4:3-Format. Die Prüfung in diesem Durchlauf reichte bis
+  zu diesem Hinweis. Die Installation von 2.3.1 über 2.3.0 hat den
+  vorhandenen Spielstand bytegenau erhalten.
 - APK-Signatur v2 und v3, 16-KiB-Ausrichtung beider Bibliotheken und
   SHA-256-Abgleich des GitHub-Downloads.
 - Der Test auf einem physischen Android-Tablet steht noch aus.

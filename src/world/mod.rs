@@ -78,6 +78,8 @@ pub(crate) struct Sail(usize);
 #[derive(Component)]
 pub(crate) struct Wake(usize);
 #[derive(Component)]
+pub(crate) struct Gangway;
+#[derive(Component)]
 pub(crate) struct Bird(usize);
 
 #[derive(Resource)]
@@ -295,6 +297,14 @@ pub fn setup(
             bevy::pbr::NotShadowCaster,
         ));
     }
+    commands.spawn((
+        Gangway,
+        Mesh3d(meshes.add(ships::gangway())),
+        MeshMaterial3d(art.matte.clone()),
+        Transform::default(),
+        Visibility::Hidden,
+        bevy::pbr::NotShadowCaster,
+    ));
     commands.insert_resource(art);
 }
 
@@ -502,13 +512,22 @@ type Extras<'w, 's> = Query<
     's,
     (
         &'static mut Transform,
+        &'static mut Visibility,
+        Option<&'static Gangway>,
         Option<&'static Wave>,
         Option<&'static Boat>,
         Option<&'static Bird>,
         Option<&'static Sail>,
         Option<&'static Wake>,
     ),
-    Or<(With<Wave>, With<Boat>, With<Bird>, With<Sail>, With<Wake>)>,
+    Or<(
+        With<Wave>,
+        With<Boat>,
+        With<Bird>,
+        With<Sail>,
+        With<Wake>,
+        With<Gangway>,
+    )>,
 >;
 
 pub use people::{Reactions, animate as animate_people};
@@ -534,6 +553,7 @@ pub fn animate(
     let town = game.visible_town(&save);
     let chapter = &CHAPTERS[town.chapter];
     let cols = chapter.layout.width();
+    let quay = landscape::quay(chapter.layout);
     let t = game.clock;
     let playing = game.view == View::Street;
     let clock = match &town.phase {
@@ -585,10 +605,13 @@ pub fn animate(
         };
         let look = v(yaw, 0.86, 1.15).normalize();
         let right = v(look.z, 0.0, -look.x).normalize();
-        let mut framing = height * aspect * offset + game.pan.x;
-        if playing && game.zoom > 0.04 && game.pan.x.abs() < 0.12 {
+        let width = height * aspect;
+        let mut framing = width * offset + game.pan.x;
+        if game.view == View::Title {
+            framing = framing.max(ships::berth(quay).dot(right) - width * 0.32);
+        } else if playing && game.zoom > 0.04 && game.pan.x.abs() < 0.12 {
             let plot = lot_position(game.selected, cols).dot(right);
-            framing = framing.clamp(plot - height * aspect * 0.17, plot + height * aspect * 0.32);
+            framing = framing.clamp(plot - width * 0.17, plot + width * 0.32);
         }
         let target = right * framing + v(0.0, 0.38, 0.28 + game.pan.y);
         let eye = target + look * 36.0;
@@ -732,7 +755,26 @@ pub fn animate(
         transform.rotation =
             Quat::from_rotation_x(gait * limb.side * amount + arm) * Quat::from_rotation_z(spread);
     }
-    for (mut transform, wave, boat, bird, sail, wake) in &mut rigs.p4() {
+    let ferry_day = match &town.phase {
+        Phase::Plan => 0.0,
+        Phase::Open(day) => day.seconds / chapter.day_seconds(),
+        Phase::Report(_) => 1.0,
+    };
+    let ferry = ships::ferry(quay, ferry_day, t, swell);
+    for (mut transform, mut visible, gangway, wave, boat, bird, sail, wake) in &mut rigs.p4() {
+        if gangway.is_some() {
+            if let Some(bridge) = ferry.gangway {
+                *transform = bridge;
+            }
+            let next = if ferry.gangway.is_some() {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+            if *visible != next {
+                *visible = next;
+            }
+        }
         if let Some(wave) = wave {
             let a = t * (0.52 + swell * 0.54) + wave.0 as f32 * 2.4;
             transform.translation = v(
@@ -742,17 +784,23 @@ pub fn animate(
             );
         }
         if let Some(n) = boat.map(|b| b.0).or_else(|| wake.map(|w| w.0)) {
-            let (x, z, angle) = if n == 0 {
-                let drift = lives.map_or(0.0, |day| {
-                    let s = day.seconds / chapter.day_seconds();
-                    ((s - 0.11).abs() - 0.31).max(0.0) * (15.0 + swell * 3.3)
-                });
-                (
-                    landscape::quay(chapter.layout) + 2.18 + drift,
-                    6.88 + drift * 0.25,
-                    -0.14,
-                )
-            } else if n == 1 {
+            if n == 0 {
+                if wake.is_some() {
+                    *transform = ferry.wake;
+                    let next = if ferry.gangway.is_some() {
+                        Visibility::Hidden
+                    } else {
+                        Visibility::Inherited
+                    };
+                    if *visible != next {
+                        *visible = next;
+                    }
+                } else {
+                    *transform = ferry.hull;
+                }
+                continue;
+            }
+            let (x, z, angle) = if n == 1 {
                 let w = cols as f32 * 1.6;
                 (-w * 0.58 + (t * 0.14).sin() * w * 0.44, 8.65, 0.22)
             } else {
@@ -780,6 +828,12 @@ pub fn animate(
             let beat = t * (1.2 + swell * 2.2) + sail.0 as f32 * 1.3;
             transform.rotation = Quat::from_rotation_y(beat.sin() * (0.035 + swell * 0.11));
             transform.scale.z = 0.86 + swell * 0.32 + beat.sin() * 0.12;
+            if sail.0 == 0 {
+                let unfold = ((ferry_day - 0.39) / 0.095).clamp(0.0, 1.0);
+                let billow = unfold * unfold * (3.0 - 2.0 * unfold);
+                transform.scale.y = 0.22 + 0.78 * billow;
+                transform.translation.y = ships::FERRY_SPAR * (1.0 - transform.scale.y);
+            }
         }
         if let Some(bird) = bird {
             let a = t * 0.22 + bird.0 as f32 * 0.62;
