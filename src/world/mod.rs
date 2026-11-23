@@ -1,19 +1,29 @@
+mod activity;
+mod activity_assets;
 mod actors;
 mod adventure;
+pub(crate) use activity::{
+    Scene as ActivityScene, animate as animate_activity, sync as activity_scene,
+};
 pub(crate) use adventure::{
     Scene as AdventureScene, animate as adventure_animate, fishing_visuals as adventure_fishing,
-    logistics_visuals as adventure_logistics, position as adventure_position,
-    sync as adventure_scene,
+    logistics_visuals as adventure_logistics, merchant_visuals as adventure_merchant,
+    position as adventure_position, sync as adventure_scene,
 };
 mod architecture;
 mod buildings;
 mod clothes;
 mod construction;
+mod encounter;
+pub(crate) use encounter::{
+    Scene as EncounterScene, animate as animate_encounters, sync as encounter_scene,
+};
 mod japan;
 mod landscape;
 mod lanterns;
 mod market_buildings;
 mod mesh;
+mod monuments;
 pub(crate) mod motion;
 mod nordic;
 mod oasis;

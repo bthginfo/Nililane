@@ -3,6 +3,7 @@ use std::collections::{HashMap, VecDeque};
 
 use super::{
     Good, Level, Property,
+    encounters::SLOTS,
     simulation::{Deposit, Scenery},
 };
 
@@ -32,6 +33,10 @@ pub struct Terrain {
     pub shrine: Vec2,
     pub relic: Vec2,
     pub outpost: Vec2,
+    pub events: [Vec2; SLOTS],
+    pub finds: [Vec2; SLOTS],
+    pub shore_intake: Vec2,
+    pub trade_pier: Vec2,
     pub radius: f32,
     shape: f32,
     angle: f32,
@@ -95,6 +100,10 @@ impl Terrain {
             shrine: Vec2::new(radius * 0.37, radius * 0.27),
             relic: peak,
             outpost: Vec2::ZERO,
+            events: [Vec2::ZERO; SLOTS],
+            finds: [Vec2::ZERO; SLOTS],
+            shore_intake: Vec2::ZERO,
+            trade_pier: Vec2::ZERO,
             radius,
             shape,
             angle,
@@ -156,7 +165,67 @@ impl Terrain {
             })
             .unwrap_or(Vec2::new(radius * 0.57, 1.0));
         map.fill_resources();
+        map.place_encounters();
         map
+    }
+
+    fn place_encounters(&mut self) {
+        let count = self.level.encounter_count();
+        for slot in 0..count {
+            let direction = self.angle + 0.88 + slot as f32 * 2.4;
+            self.events[slot] = self.encounter_position(direction, 11.5, 4.8, &self.events[..slot]);
+        }
+        for slot in 0..count {
+            self.finds[slot] = self.encounter_position(
+                3.2 + self.angle + slot as f32 * 2.28,
+                self.radius * 0.53,
+                7.8,
+                &self.events[..count],
+            );
+        }
+        self.shore_intake = (0..80)
+            .map(|attempt| {
+                let direction = 0.92 + self.angle * 0.3 + attempt as f32 * 0.21;
+                Vec2::from_angle(direction) * (self.radius_at(direction) - 2.08)
+            })
+            .find(|&at| {
+                self.plots.iter().all(|p| p.distance(at) > 5.0)
+                    && self.events[..count].iter().all(|p| p.distance(at) > 4.0)
+            })
+            .unwrap_or_else(|| Vec2::X * (self.radius_at(0.0) - 2.08));
+        if self.level.has_trading() {
+            let far_side = self.shore_intake.to_angle() + std::f32::consts::PI;
+            self.trade_pier = (0..80)
+                .map(|attempt| {
+                    let direction = far_side + attempt as f32 * 0.23;
+                    Vec2::from_angle(direction) * (self.radius_at(direction) - 2.6)
+                })
+                .find(|&at| {
+                    self.shore_intake.distance(at) > 8.0
+                        && self.plots.iter().all(|p| p.distance(at) > 5.4)
+                })
+                .unwrap_or_else(|| Vec2::from_angle(far_side) * (self.radius_at(far_side) - 2.6));
+        }
+    }
+
+    fn encounter_position(
+        &self,
+        direction: f32,
+        radius: f32,
+        distance: f32,
+        reserved: &[Vec2],
+    ) -> Vec2 {
+        (0..260)
+            .map(|attempt| {
+                let step = (attempt % 15) as f32 * 0.73;
+                Vec2::from_angle(direction + attempt as f32 * 2.399) * (radius + step)
+            })
+            .find(|&at| {
+                self.deposit_site(at)
+                    && self.relic.distance(at) > 4.5
+                    && reserved.iter().all(|p| p.distance(at) > distance)
+            })
+            .unwrap_or_else(|| Vec2::from_angle(direction) * (self.radius_at(direction) - 5.0))
     }
 
     fn fill_resources(&mut self) {
@@ -284,12 +353,15 @@ impl Terrain {
                 && self.deposits.iter().all(|d| d.at.distance(at) >= 1.12)
                 && self.shrine.distance(at) >= 4.0
                 && (self.level.order_count() == 0 || self.outpost.distance(at) >= 4.0)
-                && self.relic.distance(at) >= 2.2)
-                .then(|| {
-                    let choice = unit(seed + i * 7 + 7);
-                    let size = 0.58 + unit(seed + i * 83 + 196) * 0.94;
-                    (i, at, choice, size)
-                })
+                && self.relic.distance(at) >= 2.2
+                && (0..self.level.encounter_count()).all(|slot| {
+                    self.events[slot].distance(at) > 2.6 && self.finds[slot].distance(at) > 1.2
+                }))
+            .then(|| {
+                let choice = unit(seed + i * 7 + 7);
+                let size = 0.58 + unit(seed + i * 83 + 196) * 0.94;
+                (i, at, choice, size)
+            })
         })
     }
 

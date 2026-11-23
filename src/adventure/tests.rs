@@ -7,14 +7,21 @@ fn pre_masterwork_saves_keep_their_stock_and_in_progress_sites() {
     island.add(Good::Wood, 11);
     assert!(island.plan_build(level, 0, Build::Sawmill));
     let mut snapshot = serde_json::to_value(&island).unwrap();
-    snapshot["stores"].as_array_mut().unwrap().pop();
+    snapshot["stores"].as_array_mut().unwrap().truncate(19);
     for field in ["needed", "materials"] {
         snapshot["construction"][0][field]
             .as_array_mut()
             .unwrap()
-            .pop();
+            .truncate(19);
     }
-    for field in ["masterwork_lots", "base_crafted", "overflow", "dropped"] {
+    for field in [
+        "masterwork_lots",
+        "base_crafted",
+        "overflow",
+        "dropped",
+        "encounters",
+        "market",
+    ] {
         snapshot.as_object_mut().unwrap().remove(field);
     }
     let restored: Island = serde_json::from_value(snapshot).unwrap();
@@ -27,6 +34,130 @@ fn pre_masterwork_saves_keep_their_stock_and_in_progress_sites() {
     assert_eq!(restored.base_crafted, 0);
     assert_eq!(restored.overflow_total(), 0);
     assert!(restored.dropped.is_empty());
+    assert!(!restored.market.blueprint);
+}
+
+#[test]
+fn island_encounters_appear_through_play_and_use_walkable_locations() {
+    let kinds = [
+        Event::Arrival,
+        Event::Fire,
+        Event::Ruin,
+        Event::Fever,
+        Event::Festival,
+        Event::Relic,
+    ];
+    for region in Region::ALL {
+        let mut seen = [false; 6];
+        for stage in 1..CORE_HARBORS {
+            let level = Level::at(region as usize * CORE_HARBORS + stage);
+            let map = Terrain::new(level);
+            let mut island = Island::new(level);
+            assert!(island.update_encounters(level, 12.0).offered.is_empty());
+            for lot in island.lots.iter_mut().take(5) {
+                *lot = Some(Property {
+                    kind: Build::Harbor(level.home()),
+                    tier: 1,
+                });
+            }
+            let events = island.update_encounters(level, 200.0);
+            assert_eq!(events.offered.len(), level.encounter_count());
+            let mut on_island = [false; 6];
+            for id in events.offered {
+                let spec = level.encounter(id).unwrap();
+                let kind = kinds.iter().position(|&kind| kind == spec.event).unwrap();
+                assert!(!on_island[kind]);
+                on_island[kind] = true;
+                seen[kind] = true;
+                let at = map.events[id];
+                assert!(
+                    map.walkable(at, &island.lots)
+                        && map.plots.iter().all(|p| p.distance(at) > 3.3),
+                    "{} · {}",
+                    level.name,
+                    spec.title
+                );
+                assert!(
+                    map.route(terrain::HALL_DOOR, at, 1.1, &island.lots)
+                        .is_some(),
+                    "{} · {}",
+                    level.name,
+                    spec.title
+                );
+                let source = match spec.event {
+                    Event::Fire => map.shore_intake,
+                    Event::Relic => map.finds[id],
+                    _ => terrain::HALL_DOOR,
+                };
+                assert!(
+                    map.route(at, source, 1.3, &island.lots).is_some(),
+                    "{} · {}",
+                    level.name,
+                    spec.title
+                );
+                island.encounters.changed(id, EncounterStatus::Seeking);
+                if let Some((good, count)) = spec.cargo
+                    && island.amount(good) < count
+                {
+                    assert!(!island.encounter_pickup(level, id));
+                    island.add(good, count - island.amount(good));
+                }
+                assert!(island.encounter_pickup(level, id));
+                assert!(island.has_cargo());
+                assert!(!island.pack_order(level));
+                island.encounters.changed(id, EncounterStatus::Working);
+                let before = island.amount(spec.reward.0);
+                assert_eq!(island.update_encounters(level, 10.1).finished, [id]);
+                assert_eq!(island.amount(spec.reward.0), before + spec.reward.1);
+                assert!(island.update_encounters(level, 12.0).finished.is_empty());
+            }
+        }
+        assert!(seen.into_iter().all(|appeared| appeared));
+    }
+}
+
+#[test]
+fn a_fire_can_be_put_out_using_a_well_or_the_shore() {
+    let mut adventure = Adventure::default();
+    adventure.open(2, true);
+    adventure.screen = Screen::Walk;
+    let mut game = Game::default();
+    let mut save = Campaign::default();
+    let map = adventure.terrain.clone().unwrap();
+    assert_eq!(map.level.encounter(0).unwrap().event, Event::Fire);
+    let site = Target::Encounter(0);
+    let water = Target::EncounterSource(0);
+    let island = adventure.active_mut().unwrap();
+    island.encounters.changed(0, EncounterStatus::Offered);
+    island.position = map.events[0].to_array();
+    act(Command::Use(site), &mut adventure, &mut game, &mut save);
+    assert_eq!(adventure.encounter_target(0), Some(water));
+    assert_eq!(adventure.target_position(water), Some(map.shore_intake));
+    let island = adventure.active_mut().unwrap();
+    island.lots[0] = Some(Property {
+        kind: Build::Harbor(map.level.well()),
+        tier: 1,
+    });
+    assert_eq!(adventure.target_position(water), Some(map.plots[0]));
+    adventure.active_mut().unwrap().lots[0] = None;
+    adventure.active_mut().unwrap().position = map.shore_intake.to_array();
+    act(Command::Use(water), &mut adventure, &mut game, &mut save);
+    assert_eq!(adventure.waypoint, Some(site));
+    adventure.active_mut().unwrap().position = map.events[0].to_array();
+    act(Command::Use(site), &mut adventure, &mut game, &mut save);
+    assert_eq!(
+        adventure.active().unwrap().encounters.visits[0].status,
+        EncounterStatus::Working
+    );
+    assert_eq!(
+        adventure
+            .active_mut()
+            .unwrap()
+            .update_encounters(map.level, 3.0)
+            .finished,
+        [0]
+    );
+    assert!(adventure.target_position(site).is_none());
 }
 
 #[test]
@@ -182,6 +313,14 @@ impl Expedition {
             self.supply_masterwork(target);
             return;
         }
+        if good == Good::Imports {
+            while self.island.amount(good) < target {
+                self.ensure_trade_marks(IMPORT_PRICE);
+                self.walk_to(self.terrain.trade_pier, reach(Target::TradeHarbor));
+                assert!(self.island.buy_imports(level));
+            }
+            return;
+        }
         let output = |build: Build| {
             build
                 .recipe(1, level.region)
@@ -278,6 +417,27 @@ impl Expedition {
             self.run_workshop(lot);
         }
         assert!(self.island.set_masterwork(level, lot, false));
+    }
+
+    fn ensure_trade_marks(&mut self, target: u16) {
+        let level = self.terrain.level;
+        let offer = level.export(Export::Regular).unwrap();
+        while self.island.market.marks < target {
+            self.supply(offer.good, offer.units);
+            self.walk_to(terrain::HALL_DOOR, 1.15);
+            assert!(self.island.pack_export(level, Export::Regular));
+            self.walk_to(self.terrain.trade_pier, reach(Target::TradeHarbor));
+            assert!(self.island.launch_export(level));
+            assert!(
+                self.island
+                    .tick_export(level, offer.seconds * 0.5)
+                    .is_none()
+            );
+            assert_eq!(
+                self.island.tick_export(level, offer.seconds * 0.5 + 0.01),
+                Some(offer.marks)
+            );
+        }
     }
 
     fn run_workshop(&mut self, lot: usize) {
@@ -428,6 +588,12 @@ fn all_sixty_expeditions_have_walkable_goals_and_finish_with_real_production() {
         }
         run.requirements(3);
         for goal in level.goals() {
+            if goal.kind == Build::Monument {
+                assert!(run.island.locked(level, goal.kind, 1));
+                run.ensure_trade_marks(PLAN_PRICE);
+                run.walk_to(run.terrain.trade_pier, reach(Target::TradeHarbor));
+                assert!(run.island.buy_monument(level));
+            }
             while run.island.progress(goal) < goal.count {
                 let slot = run
                     .island
@@ -482,6 +648,55 @@ fn all_sixty_expeditions_have_walkable_goals_and_finish_with_real_production() {
         );
     }
     assert!(total_visits > 600 && total_cycles > 400);
+}
+
+#[test]
+fn the_trade_harbor_respects_positions_and_a_crossing_pays_once_after_reload() {
+    for region in Region::ALL {
+        let index = region as usize * CORE_HARBORS + 8;
+        let mut a = Adventure::default();
+        a.open(index, true);
+        a.screen = Screen::Walk;
+        let map = a.terrain.clone().unwrap();
+        let offer = map.level.export(Export::Regular).unwrap();
+        assert!(
+            map.route(
+                terrain::HALL_DOOR,
+                map.trade_pier,
+                1.4,
+                &a.active().unwrap().lots
+            )
+            .is_some()
+        );
+        a.active_mut().unwrap().add(offer.good, offer.units);
+        let mut game = Game::default();
+        let mut campaign = Campaign::default();
+        act(
+            Command::PackExport(Export::Regular),
+            &mut a,
+            &mut game,
+            &mut campaign,
+        );
+        assert_eq!(a.waypoint, Some(Target::TradeHarbor));
+        assert_eq!(a.active().unwrap().amount(offer.good), 0);
+        act(Command::SellExport, &mut a, &mut game, &mut campaign);
+        assert!(a.active().unwrap().market.crossing.is_none());
+        a.active_mut().unwrap().position = map.trade_pier.to_array();
+        act(Command::SellExport, &mut a, &mut game, &mut campaign);
+        let island = a.active_mut().unwrap();
+        assert_eq!(island.tick_export(map.level, 7.0), None);
+        let state = serde_json::to_vec(island).unwrap();
+        let mut restored: Island = serde_json::from_slice(&state).unwrap();
+        assert_eq!(
+            restored.tick_export(map.level, offer.seconds),
+            Some(offer.marks)
+        );
+        assert_eq!(restored.tick_export(map.level, offer.seconds), None);
+        assert_eq!(restored.market.marks, offer.marks);
+        assert!(restored.buy_imports(map.level));
+        assert_eq!(restored.amount(Good::Imports), IMPORT_UNITS);
+        assert!(!restored.buy_monument(map.level));
+    }
 }
 
 #[test]

@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use bevy::{
     audio::{AudioSink, AudioSinkPlayback, Volume},
     prelude::*,
@@ -187,6 +189,7 @@ pub struct Game {
     pub world_version: u32,
     pub note: String,
     pub note_left: f32,
+    adventure_toasts: VecDeque<(String, bool)>,
     pub speed: u8,
     pub phone: bool,
     pub quick_menu: bool,
@@ -322,6 +325,7 @@ impl Default for Game {
             world_version: 0,
             note: String::new(),
             note_left: 0.0,
+            adventure_toasts: VecDeque::new(),
             speed: 1,
             phone: !cfg!(target_os = "android")
                 && std::env::var_os("NILILANE_PHONE_PREVIEW").is_some(),
@@ -481,6 +485,21 @@ impl Game {
         self.message(message, if success { Cue::Aid } else { Cue::Blocked });
     }
 
+    pub(crate) fn adventure_toast(&mut self, message: impl Into<String>, success: bool) {
+        let message = message.into();
+        if self.note_left <= 0.0 {
+            self.adventure_notice(message, success);
+            self.note_left = 4.8;
+        } else if self.adventure_toasts.len() < 6
+            && !self
+                .adventure_toasts
+                .iter()
+                .any(|(waiting, _)| *waiting == message)
+        {
+            self.adventure_toasts.push_back((message, success));
+        }
+    }
+
     pub(crate) fn harvest(&mut self, good: crate::adventure::Good) {
         self.cue = Some(Cue::Harvest(good));
     }
@@ -542,6 +561,13 @@ pub fn frame(
         game.world_version += 1;
     }
     game.note_left = (game.note_left - real_dt).max(0.0);
+    if game.view != View::Adventure {
+        game.adventure_toasts.clear();
+    } else if game.note_left == 0.0
+        && let Some((message, success)) = game.adventure_toasts.pop_front()
+    {
+        game.adventure_toast(message, success);
+    }
 
     let live = game.view == View::Street && game.panel == Panel::None;
     let pressed = changed.iter().find_map(|(state, action)| {

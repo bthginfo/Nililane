@@ -1,6 +1,8 @@
 mod construction;
+mod encounters;
 mod levels;
 mod logistics;
+mod port_trade;
 mod simulation;
 pub(crate) mod terrain;
 #[cfg(test)]
@@ -19,8 +21,10 @@ use crate::{
 };
 
 pub(crate) use construction::{BuildingSite, MAX_BUILD_CREW};
+pub(crate) use encounters::{Event, Status as EncounterStatus};
 pub(crate) use levels::{LEVELS, Level};
 pub(crate) use logistics::{DroppedLoad, NILI_CAPACITY, RESOURCE_REACH};
+pub(crate) use port_trade::{Export, IMPORT_PRICE, IMPORT_UNITS, PLAN_PRICE, monument_name};
 pub(crate) use simulation::{Build, Good, HALL_STORAGE, Island, Property, Quest, Task};
 pub(crate) use terrain::Terrain;
 
@@ -28,6 +32,9 @@ pub(crate) use terrain::Terrain;
 pub enum Target {
     Deposit(usize),
     Dropped(usize),
+    Encounter(usize),
+    EncounterSource(usize),
+    TradeHarbor,
     Plot(usize),
     Hall,
     Shrine,
@@ -73,6 +80,14 @@ pub enum Command {
     Assign(Task, bool),
     Work(usize),
     Masterwork(usize, bool),
+    Encounters,
+    ReturnEncounter,
+    Trading,
+    PackExport(Export),
+    UnpackExport,
+    SellExport,
+    BuyPlan,
+    BuyImports,
     Next,
 }
 
@@ -318,12 +333,52 @@ impl Adventure {
                 .active()?
                 .dropped_load(id)
                 .map(|pile| Vec2::from_array(pile.position)),
+            Target::Encounter(slot) => {
+                let status = self.active()?.encounters.visits.get(slot)?.status;
+                (!matches!(status, EncounterStatus::Hidden | EncounterStatus::Finished))
+                    .then(|| terrain.events[slot])
+            }
+            Target::EncounterSource(slot) => {
+                let island = self.active()?;
+                let spec = terrain.level.encounter(slot)?;
+                if island.encounters.visits[slot].status != EncounterStatus::Seeking {
+                    return None;
+                }
+                Some(match spec.event {
+                    Event::Fire => self
+                        .encounter_well(slot)
+                        .map_or(terrain.shore_intake, |lot| terrain.plots[lot]),
+                    Event::Relic => terrain.finds[slot],
+                    _ => terrain::HALL_DOOR + Vec2::new(-0.53, 0.26),
+                })
+            }
+            Target::TradeHarbor => terrain.level.has_trading().then_some(terrain.trade_pier),
             Target::Plot(id) => terrain.plots.get(id).copied(),
             Target::Hall => Some(Vec2::ZERO),
             Target::Shrine => Some(terrain.shrine),
             Target::Relic => Some(terrain.relic),
             Target::Outpost => (terrain.level.order_count() > 0).then_some(terrain.outpost),
         }
+    }
+
+    pub fn encounter_well(&self, slot: usize) -> Option<usize> {
+        let (terrain, island) = self.terrain.as_ref().zip(self.active())?;
+        let at = *terrain.events.get(slot)?;
+        island.lots.iter().enumerate().filter_map(|(lot, property)| {
+            matches!(property, Some(Property {kind: Build::Harbor(kind), ..}) if kind.water_source())
+                .then_some(lot)
+        }).min_by(|&a, &b| terrain.plots[a].distance_squared(at).total_cmp(&terrain.plots[b].distance_squared(at)))
+    }
+
+    pub fn encounter_target(&self, slot: usize) -> Option<Target> {
+        let status = self.active()?.encounters.visits.get(slot)?.status;
+        Some(match status {
+            EncounterStatus::Seeking => Target::EncounterSource(slot),
+            EncounterStatus::Offered | EncounterStatus::Carrying | EncounterStatus::Working => {
+                Target::Encounter(slot)
+            }
+            _ => return None,
+        })
     }
 
     pub fn close_enough(&self, target: Target) -> bool {
@@ -356,6 +411,9 @@ impl Adventure {
         let island = self.active()?;
         let level = self.terrain.as_ref()?.level;
         level.order(island.orders_delivered)?;
+        if island.market.packed.is_some() || island.encounters.carrying().is_some() {
+            return None;
+        }
         if island.shipment.is_some() {
             return Some(if self.close_enough(Target::Outpost) {
                 Command::Use(Target::Outpost)
@@ -377,7 +435,7 @@ impl Adventure {
 
     pub fn supply_lot(&self) -> Option<usize> {
         let island = self.active()?;
-        if island.cargo.is_some() || island.shipment.is_some() {
+        if island.has_cargo() {
             return None;
         }
         self.supply_for
@@ -420,6 +478,8 @@ impl Adventure {
                     Target::Shrine | Target::Outpost => 2.9,
                     Target::Relic => 1.15,
                     Target::Dropped(_) => 0.55,
+                    Target::Encounter(_) | Target::EncounterSource(_) => 1.03,
+                    Target::TradeHarbor => 1.50,
                     Target::Deposit(id) => {
                         if terrain.deposits[id].kind == Good::Wood {
                             1.8
@@ -615,6 +675,11 @@ fn targets(terrain: &Terrain, island: &Island) -> impl Iterator<Item = Target> {
                 .enumerate()
                 .filter_map(|(i, pile)| pile.as_ref().map(|_| Target::Dropped(i))),
         )
+        .chain(
+            (0..terrain.level.encounter_count())
+                .flat_map(|slot| [Target::Encounter(slot), Target::EncounterSource(slot)]),
+        )
+        .chain(terrain.level.has_trading().then_some(Target::TradeHarbor))
         .chain((0..terrain.plots.len()).map(Target::Plot))
         .chain([Target::Hall])
         .chain(
@@ -631,6 +696,9 @@ fn reach(target: Target) -> f32 {
         Target::Hall => 3.75,
         Target::Deposit(_) => RESOURCE_REACH,
         Target::Dropped(_) => 1.55,
+        Target::Encounter(_) => 2.32,
+        Target::EncounterSource(_) => 2.55,
+        Target::TradeHarbor => 2.65,
         _ => 2.4,
     }
 }
@@ -729,6 +797,41 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
         Command::Help => close(game, adventure, Screen::Help),
         Command::Map => close(game, adventure, Screen::Map),
         Command::Storage => close(game, adventure, Screen::Storage),
+        Command::Encounters => {
+            close(game, adventure, Screen::Mission);
+            adventure.group = 4;
+            adventure.page = u8::MAX;
+        }
+        Command::Trading => {
+            if adventure
+                .terrain
+                .as_ref()
+                .is_some_and(|map| map.level.has_trading())
+            {
+                close(game, adventure, Screen::Mission);
+                adventure.group = 5;
+            }
+        }
+        Command::PackExport(_)
+        | Command::UnpackExport
+        | Command::SellExport
+        | Command::BuyPlan
+        | Command::BuyImports => trade_action(command, adventure, game),
+        Command::ReturnEncounter => {
+            if adventure.close_enough(Target::Hall)
+                && let Some(island) = adventure.active_mut()
+            {
+                let level = Level::at(island.index);
+                if island.return_encounter_cargo(level) {
+                    adventure.waypoint = None;
+                    game.adventure_notice("Fracht wieder abgelegt.", true);
+                    adventure.save(game);
+                    game.dirty = true;
+                } else {
+                    game.adventure_notice("Schaffe zuerst Platz im Lager.", false);
+                }
+            }
+        }
         Command::ClearStock(good) => {
             if adventure.screen != Screen::Storage {
                 return;
@@ -810,6 +913,11 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
                 }
                 Target::Deposit(id) => close(game, adventure, Screen::Resource(id)),
                 Target::Dropped(_) => act(Command::Use(target), adventure, game, save),
+                Target::Encounter(slot) | Target::EncounterSource(slot) => {
+                    act(Command::Encounters, adventure, game, save);
+                    adventure.page = slot as u8;
+                }
+                Target::TradeHarbor => act(Command::Trading, adventure, game, save),
                 Target::Hall | Target::Shrine | Target::Relic | Target::Outpost => {
                     adventure.target = Some(target);
                     close(game, adventure, Screen::Mission);
@@ -823,6 +931,26 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
         }
         Command::Use(target) => {
             if !adventure.close_enough(target) {
+                return;
+            }
+            if matches!(target, Target::Encounter(_) | Target::EncounterSource(_)) {
+                help_encounter(target, adventure, game, save);
+                return;
+            }
+            if target == Target::TradeHarbor {
+                let ready = adventure.active().is_some_and(|island| {
+                    island.market.packed.is_some() && island.market.crossing.is_none()
+                });
+                act(
+                    if ready {
+                        Command::SellExport
+                    } else {
+                        Command::Trading
+                    },
+                    adventure,
+                    game,
+                    save,
+                );
                 return;
             }
             let Some(terrain) = adventure.terrain.as_ref() else {
@@ -1095,11 +1223,11 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
         }
         Command::Group(group) => {
             adventure.group = group.min(if adventure.screen == Screen::Mission {
-                3
+                5
             } else {
                 2
             });
-            adventure.page = 0;
+            adventure.page = if group == 4 { u8::MAX } else { 0 };
             game.scroll_y = 0.0;
             game.dirty = true;
         }
@@ -1209,6 +1337,108 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
         }
     }
     check_victory(adventure, game, save);
+}
+
+fn trade_action(command: Command, adventure: &mut Adventure, game: &mut Game) {
+    use self::Command::*;
+    let target = match command {
+        PackExport(_) | UnpackExport => Target::Hall,
+        _ => Target::TradeHarbor,
+    };
+    if !adventure.close_enough(target) {
+        return;
+    }
+    let Some(island) = adventure.active_mut() else {
+        return;
+    };
+    let level = Level::at(island.index);
+    let (success, notice) = match command {
+        PackExport(option) => (island.pack_export(level, option), "Handelsfracht gepackt"),
+        UnpackExport => (
+            island.unpack_export(level),
+            "Handelsfracht wieder eingelagert",
+        ),
+        SellExport => (island.launch_export(level), "Das Handelsschiff legt ab."),
+        BuyPlan => (island.buy_monument(level), "Sonderbauplan gekauft"),
+        BuyImports => (island.buy_imports(level), "Seltene Baustoffe gekauft"),
+        _ => return,
+    };
+    if success {
+        if matches!(command, PackExport(_)) {
+            adventure.waypoint = Some(Target::TradeHarbor);
+            close(game, adventure, Screen::Walk);
+        } else if matches!(command, UnpackExport | SellExport) {
+            adventure.waypoint = None;
+            close(game, adventure, Screen::Walk);
+        }
+        game.adventure_notice(notice, true);
+        game.dirty = true;
+        adventure.save(game);
+    }
+}
+
+fn help_encounter(target: Target, adventure: &mut Adventure, game: &mut Game, save: &mut Campaign) {
+    let (slot, source) = match target {
+        Target::Encounter(slot) => (slot, false),
+        Target::EncounterSource(slot) => (slot, true),
+        _ => return,
+    };
+    let Some(island) = adventure.active_mut() else {
+        return;
+    };
+    let level = Level::at(island.index);
+    let Some(spec) = level.encounter(slot) else {
+        return;
+    };
+    let status = island.encounters.visits[slot].status;
+    let (next, route, notice) = match (status, source) {
+        (EncounterStatus::Offered, false) => (
+            EncounterStatus::Seeking,
+            Some(Target::EncounterSource(slot)),
+            spec.request,
+        ),
+        (EncounterStatus::Seeking, true) => {
+            if island.has_cargo() {
+                game.adventure_notice("Lade zuerst deine Fracht ab.", false);
+                return;
+            }
+            if !island.encounter_pickup(level, slot) {
+                game.adventure_notice("Im Rathaus fehlt noch ein Teil der Fracht.", false);
+                return;
+            }
+            (
+                EncounterStatus::Carrying,
+                Some(Target::Encounter(slot)),
+                "Die Fracht ist unterwegs.",
+            )
+        }
+        (EncounterStatus::Carrying, false) => {
+            adventure.work_swing = 0.6;
+            (
+                EncounterStatus::Working,
+                None,
+                spec.action(EncounterStatus::Working),
+            )
+        }
+        _ => {
+            act(Command::Encounters, adventure, game, save);
+            adventure.page = slot as u8;
+            return;
+        }
+    };
+    let island = adventure.active_mut().unwrap();
+    if next != EncounterStatus::Carrying {
+        island.encounters.changed(slot, next)
+    }
+    adventure.waypoint = route;
+    close(game, adventure, Screen::Walk);
+    if next == EncounterStatus::Seeking {
+        act(Command::Encounters, adventure, game, save);
+        adventure.page = slot as u8;
+    } else {
+        game.adventure_notice(notice, true);
+    }
+    adventure.save(game);
 }
 
 fn advance_quest(island: &mut Island, level: Level, target: Target) -> Option<&'static str> {
@@ -1456,9 +1686,7 @@ pub fn step(
     if axis.length_squared() > 0.02 && adventure.building.take().is_some() {
         game.dirty = true;
     }
-    let carrying = adventure
-        .active()
-        .is_some_and(|island| island.cargo.is_some() || island.shipment.is_some());
+    let carrying = adventure.active().is_some_and(Island::has_cargo);
     let speed = if carrying { 4.75 } else { 5.4 };
     let delta = Vec2::new(axis.x + axis.y * 0.115, axis.y - axis.x * 0.115) * speed * dt;
     adventure.moved = false;
@@ -1599,6 +1827,8 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
     let delivered_before = island.orders_delivered;
     let courier_changed = island.tick_courier(terrain, dt);
     let (construction_changed, completed) = island.tick_construction(terrain, dt, building);
+    let encounter_changes = island.update_encounters(terrain.level, dt);
+    let market_credit = island.tick_export(terrain.level, dt);
     let delivered = island.orders_delivered != delivered_before;
     game.dirty |= courier_changed || construction_changed;
     if delivered {
@@ -1630,16 +1860,46 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
         game.adventure_built(island.lots[last].unwrap().kind.name(terrain.level.region));
     }
     if overflowed {
-        game.adventure_notice(
+        game.adventure_toast(
             "Lager voll · Restfracht liegt vor dem Rathaus. Sammelauftrag beendet.",
             false,
+        );
+    }
+    for &slot in &encounter_changes.offered {
+        game.adventure_toast(
+            format!(
+                "Neue Begegnung · {}",
+                terrain.level.encounter(slot).unwrap().title
+            ),
+            true,
+        );
+    }
+    for &slot in &encounter_changes.finished {
+        let spec = terrain.level.encounter(slot).unwrap();
+        game.adventure_toast(
+            format!(
+                "{} erledigt · +{} {}",
+                spec.title,
+                spec.reward.1,
+                spec.reward.0.name(terrain.level.region)
+            ),
+            true,
+        );
+    }
+    if let Some(credit) = market_credit {
+        game.adventure_toast(
+            format!("Handelsschiff zurück · +{credit} Handelsmarken"),
+            true,
         );
     }
     if before != island.stores || delivered || !completed.is_empty() {
         game.dirty = true;
         check_victory(adventure, game, save);
     }
-    if overflowed
+    if market_credit.is_some()
+        || overflowed
+        || !encounter_changes.offered.is_empty()
+        || !encounter_changes.finished.is_empty()
         || harvested.is_some()
         || courier_changed
         || construction_changed

@@ -138,7 +138,7 @@ impl Island {
     }
 
     pub fn take_building_load(&mut self, lot: usize) -> Option<Cargo> {
-        if self.cargo.is_some() || self.shipment.is_some() {
+        if self.has_cargo() {
             return None;
         }
         let load = self.take_site_supply(lot, NILI_CAPACITY)?;

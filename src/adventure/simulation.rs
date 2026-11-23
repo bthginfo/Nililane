@@ -2,8 +2,10 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::construction::{Builder, BuildingSite};
+use super::encounters::Encounters;
 use super::levels::{Level, Requirement};
 use super::logistics::{Cargo, Courier, DroppedLoad, Haul};
+use super::port_trade::{Market, monument_name};
 use crate::{
     campaign::{CHAPTERS, REGION_SIZE, Region},
     model::Kind,
@@ -33,6 +35,7 @@ pub enum Good {
     Paper,
     Perfume,
     Masterwork,
+    Imports,
 }
 
 impl Good {
@@ -44,7 +47,7 @@ impl Good {
         Self::Food,
         Self::Local,
     ];
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::Wood,
         Self::Stone,
         Self::Clay,
@@ -65,6 +68,7 @@ impl Good {
         Self::Paper,
         Self::Perfume,
         Self::Masterwork,
+        Self::Imports,
     ];
 
     pub fn present_in(self, region: Region) -> bool {
@@ -172,6 +176,13 @@ impl Good {
                 Region::Nordic => "Bernsteinbänder",
                 Region::Oasis => "Safranduftöl",
             },
+            Self::Imports => match region {
+                Region::Greece => "Marmor aus Paros",
+                Region::Rome => "Marmor aus Luna",
+                Region::Japan => "Kiso-Lack",
+                Region::Nordic => "Jütländische Eiche",
+                Region::Oasis => "Lapislazuli",
+            },
         }
     }
 
@@ -209,6 +220,7 @@ impl Good {
                 Region::Nordic => "wear_amber_brooch",
                 Region::Oasis => "perfumer",
             },
+            Self::Imports => "sea_trade",
         }
     }
 }
@@ -219,11 +231,16 @@ pub enum Build {
     Sawmill,
     Brickyard,
     Forge,
+    Monument,
 }
 
 impl Build {
     pub fn fits(self, level: Level, lot: usize) -> bool {
-        self != Self::Harbor(Kind::Fishery) || level.coastal(lot)
+        match self {
+            Self::Harbor(Kind::Fishery) => level.coastal(lot),
+            Self::Monument => !level.coastal(lot),
+            _ => true,
+        }
     }
 
     pub fn name(self, region: Region) -> &'static str {
@@ -250,6 +267,7 @@ impl Build {
                     "Schmiede"
                 }
             }
+            Self::Monument => monument_name(region),
         }
     }
 
@@ -269,6 +287,9 @@ impl Build {
                     plans.push(plan);
                 }
             }
+        }
+        if level.has_trading() {
+            plans.push(Self::Monument);
         }
         plans
     }
@@ -295,6 +316,7 @@ impl Build {
                 | Kind::FerryOffice,
             ) => 2,
             Self::Harbor(_) => 1,
+            Self::Monument => 2,
         }
     }
 
@@ -312,12 +334,16 @@ impl Build {
             if tier >= 5 {
                 costs.push((Local, stage - 1));
             }
+            if self == Self::Monument {
+                costs.push((Imports, 3 + u16::from(tier / 2)));
+            }
             return costs;
         }
         match self {
             Self::Sawmill => vec![(Wood, 7), (Stone, 4)],
             Self::Brickyard => vec![(Wood, 5), (Boards, 4), (Stone, 5), (Clay, 4)],
             Self::Forge => vec![(Boards, 6), (Bricks, 5), (Stone, 5)],
+            Self::Monument => vec![(Boards, 10), (Stone, 10), (Bricks, 7), (Imports, 4)],
             Self::Harbor(Kind::Storehouse) => vec![(Wood, 6), (Stone, 5)],
             Self::Harbor(kind) if crate::model::Building::new(kind).residents() > 0 => {
                 vec![(Wood, 6), (Stone, 4)]
@@ -387,7 +413,7 @@ impl Build {
             Self::Harbor(Cooperage) => (vec![(Boards, 2), (Tools, 1)], (Craft, 3 + t)),
             Self::Harbor(Glassworks) => (vec![(Stone, 2), (Wood, 1), (Water, 1)], (Craft, 3 + t)),
             Self::Harbor(Boatyard) => (vec![(Boards, 2), (Food, 1)], (Craft, 3 + t)),
-            Self::Harbor(_) => return None,
+            Self::Harbor(_) | Self::Monument => return None,
         };
         let base = match output.0 {
             Water => 4.0,
@@ -502,6 +528,10 @@ pub struct Island {
     pub overflow: [u16; Good::ALL.len()],
     #[serde(default)]
     pub dropped: Vec<Option<DroppedLoad>>,
+    #[serde(default)]
+    pub encounters: Encounters,
+    #[serde(default)]
+    pub market: Market,
     pub workers: Vec<Task>,
     pub position: [f32; 2],
     pub phase: f32,
@@ -554,6 +584,8 @@ impl Island {
             stores: [0; Good::ALL.len()],
             overflow: [0; Good::ALL.len()],
             dropped: Vec::new(),
+            encounters: Encounters::default(),
+            market: Market::default(),
             workers: Vec::new(),
             position: [0.0, 3.2],
             phase: 0.36,
@@ -648,6 +680,9 @@ impl Island {
     }
 
     pub fn locked(&self, level: Level, kind: Build, tier: u8) -> bool {
+        if kind == Build::Monument {
+            return !level.has_trading() || !self.market.blueprint;
+        }
         let chain = match kind {
             Build::Brickyard => 1,
             Build::Forge => 2,
@@ -673,7 +708,7 @@ impl Island {
     }
 
     pub fn pack_order(&mut self, level: Level) -> bool {
-        if self.cargo.is_some() {
+        if self.has_cargo() {
             return false;
         }
         let Some(order) = self.reserve_order(level) else {
@@ -681,6 +716,13 @@ impl Island {
         };
         self.shipment = Some(order);
         true
+    }
+
+    pub fn has_cargo(&self) -> bool {
+        self.cargo.is_some()
+            || self.shipment.is_some()
+            || self.encounters.carrying().is_some()
+            || self.market.packed.is_some()
     }
 
     pub fn order_ready(&self, level: Level) -> bool {
@@ -937,7 +979,8 @@ impl Island {
             self.stores[good as usize] -= units;
         }
         let crew = self.assignment(Task::Produce(lot)).max(1);
-        let duration = seconds / (1.0 + 0.48 * (crew - 1) as f32);
+        let civic = self.monument_bonus(map, lot);
+        let duration = seconds / ((1.0 + 0.48 * (crew - 1) as f32) * (1.0 + civic));
         self.batches[lot] = Some(Production {
             output: Cargo { kind, units },
             duration,
@@ -945,6 +988,19 @@ impl Island {
             fishing: school,
         });
         true
+    }
+
+    pub fn monument_bonus(&self, map: &super::Terrain, lot: usize) -> f32 {
+        self.lots
+            .iter()
+            .enumerate()
+            .filter_map(|(index, property)| {
+                let property = property.filter(|property| property.kind == Build::Monument)?;
+                (map.plots[index].distance_squared(map.plots[lot]) <= 10.0_f32.powi(2))
+                    .then_some(property.tier)
+            })
+            .max()
+            .map_or(0.0, |tier| 0.03 + f32::from(tier) * 0.02)
     }
 
     pub fn room_for_recipe(&self, recipe: &Recipe) -> bool {

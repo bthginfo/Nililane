@@ -79,6 +79,12 @@ pub(crate) struct FishingBoat(usize);
 pub(crate) struct FishSchool(usize);
 
 #[derive(Component)]
+pub(crate) struct MerchantShip {
+    berth: Vec3,
+    direction: Vec2,
+}
+
+#[derive(Component)]
 pub(crate) struct BuildLift {
     when: f32,
     base: f32,
@@ -193,6 +199,33 @@ pub(crate) fn sync(
                                 NotShadowCaster,
                             ));
                         }
+                    }
+                    if terrain.level.has_trading() {
+                        let port = terrain.trade_pier;
+                        let direction = port.normalize();
+                        let shore = v(port.x, terrain.height(port) + 0.13, port.y);
+                        root.spawn((
+                            Mesh3d(meshes.add(super::monuments::jetty(region))),
+                            MeshMaterial3d(art.matte.clone()),
+                            Transform::from_translation(shore).with_rotation(
+                                Quat::from_rotation_y(direction.x.atan2(direction.y)),
+                            ),
+                        ));
+                        let side = Vec2::new(direction.y, -direction.x);
+                        let moored = port + direction * 4.78 + side * 2.53;
+                        let berth = v(moored.x, -1.06, moored.y);
+                        root.spawn((
+                            MerchantShip { berth, direction },
+                            Mesh3d(meshes.add(super::ships::hull(region, 1))),
+                            MeshMaterial3d(art.matte.clone()),
+                            Transform::from_translation(berth),
+                        ))
+                        .with_children(|boat| {
+                            boat.spawn((
+                                Mesh3d(meshes.add(super::ships::sail(region, 1))),
+                                MeshMaterial3d(art.matte.clone()),
+                            ));
+                        });
                     }
                     for patch in woods(terrain, earth) {
                         root.spawn((Mesh3d(meshes.add(patch)), MeshMaterial3d(art.matte.clone())));
@@ -664,6 +697,38 @@ pub(crate) fn sync(
     }
 }
 
+pub(crate) fn merchant_visuals(
+    game: Res<Game>,
+    adventure: Res<Adventure>,
+    mut boats: Query<(&MerchantShip, &mut Transform)>,
+) {
+    let Some((map, island)) = adventure.terrain.as_ref().zip(adventure.active()) else {
+        return;
+    };
+    for (ship, mut pose) in &mut boats {
+        let phase = island.market.crossing.and_then(|crossing| {
+            map.level
+                .export(crossing.export)
+                .map(|offer| (1.0 - crossing.remaining / offer.seconds).clamp(0.0, 1.0))
+        });
+        let (distance, heading) = phase.map_or((0.0, 0.0), |phase| {
+            let out = (phase * std::f32::consts::PI).sin() * 26.0;
+            let turn = ((phase - 0.43) / 0.14).clamp(0.0, 1.0);
+            (out, turn * std::f32::consts::PI)
+        });
+        let yaw = (-ship.direction.y).atan2(ship.direction.x) + heading;
+        let waves = (game.clock * 2.4 + distance * 0.16).sin();
+        pose.translation = ship.berth
+            + v(
+                ship.direction.x * distance,
+                waves * 0.055,
+                ship.direction.y * distance,
+            );
+        pose.rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(waves * 0.041);
+        pose.scale = Vec3::splat(0.85);
+    }
+}
+
 fn trail_arrows(terrain: &Terrain, path: &[Vec2]) -> Batch {
     let mut batch = Batch::default();
     let distance = path
@@ -896,7 +961,7 @@ pub(crate) fn logistics_visuals(
                 .walking_worker(worker)
                 .filter(|(_, carrying)| *carrying)
                 .map(|(haul, _)| (haul.position, haul.facing, haul.gait, haul.moving, 1.18)),
-            None if island.cargo.is_some() || island.shipment.is_some() => Some((
+            None if island.has_cargo() => Some((
                 island.position,
                 adventure.heading,
                 adventure.gait,
@@ -962,7 +1027,7 @@ pub(crate) fn animate(
         Query<(&Limb, &mut Transform), Without<Sun>>,
         Query<(&Marker, &mut Transform, &mut Visibility), Without<Sun>>,
         Query<&mut Visibility, With<Relic>>,
-        Query<(&Worker, &SkinnedMesh, &mut Transform), Without<Sun>>,
+        Query<(&Worker, &SkinnedMesh, &mut Transform, &mut Visibility), Without<Sun>>,
         Query<(&BuildLift, &mut Transform), Without<Sun>>,
         Query<&mut Transform, (With<super::people::WorkerJoint>, Without<Sun>)>,
     )>,
@@ -1031,7 +1096,7 @@ pub(crate) fn animate(
             -0.64 + beat * 0.80
         } else if !limb.leg && adventure.building.is_some() {
             -0.43 + (game.clock * 9.0 + limb.side * 0.18).sin() * 0.55
-        } else if !limb.leg && (island.cargo.is_some() || island.shipment.is_some()) {
+        } else if !limb.leg && island.has_cargo() {
             -0.77 + adventure.gait.sin() * 0.055
         } else if adventure.moved {
             (adventure.gait + limb.side * 1.16).sin() * if limb.leg { 0.54 } else { 0.38 }
@@ -1079,8 +1144,29 @@ pub(crate) fn animate(
         })
         .collect();
     let mut poses = Vec::with_capacity(usize::from(island.staff()) * 9);
-    for (worker, skin, mut model) in &mut scene.p5() {
+    for (worker, skin, mut model, mut visibility) in &mut scene.p5() {
         let job = island.workers.get(worker.0).copied();
+        let at_bench = job.is_some_and(|job| {
+            let Task::Produce(lot) = job else {
+                return false;
+            };
+            island
+                .workers
+                .iter()
+                .position(|&candidate| candidate == job)
+                == Some(worker.0)
+                && island.site(lot).is_none()
+                && island.batch(lot).is_some_and(|batch| batch.left > 0.0)
+                && super::activity::adventure_spot(terrain, &island.lots, lot).is_some()
+        });
+        *visibility = if at_bench {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+        if at_bench {
+            continue;
+        }
         if let Some((haul, carrying)) = island.walking_worker(worker.0) {
             let bob = if haul.moving {
                 haul.gait.sin().abs() * 0.040
@@ -2029,6 +2115,9 @@ fn civic(region: Region) -> Mesh {
 }
 
 fn workshop(region: Region, kind: Build, tier: u8) -> Mesh {
+    if kind == Build::Monument {
+        return super::monuments::landmark(region, tier);
+    }
     let mut b = Batch::default();
     let c = palette(region);
     let y = 1.04 + f32::from(tier) * 0.13;

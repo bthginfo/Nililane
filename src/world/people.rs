@@ -167,6 +167,114 @@ pub(super) fn worker_pose(
     joints
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum StationGesture {
+    Lift,
+    Pour,
+    Saw,
+    Tend,
+    Wheel,
+    Bow,
+    Write,
+    Weave,
+    Seated(f32),
+}
+
+pub(super) fn station_pose(
+    cast: &Cast,
+    index: usize,
+    region: Region,
+    gesture: StationGesture,
+    seconds: f32,
+) -> [Transform; BONES] {
+    let look = &cast.clothes[region as usize][8 + index % 8];
+    let mut body = pose(look, 0.0, 0.0, (seconds * 1.4).sin(), None);
+    let (lean, left, right, reach) = match gesture {
+        StationGesture::Saw => {
+            let beat = (seconds * 7.1).sin();
+            (
+                0.16 + beat * 0.06,
+                -1.17 - beat * 0.18,
+                -0.94 - beat * 0.37,
+                0.22,
+            )
+        }
+        StationGesture::Pour => {
+            let beat = (seconds * 2.7).sin();
+            (
+                0.09 + beat * 0.08,
+                -0.59 - beat * 0.24,
+                -1.19 - beat * 0.41,
+                0.10,
+            )
+        }
+        StationGesture::Wheel => {
+            let beat = (seconds * 3.9).sin();
+            (
+                0.28 + beat * 0.04,
+                -0.98 - beat * 0.09,
+                -1.01 + beat * 0.13,
+                0.09,
+            )
+        }
+        StationGesture::Tend => {
+            let beat = (seconds * 5.3).sin();
+            (
+                0.12 + beat * 0.08,
+                -0.53 - beat * 0.17,
+                -0.96 - beat * 0.51,
+                0.16,
+            )
+        }
+        StationGesture::Bow => {
+            let beat = (seconds * 1.7).sin().max(0.0);
+            (beat * 0.33, -0.86 - beat * 0.26, -0.86 - beat * 0.26, 0.11)
+        }
+        StationGesture::Write => {
+            let beat = (seconds * 4.9).sin();
+            (0.26, -0.84, -1.14 + beat * 0.11, 0.065)
+        }
+        StationGesture::Weave => {
+            let beat = (seconds * 3.7).sin();
+            (0.13, -1.26 + beat * 0.32, -1.26 - beat * 0.32, 0.23)
+        }
+        StationGesture::Lift => {
+            let beat = (seconds * 2.2).sin();
+            (
+                0.09 + beat * 0.055,
+                -0.76 - beat * 0.22,
+                -0.91 - beat * 0.26,
+                0.12,
+            )
+        }
+        StationGesture::Seated(seat) => {
+            let meal = ((seconds * 1.9).sin() * 0.5 + 0.5).powi(4);
+            body[0].translation.y += seat + 0.019 - HIP;
+            for arm in [1, 5] {
+                let hip = v(look.rest[arm + 1].x, seat + 0.014, 0.004);
+                let knee = hip + v(0.0, -0.012, THIGH * 0.99);
+                let foot = v(hip.x, ANKLE, knee.z + 0.039);
+                body[arm + 1] = Transform::from_translation(hip).with_rotation(
+                    Quat::from_rotation_arc(Vec3::NEG_Y, (knee - hip).normalize()),
+                );
+                body[arm + 2] = Transform::from_translation(knee).with_rotation(
+                    Quat::from_rotation_arc(Vec3::NEG_Y, (foot - knee).normalize()),
+                );
+                body[arm + 3] = Transform::from_translation(foot);
+            }
+            (0.16 - 0.085 * meal, -0.74, -0.82 - 0.88 * meal, 0.075)
+        }
+    };
+    body[0].rotation = Quat::from_rotation_x(lean);
+    for (id, pitch, side) in [(1, left, 1.0), (5, right, -1.0)] {
+        body[id].translation =
+            body[0].rotation * (look.rest[id] - look.rest[0]) + body[0].translation;
+        body[id].rotation =
+            body[0].rotation * Quat::from_rotation_z(reach * side) * Quat::from_rotation_x(pitch);
+    }
+    body
+}
+
 fn outfit(index: usize, region: Region) -> (Mesh, [Vec3; BONES]) {
     let style = index % 8;
     let age = Age::ALL[index / 8];

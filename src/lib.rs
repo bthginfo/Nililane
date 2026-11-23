@@ -70,6 +70,8 @@ pub fn run() {
         .init_resource::<Game>()
         .insert_resource(adventure)
         .init_resource::<world::AdventureScene>()
+        .init_resource::<world::ActivityScene>()
+        .init_resource::<world::EncounterScene>()
         .init_resource::<Controls>()
         .init_resource::<Hud>()
         .init_resource::<world::Reactions>()
@@ -115,9 +117,14 @@ pub fn run() {
                     .chain(),
                 (
                     world::adventure_scene,
+                    world::activity_scene,
+                    world::encounter_scene,
                     world::adventure_animate,
+                    world::animate_activity,
+                    world::animate_encounters,
                     world::adventure_logistics,
                     world::adventure_fishing,
+                    world::adventure_merchant,
                     ui::project_adventure,
                     world::animate_weather,
                     world::animate_pets,

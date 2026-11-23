@@ -137,6 +137,16 @@ Du führst Nili selbst entlang der Spur.
   sie sich am Rathaus für den Außenposten packen.
 - Auf späteren Inseln schalten Fundstücke und Warenlieferungen Baupläne
   für neue Gebäude oder höhere Ausbaustufen frei.
+- Während du die Siedlung aufbaust, treffen Reisende ein und Nachbarn
+  bitten um Hilfe. Unter **Aufträge → Begegnungen** kannst du Wege
+  markieren. Bei einem Brand holst du Wasser an einer Wasserstelle oder an
+  der Küste. Andere Aufträge führen zu einem Wiederaufbau, einem Fest oder
+  einem Fundstück für das örtliche Heiligtum.
+- Ab der achten Insel jedes Gebiets kannst du mit Nachbarhäfen handeln.
+  Packe die Ware am Rathaus und bring sie zum Handelsschiff. Für
+  Handelsmarken gibt es seltene Baustoffe und einen regionalen Sonderbauplan.
+  Die Agora, das Amphitheater, der Pagodengarten, die Thinghalle und der
+  Palast der Sterne haben jeweils sechs sichtbare Stufen.
 - Tageslicht, Laternen und Musik wechseln während des Spiels. Du kannst
   jederzeit weiter sammeln und bauen.
 - Nach dem letzten Inselziel zeigt die **Siedlungsbilanz** unter anderem

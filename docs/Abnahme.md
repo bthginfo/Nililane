@@ -1,5 +1,25 @@
 # Spielreview und Abnahme
 
+## Lebendige Siedlungen und Küstenhandel 3.5.0
+
+- Die Spielprüfung umfasst alle 120 Häfen und alle 60 Abenteuerinseln.
+  In den fünf Abenteuerfinalen wurden Handelswaren hergestellt, zum
+  Anleger getragen und verschifft. Aus dem Erlös kamen die Baupläne und
+  die Baustoffe für die Gebäude auf Stufe zwei.
+- In jedem Gebiet wurden die Begegnungen nach dem Start der Partie
+  ausgelöst. Die Prüfungen laufen zu den Personen und ihren Zielen,
+  verbrauchen die Fracht und schreiben die Belohnungen einmal gut.
+  Beim Brand lassen sich Wasserstelle und Küste als Quelle verwenden.
+- Die 30 Modelle der fünf Sondergebäude wurden auf eigenständige
+  Ausbaustufen und ihre Bauplatzgrenzen geprüft. Eine weitere Prüfung
+  erzeugt Arbeitsplätze für alle Gebäudetypen in jeder Kultur.
+  Sichtproben in Capua und Sonnenbogen zeigen die Arbeitsplätze in der
+  Gasse und im Abenteuer sowie die Auftrags- und Handelsansicht.
+- Beide Android-Ausgaben ließen sich im Emulator als Update installieren.
+  Die vorhandenen Spielstände waren direkt nach der Installation
+  bytegleich. Die ARM64-Dateien sind mit dem bisherigen
+  Veröffentlichungszertifikat signiert.
+
 ## Handelsaufträge und Handwerk 3.4.0
 
 - Die Kampagnenprüfung hat alle 120 Häfen mit drei Sternen beendet. Dafür

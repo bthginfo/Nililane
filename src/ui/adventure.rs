@@ -1,8 +1,9 @@
 use super::*;
 use crate::{
     adventure::{
-        Adventure, Build, BuildingSite, Command, Good, HALL_STORAGE, Island, Level, MAX_BUILD_CREW,
-        NILI_CAPACITY, Quest, Screen, Target, Task, Terrain,
+        Adventure, Build, BuildingSite, Command, EncounterStatus, Event, Export, Good,
+        HALL_STORAGE, IMPORT_PRICE, IMPORT_UNITS, Island, Level, MAX_BUILD_CREW, NILI_CAPACITY,
+        PLAN_PRICE, Quest, Screen, Target, Task, Terrain, monument_name,
     },
     campaign::{CORE_HARBORS, Region},
     world::StreetCamera,
@@ -643,6 +644,14 @@ fn walk(
                     label(line, hud, if at_site { "→ Baustelle" } else { "→ Rathaus" }, 17.0, Face::Bold, GOLD);
                 });
             });
+        } else if let Some(spec) = island.encounters.carrying().and_then(|slot| level.encounter(slot)) {
+            card(corner, frame_node(Val::Auto, 0.0, 10.0), INK).with_children(|chip| {
+                panels::metric(chip, hud, spec.icon(), format!("Fracht für {}", spec.author.split(" · ").next().unwrap_or(spec.author)));
+            });
+        } else if island.market.packed.is_some() {
+            card(corner, frame_node(Val::Auto, 0.0, 10.0), INK).with_children(|chip| {
+                panels::metric(chip, hud, "sea_trade", "Handelsfracht zum Hafen");
+            });
         } else if island.shipment.is_some() {
             let node = frame_node(Val::Auto, 0.0, 10.0);
             card(corner, node, INK).with_children(|chip| {
@@ -705,6 +714,9 @@ fn walk(
                     if level.order(island.orders_delivered).is_some() {
                         action(r, hud, Command::Deliveries, "Lieferungen", "ferry", "", Style::Quiet, false);
                     }
+                    if level.has_trading() && island.market.packed.is_none() {
+                        action(r, hud, Command::Trading, "Küstenhandel", "sea_trade", "", Style::Quiet, false);
+                    }
                     if a.delivery_action() == Some(Command::PackOrder) && let Some(lot) = a.supply_lot() {
                         action(r, hud, Command::TakeMaterial(lot), "Baumaterial", "hammer", "", Style::Quiet, false);
                     }
@@ -727,6 +739,22 @@ fn walk(
                             ("Fracht aufnehmen", "adventure_craft")
                         }
                     }
+                    Target::Encounter(id) | Target::EncounterSource(id) => {
+                        let spec = level.encounter(id).expect("visible encounter");
+                        let phase = island.encounters.visits[id].status;
+                        if matches!(target, Target::EncounterSource(_)) {
+                            disabled = island.has_cargo() || spec.cargo.is_some_and(|cargo| !island.ready(&[cargo]));
+                        }
+                        let name = if matches!(target, Target::Encounter(_)) && phase == EncounterStatus::Seeking {
+                            "Auftrag ansehen"
+                        } else {
+                            spec.action(phase)
+                        };
+                        (name, spec.icon())
+                    }
+                    Target::TradeHarbor if island.market.packed.is_some() && island.market.crossing.is_none() =>
+                        ("Handelsfracht versenden", "sea_trade"),
+                    Target::TradeHarbor => ("Handel ansehen", "sea_trade"),
                     Target::Plot(lot) if island.site(lot).is_some() => {
                         let site = island.site(lot).unwrap();
                         if island.cargo.is_some_and(|load| site.missing(load.kind) > 0) {
@@ -1211,13 +1239,19 @@ fn build_menu(
                                 label(
                                     tile,
                                     hud,
-                                    "Braucht einen Küstenbauplatz",
+                                    if kind == Build::Monument {
+                                        "Braucht einen Bauplatz auf der Insel"
+                                    } else {
+                                        "Braucht einen Küstenbauplatz"
+                                    },
                                     15.0,
                                     Face::Bold,
                                     MUTED,
                                 );
                             } else if locked {
-                                let message = if level.plan() == Some(kind) {
+                                let message = if kind == Build::Monument {
+                                    "Bauplan im Handelshafen"
+                                } else if level.plan() == Some(kind) {
                                     "Bauplan aus dem Inselauftrag"
                                 } else {
                                     "Auf einer späteren Insel verfügbar"
@@ -1418,7 +1452,9 @@ fn property_panel(
                         WARN,
                     );
                 } else {
-                    let seconds = recipe.seconds / (1.0 + 0.48 * staffed.saturating_sub(1) as f32);
+                    let crew = 1.0 + 0.48 * staffed.saturating_sub(1) as f32;
+                    let seconds =
+                        recipe.seconds / (crew * (1.0 + island.monument_bonus(terrain, lot)));
                     panels::metric(
                         p,
                         hud,
@@ -1478,6 +1514,16 @@ fn property_panel(
                     "",
                     Style::Quiet,
                     false,
+                );
+            } else if property.kind == Build::Monument {
+                panels::metric(
+                    p,
+                    hud,
+                    "adventure_tools",
+                    format!(
+                        "+{} % Arbeitstempo im Umkreis von zehn Schritten",
+                        3 + property.tier * 2
+                    ),
                 );
             } else if let Build::Harbor(kind) = property.kind {
                 let residents = crate::model::Building::new(kind).residents();
@@ -1830,8 +1876,18 @@ fn map(
                             Vec2::from_array(pile.as_ref()?.position),
                         ))
                     }));
+                    for slot in 0..level.encounter_count() {
+                        for target in [Target::Encounter(slot), Target::EncounterSource(slot)] {
+                            if let Some(position) = a.target_position(target) {
+                                pins.push((target, position));
+                            }
+                        }
+                    }
                     if level.order_count() > 0 {
                         pins.push((Target::Outpost, terrain.outpost));
+                    }
+                    if level.has_trading() {
+                        pins.push((Target::TradeHarbor, terrain.trade_pier));
                     }
                     if level.plan().is_some() && island.quest != Quest::Finished {
                         pins.push((Target::Shrine, terrain.shrine));
@@ -1874,7 +1930,11 @@ fn map(
                     storage_meter(c, hud, island);
                     let goods: Vec<_> = Good::ALL
                         .into_iter()
-                        .filter(|&good| good.present_in(level.region))
+                        .filter(|&good| {
+                            good.present_in(level.region)
+                                && (good != Good::Imports || level.has_trading())
+                                && (good != Good::Masterwork || level.work_order().is_some())
+                        })
                         .collect();
                     for group in goods.chunks(2) {
                         c.spawn(Node {
@@ -2228,6 +2288,17 @@ fn mission(
                         Good::Masterwork.icon(level.region),
                         level.work_order().is_some(),
                     ),
+                    (
+                        4,
+                        "Begegnungen",
+                        "star",
+                        island
+                            .encounters
+                            .visits
+                            .iter()
+                            .any(|visit| visit.status != EncounterStatus::Hidden),
+                    ),
+                    (5, "Handel", "sea_trade", level.has_trading()),
                 ] {
                     if visible {
                         action(
@@ -2252,6 +2323,10 @@ fn mission(
             shipment_panel(p, hud, a, island, level);
         } else if a.group == 3 && level.work_order().is_some() {
             work_order_panel(p, hud, a, island, level);
+        } else if a.group == 4 {
+            encounter_panel(p, hud, a, island, level);
+        } else if a.group == 5 && level.has_trading() {
+            trade_panel(p, hud, a, island, level);
         } else if a.group == 2
             && let Some(plan) = level.plan()
         {
@@ -2360,6 +2435,319 @@ fn mission(
         }
         back(p, hud, "Zur Insel");
     });
+}
+
+fn trade_panel(
+    p: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    a: &Adventure,
+    island: &Island,
+    level: Level,
+) {
+    let at_hall = a.close_enough(Target::Hall);
+    let at_pier = a.close_enough(Target::TradeHarbor);
+    let market = &island.market;
+    p.spawn(Node {
+        flex_wrap: FlexWrap::Wrap,
+        row_gap: Val::Px(6.0),
+        ..row(14.0)
+    })
+    .with_children(|r| {
+        panels::metric(
+            r,
+            hud,
+            "sea_trade",
+            format!("Handel mit {}", level.trading_neighbor()),
+        );
+        panels::metric(r, hud, "coin", format!("{} Handelsmarken", market.marks));
+    });
+    if market.crossing.is_some() {
+        panels::metric(p, hud, "ferry", "Das Schiff ist unterwegs.");
+    }
+    if let Some(export) = market.packed {
+        let offer = level.export(export).unwrap();
+        panels::metric(
+            p,
+            hud,
+            offer.good.icon(level.region),
+            format!("{} {} gepackt", offer.units, offer.good.name(level.region)),
+        );
+        action(
+            p,
+            hud,
+            if at_pier {
+                Command::SellExport
+            } else {
+                Command::SetRoute(Target::TradeHarbor)
+            },
+            if at_pier {
+                "Handelsfracht versenden"
+            } else {
+                "Weg zum Handelshafen"
+            },
+            "ferry",
+            "",
+            Style::Primary,
+            at_pier && market.crossing.is_some(),
+        );
+        if at_hall {
+            action(
+                p,
+                hud,
+                Command::UnpackExport,
+                "Wieder einlagern",
+                "storehouse",
+                "",
+                Style::Quiet,
+                false,
+            );
+        }
+    } else {
+        for option in Export::ALL {
+            let offer = level.export(option).unwrap();
+            let enough = island.amount(offer.good) >= offer.units;
+            card(p, frame_node(Val::Percent(100.0), 5.0, 9.0), DEEP).with_children(|entry| {
+                entry
+                    .spawn(Node {
+                        flex_wrap: FlexWrap::Wrap,
+                        row_gap: Val::Px(4.0),
+                        ..row(9.0)
+                    })
+                    .with_children(|r| {
+                        icon(r, hud, offer.good.icon(level.region), 25.0);
+                        label(
+                            r,
+                            hud,
+                            offer.good.name(level.region),
+                            17.0,
+                            Face::Bold,
+                            SAND,
+                        );
+                        label(
+                            r,
+                            hud,
+                            format!("{}/{}", island.amount(offer.good), offer.units),
+                            16.0,
+                            Face::Bold,
+                            if enough { GREEN } else { WARN },
+                        );
+                        panels::metric(r, hud, "coin", format!("+{}", offer.marks));
+                        if at_hall {
+                            action(
+                                r,
+                                hud,
+                                Command::PackExport(option),
+                                "Packen",
+                                "storehouse",
+                                "",
+                                Style::Quiet,
+                                island.has_cargo() || !enough,
+                            );
+                        }
+                    });
+            });
+        }
+    }
+    line(p, LINE);
+    p.spawn(Node {
+        flex_wrap: FlexWrap::Wrap,
+        row_gap: Val::Px(5.0),
+        ..row(7.0)
+    })
+    .with_children(|r| {
+        if market.blueprint {
+            panels::metric(
+                r,
+                hud,
+                "check",
+                format!("{} im Baumenü", monument_name(level.region)),
+            );
+        } else {
+            action(
+                r,
+                hud,
+                Command::BuyPlan,
+                &format!("{} · Plan für {PLAN_PRICE}", monument_name(level.region)),
+                "adventure_blueprint",
+                "",
+                Style::Quiet,
+                !at_pier || market.marks < PLAN_PRICE,
+            );
+        }
+        action(
+            r,
+            hud,
+            Command::BuyImports,
+            &format!(
+                "{} ×{IMPORT_UNITS} · {IMPORT_PRICE} Marken",
+                Good::Imports.name(level.region)
+            ),
+            "coin",
+            "",
+            Style::Quiet,
+            !at_pier || market.marks < IMPORT_PRICE,
+        );
+    });
+    panels::metric(
+        p,
+        hud,
+        Good::Imports.icon(level.region),
+        format!("{} im Lager", island.amount(Good::Imports)),
+    );
+    let to_hall = !at_hall && !island.has_cargo();
+    let to_store = !at_pier && market.packed.is_none() && market.marks >= IMPORT_PRICE;
+    if to_hall || to_store {
+        p.spawn(Node {
+            flex_wrap: FlexWrap::Wrap,
+            row_gap: Val::Px(5.0),
+            ..row(8.0)
+        })
+        .with_children(|routes| {
+            if to_hall {
+                action(
+                    routes,
+                    hud,
+                    Command::SetRoute(Target::Hall),
+                    "Weg zum Packplatz",
+                    "chart",
+                    "",
+                    Style::Quiet,
+                    false,
+                );
+            }
+            if to_store {
+                action(
+                    routes,
+                    hud,
+                    Command::SetRoute(Target::TradeHarbor),
+                    "Weg zum Einkauf",
+                    "sea_trade",
+                    "",
+                    Style::Quiet,
+                    false,
+                );
+            }
+        });
+    }
+}
+
+fn encounter_panel(
+    p: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    a: &Adventure,
+    island: &Island,
+    level: Level,
+) {
+    let visible: Vec<_> = (0..level.encounter_count())
+        .filter(|&slot| island.encounters.visits[slot].status != EncounterStatus::Hidden)
+        .collect();
+    let selected = visible
+        .iter()
+        .copied()
+        .find(|&slot| slot == usize::from(a.page))
+        .or_else(|| {
+            visible
+                .iter()
+                .copied()
+                .find(|&slot| island.encounters.visits[slot].status != EncounterStatus::Finished)
+        })
+        .or_else(|| visible.first().copied());
+    let Some(slot) = selected else {
+        panels::metric(p, hud, "ferry", "In der Siedlung ist es gerade ruhig.");
+        return;
+    };
+    if visible.len() > 1 {
+        p.spawn(Node {
+            flex_wrap: FlexWrap::Wrap,
+            row_gap: Val::Px(5.0),
+            ..row(6.0)
+        })
+        .with_children(|r| {
+            for entry in visible {
+                let spec = level.encounter(entry).unwrap();
+                let done = island.encounters.visits[entry].status == EncounterStatus::Finished;
+                action(
+                    r,
+                    hud,
+                    Command::Page(entry as u8),
+                    spec.title,
+                    if done { "check" } else { spec.icon() },
+                    "",
+                    if slot == entry {
+                        Style::Selected
+                    } else {
+                        Style::Quiet
+                    },
+                    false,
+                );
+            }
+        });
+    }
+    let spec = level.encounter(slot).unwrap();
+    let status = island.encounters.visits[slot].status;
+    panels::metric(p, hud, spec.icon(), spec.author);
+    label(p, hud, spec.title, 27.0, Face::Serif, SAND);
+    if status == EncounterStatus::Finished {
+        panels::metric(
+            p,
+            hud,
+            "check",
+            format!(
+                "Erledigt · {} {}",
+                spec.reward.1,
+                spec.reward.0.name(level.region)
+            ),
+        );
+        return;
+    }
+    label(p, hud, spec.request, 17.0, Face::Body, MUTED);
+    if status == EncounterStatus::Seeking
+        && let Some(cargo) = spec.cargo
+    {
+        costs_row(p, hud, level.region, island, &[cargo]);
+    }
+    if status == EncounterStatus::Seeking && spec.event == Event::Fire {
+        let source = a
+            .encounter_well(slot)
+            .and_then(|lot| island.lots[lot])
+            .map_or("Flache Bucht", |property| property.kind.name(level.region));
+        panels::metric(p, hud, "water", source);
+    }
+    if let Some(target) = a.encounter_target(slot) {
+        let nearby = a.close_enough(target);
+        let blocked = matches!(target, Target::EncounterSource(_))
+            && (island.has_cargo() || spec.cargo.is_some_and(|cargo| !island.ready(&[cargo])));
+        action(
+            p,
+            hud,
+            if nearby {
+                Command::Use(target)
+            } else {
+                Command::SetRoute(target)
+            },
+            if nearby {
+                spec.action(status)
+            } else {
+                "Weg anzeigen"
+            },
+            if nearby { spec.icon() } else { "chart" },
+            "",
+            Style::Primary,
+            status == EncounterStatus::Working || nearby && blocked,
+        );
+    }
+    if status == EncounterStatus::Carrying && a.close_enough(Target::Hall) {
+        action(
+            p,
+            hud,
+            Command::ReturnEncounter,
+            "Fracht zurücklegen",
+            "storehouse",
+            "",
+            Style::Quiet,
+            false,
+        );
+    }
 }
 
 fn work_order_panel(
@@ -2959,6 +3347,7 @@ fn build_icon(kind: Build) -> &'static str {
         Build::Sawmill => "adventure_sawmill",
         Build::Brickyard => "adventure_brickyard",
         Build::Forge => "adventure_forge",
+        Build::Monument => "adventure_blueprint",
     }
 }
 
@@ -2967,6 +3356,21 @@ fn target_icon(target: Target, a: &Adventure) -> &'static str {
     match target {
         Target::Deposit(id) => terrain.deposits[id].kind.icon(terrain.level.region),
         Target::Dropped(_) => "adventure_craft",
+        Target::TradeHarbor => "sea_trade",
+        Target::Encounter(slot) => terrain
+            .level
+            .encounter(slot)
+            .map_or("star", |spec| spec.icon()),
+        Target::EncounterSource(slot) => {
+            terrain
+                .level
+                .encounter(slot)
+                .map_or("star", |spec| match spec.event {
+                    Event::Fire => "water",
+                    Event::Relic => "adventure_blueprint",
+                    _ => "storehouse",
+                })
+        }
         Target::Plot(id) if a.active().unwrap().site(id).is_some() => "hammer",
         Target::Plot(id) if terrain.level.coastal(id) => "fishery",
         Target::Plot(id) => {
@@ -2982,6 +3386,7 @@ fn target_icon(target: Target, a: &Adventure) -> &'static str {
 fn target_name(target: Target, a: &Adventure) -> &'static str {
     let terrain = a.terrain.as_ref().unwrap();
     match target {
+        Target::TradeHarbor => "Handelshafen",
         Target::Deposit(id) => terrain.deposits[id].kind.name(terrain.level.region),
         Target::Dropped(id) => a
             .active()
@@ -2989,6 +3394,26 @@ fn target_name(target: Target, a: &Adventure) -> &'static str {
             .map_or("Abgelegte Fracht", |pile| {
                 pile.cargo.kind.name(terrain.level.region)
             }),
+        Target::Encounter(slot) => terrain
+            .level
+            .encounter(slot)
+            .map_or("Begegnung", |spec| spec.title),
+        Target::EncounterSource(slot) => {
+            terrain
+                .level
+                .encounter(slot)
+                .map_or("Auftragsziel", |spec| match spec.event {
+                    Event::Fire => {
+                        if a.encounter_well(slot).is_some() {
+                            "Wasserstelle"
+                        } else {
+                            "Bucht"
+                        }
+                    }
+                    Event::Relic => "Fundstück",
+                    _ => "Auftragsfracht",
+                })
+        }
         Target::Plot(id) if a.active().unwrap().site(id).is_some() => a
             .active()
             .unwrap()

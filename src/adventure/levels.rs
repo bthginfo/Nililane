@@ -398,6 +398,11 @@ impl Level {
             .chain(utilities)
             .chain(mill)
             .chain(warehouse)
+            .chain((self.stage == CORE_HARBORS - 1).then_some(Requirement {
+                kind: Build::Monument,
+                count: 1,
+                tier: 2,
+            }))
     }
 
     pub fn work_order(self) -> Option<WorkOrder> {

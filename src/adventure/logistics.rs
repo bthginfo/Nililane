@@ -241,7 +241,10 @@ impl Island {
     }
 
     pub fn room_for(&self, kind: Good) -> u16 {
-        if self.shipment.is_some() {
+        if self.shipment.is_some()
+            || self.encounters.carrying().is_some()
+            || self.market.packed.is_some()
+        {
             return 0;
         }
         match self.cargo {
