@@ -411,11 +411,14 @@ fn tour_choice(
     )
     .with_children(|tile| {
         icon(tile, hud, art, 38.0);
-        tile.spawn(Node {
-            flex_grow: 1.0,
-            min_width: Val::Px(0.0),
-            ..column(2.0)
-        })
+        tile.spawn((
+            Node {
+                flex_grow: 1.0,
+                min_width: Val::Px(0.0),
+                ..column(2.0)
+            },
+            FocusPolicy::Pass,
+        ))
         .with_children(|copy| {
             label(copy, hud, title, 21.0, Face::Bold, SAND);
             label(copy, hud, details, 17.0, Face::Body, MUTED);

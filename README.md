@@ -9,7 +9,7 @@ Siedlungen.
 
 ## Android-Downloads
 
-**[Handy-APK für ARM64-Smartphones](https://media.githubusercontent.com/media/bthginfo/Nililane/9b816bb0d2b55e0ec98a59398df9764cbba694be/Nililane-3.1.1-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/9b816bb0d2b55e0ec98a59398df9764cbba694be/Nililane-3.1.1-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.1.1-phone)
+**[Handy-APK für ARM64-Smartphones](https://media.githubusercontent.com/media/bthginfo/Nililane/7e4d1baa8a669d145f468ad64afb234938b7a3b3/Nililane-3.2.0-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/7e4d1baa8a669d145f468ad64afb234938b7a3b3/Nililane-3.2.0-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.2.0-phone)
 
 **[Android-APK für ARM64-Tablets](https://media.githubusercontent.com/media/bthginfo/Nililane/20830f458d0e0f4b5ef68180a67d3578a62346fa/Nililane-3.0.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/20830f458d0e0f4b5ef68180a67d3578a62346fa/Nililane-3.0.0-x86_64.apk) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v3.0.0)
 
@@ -44,7 +44,7 @@ Naxos eine Bitte vom Kai ansteht, kannst du dort auf **Hilfe starten**
 tippen. Ab Amorgos wählst du zusätzlich eigene Touren. Tippe neben
 dem passenden Abholort und Ziel auf **Starten** und steuere Nili los.
 
-![Nililane im Handy-Querformat mit Bewegungsstick und Sammeln-Aktion](docs/bilder/handy-abenteuer.jpg)
+![Nili am Rathaus mit Holzbestand und Baumstumpf](docs/bilder/handy-abenteuer.jpg)
 
 ## Auf dem Tablet spielen
 
@@ -85,19 +85,26 @@ Start, LB und RB. N öffnet Nilis Touren. F öffnet das Gästebuch.
 ## Abenteuerkampagne
 
 Im Hauptmenü erreichst du die **Abenteuerkampagne**. Auf jeder Insel wartet
-ein Rathaus. Sammle vor Ort Holz, Stein und Nahrung, baue einen Wohnhof und
-weise deinen ersten Bürger dem Sägewerk zu. Das Auftragsbuch zeigt, welche
-Gebäude, Ausbauten und Vorräte du für die nächste Insel brauchst.
-Tippe auf eine Markierung auf der Karte, um den Weg zu sehen.
+ein Rathaus. Geh zu einem Rohstoff, starte den Abbau und bring die Ladung
+zum Rathaus. Nili trägt bis zu zehn Einheiten einer Sorte. Nach dem Abbau
+bleiben Stümpfe, Bruchstücke oder abgeerntete Stellen zurück. Auf der Karte
+markierst du den Weg zu Wäldern, Steinbrüchen, Lehmfeldern und Minen.
 
 ![Inselkarte mit Geländeformen, Rohstoffplätzen und Lagerbestand](docs/bilder/abenteuer-karte.jpg)
 
-- 60 Inseln in fünf Gebieten mit 10 bis 32 Bauplätzen. Nach den zwölf
+- 60 Inseln in fünf Gebieten mit 10 bis 34 Bauplätzen. Nach den zwölf
   Inseln eines Gebiets öffnet sich das nächste.
-- Brunnen, Werkstätten, Läden und Gemeinschaftsbauten bilden
-  Produktionsketten. Lehm, Holz und Wasser ergeben in der Ziegelei Ziegel.
-  Die Schmiede braucht Erz, Holz und Nahrung. Fehlende Zutaten stehen
-  direkt am Betrieb.
+- Das Rathaus fasst 48 Einheiten Rohstoffe. Ein Speicher bringt
+  zunächst 36 weitere Plätze, jeder Ausbau 24. Bei vollem Lager bleibt
+  die Restfracht beim Träger. Unter **Rohstofflager** siehst du den
+  Bestand und kannst einzelne Vorräte aussortieren.
+- Baue einen Wohnhof und weise Bürger zum Sammeln oder zur Arbeit in
+  einer Werkstatt zu. Sammler laufen selbst zum Abbaugebiet und bringen
+  ihre Ladung zurück. Werkstätten zeigen die Zutaten und den Fortschritt
+  des Arbeitsgangs. Ziegel, Werkzeuge und Gewebe brauchen länger als Bretter.
+- Ab der zweiten Insel gibt es Lieferaufträge. Pack die verlangten Waren
+  am Rathaus und bring sie zum Außenposten. Spätere Inseln haben bis zu
+  drei Lieferungen und mehr Bau- und Ausbauziele.
 - Auf späteren Inseln schalten Fundstücke und Warenlieferungen Baupläne
   für neue Gebäude oder höhere Ausbaustufen frei.
 - Tageslicht, Laternen und Musik wechseln während des Spiels. Du kannst
@@ -160,6 +167,14 @@ Tippe auf eine Markierung auf der Karte, um den Weg zu sehen.
 - In der Garderobe stehen acht neue Stücke für Japan und acht für den Norden.
   Unter dem Schloss steht der Hafen, dessen Abschluss den Kauf mit Sternen
   freischaltet.
+
+| Gebiet | Beispiel für eine Produktionskette |
+| --- | --- |
+| Griechenland | Oliven und Wasser → Ölpresse → Olivenöl für die Küstenwache |
+| Rom | Getreide → Mühle → Mehl für Backstube und Wachstation |
+| Japan | Bambus und Wasser → Papierwerkstatt → Papier für Wegstation und Bauplanaufträge |
+| Norden | Bürger in einer Fischerhütte am Küstenbauplatz → Fangfahrt → Fisch für Räucherei und Festhalle |
+| Oasenreiche | Qanatwasser, Datteln und Safran → Parfümerie → Duftöl für die Karawane |
 
 ## Neu in 2.5.2
 

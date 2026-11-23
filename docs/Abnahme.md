@@ -1,5 +1,31 @@
 # Spielreview und Abnahme
 
+## Abenteuer-Logistik 3.2.0
+
+- **Einstieg.** Auf Kleions Ufer zeigte der Abbau einen Arbeitsbalken
+  und einen fallenden Baum. Nili trug zehn Holz zum Rathaus. Der
+  Bestand stand vorher auf null und nach dem Abladen auf zehn. Der
+  Stumpf blieb am Weg sichtbar.
+- **Kampagne.** Die Spielsimulation beendet alle 60 Inseln mit
+  Abbauwegen, Lagergrenzen, laufender Produktion, Bauplänen und 95
+  Lieferungen. Die späteren Testpartien nutzen zusätzliche Speicher
+  und sortieren Überschüsse aus. Alle 120 Hafeninseln bestehen
+  weiterhin die Kampagnenprüfung.
+- **Spielstände.** Ein voller Rohstoffspeicher nimmt nur die freie
+  Menge auf. Nilis Restfracht bleibt erhalten. Der Test lädt einen
+  Bürger auf dem Rückweg und einen laufenden Fischfang erneut. Beide
+  Ladungen werden einmal eingelagert. Die älteren Vorräte lassen sich
+  mit dem erweiterten Warenverzeichnis laden.
+- **Handy-Ausgabe.** Die signierte APK verwendet dieselbe Paket-ID und
+  dasselbe Zertifikat wie die vorherige Handy-Fassung. Das Update auf
+  3.2.0 lief im Android-Emulator. Das Startmenü und der Einstieg in die
+  Abenteuerkampagne reagierten auf Touch. Der Tablet-Spielstand im
+  Emulator blieb bytegleich. Auf einem physischen S24 Ultra steht der
+  Durchlauf noch aus.
+
+Alle 48 Rust-Tests und Clippy mit `-D warnings` sind erfolgreich.
+[Abbauen und Abladen auf Kleions Ufer](bilder/handy-abenteuer.jpg)
+
 ## Handy-Ausgabe 3.1.0
 
 - **Oberfläche.** Das Handy-Layout wurde im Querformat 1300 × 600 geprüft.

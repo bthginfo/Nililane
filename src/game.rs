@@ -481,11 +481,8 @@ impl Game {
         self.message(message, if success { Cue::Aid } else { Cue::Blocked });
     }
 
-    pub(crate) fn harvest(&mut self, good: crate::adventure::Good, region: Region) {
-        self.message(
-            format!("+{} {}", good.harvest(), good.name(region)),
-            Cue::Harvest(good),
-        );
+    pub(crate) fn harvest(&mut self, good: crate::adventure::Good) {
+        self.cue = Some(Cue::Harvest(good));
     }
 
     pub(crate) fn adventure_built(&mut self, name: &'static str) {

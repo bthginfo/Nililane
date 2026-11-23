@@ -1,4 +1,5 @@
 mod levels;
+mod logistics;
 mod simulation;
 pub(crate) mod terrain;
 #[cfg(test)]
@@ -17,6 +18,7 @@ use crate::{
 };
 
 pub(crate) use levels::{LEVELS, Level};
+pub(crate) use logistics::{NILI_CAPACITY, RESOURCE_REACH};
 pub(crate) use simulation::{Build, Good, Island, Property, Quest, Task};
 pub(crate) use terrain::Terrain;
 
@@ -27,6 +29,7 @@ pub enum Target {
     Hall,
     Shrine,
     Relic,
+    Outpost,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,12 +45,16 @@ pub enum Command {
     Pause,
     Help,
     Map,
+    Storage,
     Labor,
     Inspect(Target),
     SetRoute(Target),
     ClearRoute,
     CameraView,
     Use(Target),
+    PackOrder,
+    ReturnOrder,
+    ClearStock(Good),
     Build(Build),
     Demolish,
     Remove,
@@ -69,6 +76,7 @@ pub enum Screen {
     Labor,
     Mission,
     Map,
+    Storage,
     Pause,
     Help,
     Finish,
@@ -107,12 +115,19 @@ pub struct Adventure {
     pub heading: f32,
     pub gait: f32,
     pub work_swing: f32,
+    pub harvesting: Option<Harvest>,
     pub walkthrough: bool,
-    work_clock: f32,
     hand_clock: f32,
     save_clock: f32,
     pointer: Option<ui::WalkPointer>,
     pub moved: bool,
+}
+
+#[derive(Clone, Copy)]
+pub struct Harvest {
+    pub site: usize,
+    pub left: f32,
+    pub duration: f32,
 }
 
 impl Default for Adventure {
@@ -129,7 +144,7 @@ impl Default for Adventure {
             let level = Level::at(index);
             let terrain = Terrain::new(level);
             if island.index != index
-                || island.lots.len() != level.plots()
+                || !(level.inland_plots()..=level.plots()).contains(&island.lots.len())
                 || !terrain.accessible(Vec2::from_array(island.position))
                 || !island.phase.is_finite()
                 || island.lots.iter().flatten().any(|property| {
@@ -139,17 +154,11 @@ impl Default for Adventure {
             {
                 *stored = None;
             } else {
+                island.lots.resize(level.plots(), None);
                 let max = usize::from(island.staff());
-                island.workers.retain(|job| match job {
-                    Task::Gather(i) => terrain.deposits.get(*i).is_some(),
-                    Task::Produce(i) => island
-                        .lots
-                        .get(*i)
-                        .copied()
-                        .flatten()
-                        .is_some_and(|p| p.kind.recipe(p.tier).is_some()),
-                });
-                island.workers.truncate(max);
+                island.validate_workers(&terrain, max);
+                island.prepare_logistics(&terrain);
+                island.prepare_production(&terrain);
             }
         }
         book.last = book
@@ -171,8 +180,8 @@ impl Default for Adventure {
             heading: 0.0,
             gait: 0.0,
             work_swing: 0.0,
+            harvesting: None,
             walkthrough: true,
-            work_clock: 0.0,
             hand_clock: 0.0,
             save_clock: 0.0,
             pointer: None,
@@ -222,22 +231,27 @@ impl Adventure {
 
     pub fn open(&mut self, index: usize, practice: bool) {
         let level = Level::at(index);
+        let terrain = Terrain::new(level);
         self.practice = practice.then(|| Island::new(level));
         if !practice {
             self.book.last = Some(index);
             self.book.islands[index].get_or_insert_with(|| Island::new(level));
         }
+        if let Some(island) = self.active_mut() {
+            island.prepare_logistics(&terrain);
+            island.prepare_production(&terrain);
+        }
         self.selected = index;
-        self.terrain = Some(Terrain::new(level));
+        self.terrain = Some(terrain);
         self.target = None;
         self.waypoint = None;
         self.map_zoom = 0.0;
         self.heading = 0.0;
-        self.work_clock = 0.0;
         self.hand_clock = 0.0;
         self.work_swing = 0.0;
+        self.harvesting = None;
         self.scene_change = None;
-        self.walkthrough = index == 0 || practice;
+        self.walkthrough = level.stage == 0 || practice;
     }
 
     fn save(&mut self, game: &mut Game) {
@@ -275,11 +289,19 @@ impl Adventure {
     pub fn target_position(&self, target: Target) -> Option<Vec2> {
         let terrain = self.terrain.as_ref()?;
         match target {
-            Target::Deposit(id) => terrain.deposits.get(id).map(|d| d.at),
+            Target::Deposit(id) => terrain
+                .deposits
+                .get(id)
+                .filter(|_| {
+                    self.active()
+                        .is_some_and(|island| island.remaining(terrain, id) > 0)
+                })
+                .map(|d| d.at),
             Target::Plot(id) => terrain.plots.get(id).copied(),
             Target::Hall => Some(Vec2::ZERO),
             Target::Shrine => Some(terrain.shrine),
             Target::Relic => Some(terrain.relic),
+            Target::Outpost => (terrain.level.order_count() > 0).then_some(terrain.outpost),
         }
     }
 
@@ -302,16 +324,7 @@ impl Adventure {
             return Some(preferred);
         }
         let here = Vec2::from_array(island.position);
-        let sites = (0..terrain.deposits.len())
-            .map(Target::Deposit)
-            .chain((0..terrain.plots.len()).map(Target::Plot))
-            .chain([Target::Hall])
-            .chain(
-                (terrain.level.plan().is_some() && island.quest != Quest::Finished)
-                    .then_some(Target::Shrine),
-            )
-            .chain((island.quest == Quest::Searching).then_some(Target::Relic));
-        sites
+        targets(terrain, island)
             .filter_map(|target| {
                 let gap = self.target_position(target)?.distance(here);
                 (gap <= reach(target)).then_some((gap, target))
@@ -323,16 +336,7 @@ impl Adventure {
     fn pick(&self, camera: &Camera, transform: &GlobalTransform, point: Vec2) -> Option<Target> {
         let terrain = self.terrain.as_ref()?;
         let island = self.active()?;
-        let sites = (0..terrain.deposits.len())
-            .map(Target::Deposit)
-            .chain((0..terrain.plots.len()).map(Target::Plot))
-            .chain([Target::Hall])
-            .chain(
-                (terrain.level.plan().is_some() && island.quest != Quest::Finished)
-                    .then_some(Target::Shrine),
-            )
-            .chain((island.quest == Quest::Searching).then_some(Target::Relic));
-        sites
+        targets(terrain, island)
             .filter_map(|target| {
                 let p = self.target_position(target)?;
                 let world = crate::world::adventure_position(terrain, p);
@@ -341,7 +345,7 @@ impl Adventure {
                         island.lots[lot].map_or(0.13, |p| 1.8 + f32::from(p.tier) * 0.21)
                     }
                     Target::Hall => 3.05,
-                    Target::Shrine => 2.9,
+                    Target::Shrine | Target::Outpost => 2.9,
                     Target::Relic => 1.15,
                     Target::Deposit(id) => {
                         if terrain.deposits[id].kind == Good::Wood {
@@ -393,6 +397,18 @@ impl Adventure {
         if terrain.level.stage != 0 || !self.walkthrough || island.completed {
             return None;
         }
+        if island.cargo.is_some() {
+            return Some((
+                "storehouse",
+                "Bring die Fracht zum Rathaus und lade sie dort ab.",
+                Target::Hall,
+            ));
+        }
+        let resource = |kind: Good, tip| {
+            island
+                .available_near(terrain, kind, Vec2::from_array(island.position))
+                .map(|site| (kind.icon(terrain.level.region), tip, Target::Deposit(site)))
+        };
         let home = Build::Harbor(terrain.level.home());
         let has_home = island.lots.iter().flatten().any(|p| p.kind == home);
         let woodwork = island
@@ -401,11 +417,7 @@ impl Adventure {
             .position(|p| p.is_some_and(|p| p.kind == Build::Sawmill));
         if has_home && let Some(lot) = woodwork {
             if island.amount(Good::Food) == 0 && island.amount(Good::Boards) < 8 {
-                return Some((
-                    "adventure_food",
-                    "Sammle etwas Essen für die Holzwerkstatt.",
-                    Target::Deposit(2),
-                ));
+                return resource(Good::Food, "Sammle Feldfrüchte für die Holzwerkstatt.");
             }
             if island.assignment(Task::Produce(lot)) == 0
                 && island.workers.len() >= usize::from(island.staff())
@@ -424,11 +436,7 @@ impl Adventure {
                 ));
             }
             if island.amount(Good::Wood) < 3 && island.amount(Good::Boards) < 8 {
-                return Some((
-                    "adventure_wood",
-                    "Holz hält die Werkstatt in Betrieb.",
-                    Target::Deposit(0),
-                ));
+                return resource(Good::Wood, "Holz hält die Werkstatt in Betrieb.");
             }
             let goal = terrain.level.requirements()[2].kind;
             if !island.lots.iter().flatten().any(|p| p.kind == goal) {
@@ -436,21 +444,13 @@ impl Adventure {
                     .lots
                     .iter()
                     .enumerate()
-                    .find(|(_, p)| p.is_none())
+                    .find(|(lot, p)| p.is_none() && goal.fits(terrain.level, *lot))
                     .map(|(i, _)| i)?;
                 if island.amount(Good::Wood) < 5 && island.amount(Good::Boards) >= 8 {
-                    return Some((
-                        "adventure_wood",
-                        "Sammle Holz für das letzte Gebäude.",
-                        Target::Deposit(0),
-                    ));
+                    return resource(Good::Wood, "Sammle Holz für das nächste Gebäude.");
                 }
                 if island.amount(Good::Stone) < 5 {
-                    return Some((
-                        "adventure_stone",
-                        "Sammle Stein für das letzte Gebäude.",
-                        Target::Deposit(1),
-                    ));
+                    return resource(Good::Stone, "Baue Stein für das nächste Gebäude ab.");
                 }
                 return Some((
                     "hammer",
@@ -470,21 +470,13 @@ impl Adventure {
             .iter()
             .any(|&(kind, n)| kind == Good::Wood && island.amount(kind) < n)
         {
-            return Some((
-                "adventure_wood",
-                "Geh zum Holz und sammle es ein.",
-                Target::Deposit(0),
-            ));
+            return resource(Good::Wood, "Geh zum Baum und wähle „Fällen“.");
         }
         if costs
             .iter()
             .any(|&(kind, n)| kind == Good::Stone && island.amount(kind) < n)
         {
-            return Some((
-                "adventure_stone",
-                "Geh zum Felsen und sammle Stein.",
-                Target::Deposit(1),
-            ));
+            return resource(Good::Stone, "Geh zum Felsen und wähle „Stein abbauen“.");
         }
         let lot = island
             .lots
@@ -506,9 +498,24 @@ impl Adventure {
     }
 }
 
+fn targets(terrain: &Terrain, island: &Island) -> impl Iterator<Item = Target> {
+    (0..terrain.deposits.len())
+        .map(Target::Deposit)
+        .chain((0..terrain.plots.len()).map(Target::Plot))
+        .chain([Target::Hall])
+        .chain(
+            (terrain.level.plan().is_some() && island.quest != Quest::Finished)
+                .then_some(Target::Shrine),
+        )
+        .chain((island.quest == Quest::Searching).then_some(Target::Relic))
+        .chain((terrain.level.order_count() > 0).then_some(Target::Outpost))
+}
+
 fn reach(target: Target) -> f32 {
     match target {
-        Target::Plot(_) | Target::Hall | Target::Shrine => 2.9,
+        Target::Plot(_) | Target::Shrine | Target::Outpost => 2.9,
+        Target::Hall => 3.75,
+        Target::Deposit(_) => RESOURCE_REACH,
         _ => 2.4,
     }
 }
@@ -600,6 +607,24 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
         Command::Pause => close(game, adventure, Screen::Pause),
         Command::Help => close(game, adventure, Screen::Help),
         Command::Map => close(game, adventure, Screen::Map),
+        Command::Storage => close(game, adventure, Screen::Storage),
+        Command::ClearStock(good) => {
+            if adventure.screen != Screen::Storage {
+                return;
+            }
+            let level = Level::at(adventure.selected);
+            if let Some(island) = adventure.active_mut() {
+                let count = island.discard_stock(good);
+                if count > 0 {
+                    game.adventure_notice(
+                        format!("{count} {} aus dem Lager genommen", good.name(level.region)),
+                        true,
+                    );
+                    game.dirty = true;
+                    adventure.save(game);
+                }
+            }
+        }
         Command::Labor => close(game, adventure, Screen::Labor),
         Command::SetRoute(target) => {
             if adventure.target_position(target).is_some() {
@@ -644,9 +669,14 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
                     }
                 }
                 Target::Deposit(id) => close(game, adventure, Screen::Resource(id)),
-                Target::Hall | Target::Shrine | Target::Relic => {
+                Target::Hall | Target::Shrine | Target::Relic | Target::Outpost => {
                     adventure.target = Some(target);
                     close(game, adventure, Screen::Mission);
+                    adventure.group = match target {
+                        Target::Outpost => 1,
+                        Target::Shrine | Target::Relic => 2,
+                        _ => 0,
+                    };
                 }
             }
         }
@@ -657,33 +687,68 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
             let Some(terrain) = adventure.terrain.as_ref() else {
                 return;
             };
-            let deposit = match target {
-                Target::Deposit(i) => terrain.deposits.get(i).map(|d| d.kind),
-                _ => None,
-            };
             let level = terrain.level;
-            if deposit.is_some() && adventure.hand_clock > 0.0 {
+            if let Target::Deposit(site) = target {
+                let kind = terrain.deposits[site].kind;
+                if adventure.harvesting.is_some() || adventure.hand_clock > 0.0 {
+                    return;
+                }
+                let Some(island) = adventure.active() else {
+                    return;
+                };
+                if island.room_for(kind) == 0 {
+                    game.adventure_notice("Lade zuerst deine Fracht ab.", false);
+                    return;
+                }
+                let focus = terrain.deposits[site].at - Vec2::from_array(island.position);
+                if focus.length_squared() > 0.01 {
+                    adventure.heading = focus.x.atan2(focus.y);
+                }
+                let duration = kind.work_seconds();
+                adventure.harvesting = Some(Harvest {
+                    site,
+                    left: duration,
+                    duration,
+                });
+                if adventure.screen == Screen::Walk {
+                    adventure.moved = false;
+                    game.dirty = true;
+                } else {
+                    close(game, adventure, Screen::Walk);
+                }
+                game.harvest(kind);
                 return;
             }
-            let at = adventure.target_position(target);
             let Some(island) = adventure.active_mut() else {
                 return;
             };
             match target {
-                Target::Deposit(_) if let Some(kind) = deposit => {
-                    let focus = at.map_or(Vec2::ZERO, |at| at - Vec2::from_array(island.position));
-                    island.gather(kind);
-                    if focus.length_squared() > 0.01 {
-                        adventure.heading = focus.x.atan2(focus.y);
-                    }
-                    adventure.hand_clock = 0.28;
-                    adventure.work_swing = 0.46;
-                    game.harvest(kind, level.region);
-                    if adventure.waypoint == Some(target) {
-                        adventure.waypoint = None;
-                    }
+                Target::Hall if island.cargo.is_some() => {
+                    let Some(load) = island.unload() else {
+                        game.adventure_notice(
+                            "Rohstofflager voll. Schaffe Platz oder baue einen Speicher.",
+                            false,
+                        );
+                        game.dirty = true;
+                        return;
+                    };
+                    adventure.waypoint = island.cargo.map(|_| Target::Hall);
+                    close(game, adventure, Screen::Walk);
+                    game.adventure_notice(
+                        format!(
+                            "+{} {} im Rathaus",
+                            load.units,
+                            load.kind.name(level.region)
+                        ),
+                        true,
+                    );
                 }
-                Target::Hall | Target::Plot(_) => {
+                Target::Outpost if island.deliver_order(level) => {
+                    adventure.waypoint = None;
+                    close(game, adventure, Screen::Walk);
+                    game.adventure_notice("Lieferung angekommen", true);
+                }
+                Target::Hall | Target::Plot(_) | Target::Outpost => {
                     act(Command::Inspect(target), adventure, game, save);
                     return;
                 }
@@ -705,6 +770,32 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
             }
             game.dirty = true;
             adventure.save(game);
+        }
+        Command::PackOrder | Command::ReturnOrder => {
+            if !adventure.close_enough(Target::Hall) {
+                return;
+            }
+            let level = Level::at(adventure.selected);
+            let Some(island) = adventure.active_mut() else {
+                return;
+            };
+            let packing = command == Command::PackOrder;
+            let changed = if packing {
+                island.pack_order(level)
+            } else {
+                island.return_order(level)
+            };
+            if changed {
+                adventure.waypoint = packing.then_some(Target::Outpost);
+                close(game, adventure, Screen::Walk);
+                let message = if packing {
+                    "Fracht gepackt. Folge der Markierung."
+                } else {
+                    "Fracht wieder eingelagert."
+                };
+                game.adventure_notice(message, true);
+                adventure.save(game);
+            }
         }
         Command::Build(kind) => {
             let Screen::Lot(lot) = adventure.screen else {
@@ -735,6 +826,7 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
         Command::Group(group) => {
             adventure.group = group.min(2);
             adventure.page = 0;
+            game.scroll_y = 0.0;
             game.dirty = true;
         }
         Command::Page(page) => {
@@ -750,14 +842,43 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
             let Screen::Demolish(lot) = adventure.screen else {
                 return;
             };
+            if adventure
+                .active()
+                .is_some_and(|island| island.batch(lot).is_some())
+            {
+                game.adventure_notice("Der Betrieb hat noch einen laufenden Arbeitsgang.", false);
+                return;
+            }
             if let Some(island) = adventure.active_mut()
                 && let Some(property) = island.lots[lot].take()
             {
-                for (good, n) in property.kind.cost(1) {
+                if matches!(property.kind, Build::Harbor(kind) if crate::model::Building::new(kind).residents() > 0)
+                    && island.workers.len() > usize::from(island.staff())
+                {
+                    island.lots[lot] = Some(property);
+                    game.adventure_notice(
+                        "Stelle zuerst Bürger frei, bevor du das Wohnhaus abreißt.",
+                        false,
+                    );
+                    return;
+                }
+                let refunds = property.kind.cost(1);
+                let raw_refund: u16 = refunds
+                    .iter()
+                    .filter(|(good, _)| good.uses_storage())
+                    .map(|(_, units)| units / 2)
+                    .sum();
+                if raw_refund > island.free_storage()
+                    || island.raw_stock() > island.storage_capacity()
+                {
+                    island.lots[lot] = Some(property);
+                    game.adventure_notice("Schaffe zuerst Platz im Rohstofflager.", false);
+                    return;
+                }
+                for (good, n) in refunds {
                     island.add(good, n / 2);
                 }
-                island.workers.retain(|job| *job != Task::Produce(lot));
-                island.workers.truncate(usize::from(island.staff()));
+                while island.unassign(Task::Produce(lot)) {}
                 adventure.save(game);
                 close(game, adventure, Screen::Walk);
             }
@@ -781,13 +902,14 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
         Command::Work(lot) => {
             if adventure.close_enough(Target::Plot(lot))
                 && adventure.hand_clock <= 0.0
+                && let Some(map) = adventure.terrain.clone()
                 && adventure
                     .active_mut()
-                    .is_some_and(|island| island.produce(lot))
+                    .is_some_and(|island| island.start_production(&map, lot))
             {
                 adventure.hand_clock = 1.45;
                 adventure.work_swing = 0.46;
-                game.adventure_notice("Waren eingelagert", true);
+                game.adventure_notice("Produktion gestartet", true);
                 game.dirty = true;
                 adventure.save(game);
             }
@@ -863,7 +985,9 @@ pub(crate) fn first(a: &Adventure) -> Option<Action> {
                 }
             } else {
                 let ready = |plan: Build| {
-                    !island.locked(terrain.level, plan, 1) && island.ready(&plan.cost(1))
+                    plan.fits(terrain.level, lot)
+                        && !island.locked(terrain.level, plan, 1)
+                        && island.ready(&plan.cost(1))
                 };
                 let plans: Vec<_> = Build::all(terrain.level)
                     .into_iter()
@@ -880,7 +1004,11 @@ pub(crate) fn first(a: &Adventure) -> Option<Action> {
         Screen::Atlas => Command::Start,
         Screen::Walk => return None,
         Screen::Brief => Command::Close,
-        Screen::Demolish(_) | Screen::Resource(_) | Screen::Labor | Screen::Map => Command::Close,
+        Screen::Demolish(_)
+        | Screen::Resource(_)
+        | Screen::Labor
+        | Screen::Map
+        | Screen::Storage => Command::Close,
         Screen::Mission => match a.target {
             Some(target @ (Target::Shrine | Target::Relic))
                 if a.close_enough(target)
@@ -984,11 +1112,20 @@ pub fn step(
     if controls.got(controls::LB) {
         adventure.map_zoom = 0.0;
     }
+    if adventure.harvesting.is_some() {
+        game.walk_axis = Vec2::ZERO;
+        adventure.moved = false;
+        return;
+    }
     let touch = ui::walk_input(pad, window, touches, mouse, &mut adventure.pointer);
     game.phone_walk(touch);
     let axis = (controls.walk + touch).clamp_length_max(1.0);
     game.walk_axis = axis;
-    let delta = Vec2::new(axis.x + axis.y * 0.115, axis.y - axis.x * 0.115) * 5.4 * dt;
+    let carrying = adventure
+        .active()
+        .is_some_and(|island| island.cargo.is_some() || island.shipment.is_some());
+    let speed = if carrying { 4.75 } else { 5.4 };
+    let delta = Vec2::new(axis.x + axis.y * 0.115, axis.y - axis.x * 0.115) * speed * dt;
     adventure.moved = false;
     if axis.length_squared() > 0.02
         && let Some(terrain) = adventure.terrain.as_ref()
@@ -1056,6 +1193,7 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
             | Screen::Labor
             | Screen::Mission
             | Screen::Map
+            | Screen::Storage
     ) || game.panel != Panel::None
     {
         return;
@@ -1063,8 +1201,14 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
     let dt = dt.min(0.18);
     adventure.hand_clock = (adventure.hand_clock - dt).max(0.0);
     adventure.work_swing = (adventure.work_swing - dt).max(0.0);
-    adventure.work_clock += dt;
     adventure.save_clock += dt;
+    let finished = if let Some(harvest) = &mut adventure.harvesting {
+        harvest.left = (harvest.left - dt).max(0.0);
+        harvest.left == 0.0
+    } else {
+        false
+    };
+    let harvested = finished.then(|| adventure.harvesting.take().unwrap());
     let Some(terrain) = adventure.terrain.as_ref() else {
         return;
     };
@@ -1082,16 +1226,31 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
     let was_night = night(island.phase);
     island.phase = (island.phase + dt / 208.0).rem_euclid(1.0);
     game.dirty |= was_night != night(island.phase);
-    if adventure.work_clock >= 5.7 {
-        adventure.work_clock -= 5.7;
-        let before = island.stores;
-        island.tick_work(terrain);
-        if before != island.stores {
-            game.dirty = true;
-            check_victory(adventure, game, save);
+    let before = island.stores;
+    if let Some(harvest) = harvested {
+        game.dirty = true;
+        if let Some(load) = island.carry_resource(terrain, harvest.site) {
+            adventure.waypoint = Some(Target::Hall);
+            game.adventure_notice(
+                format!(
+                    "{} {} geladen · zum Rathaus",
+                    load.units,
+                    load.kind.name(terrain.level.region)
+                ),
+                true,
+            );
+        } else {
+            adventure.waypoint = None;
+            game.adventure_notice("Diese Rohstoffstelle ist erschöpft.", false);
         }
     }
-    if adventure.save_clock >= 8.0 {
+    game.dirty |= island.tick_hauling(terrain, dt);
+    game.dirty |= island.tick_production(terrain, dt);
+    if before != island.stores {
+        game.dirty = true;
+        check_victory(adventure, game, save);
+    }
+    if harvested.is_some() || adventure.save_clock >= 8.0 {
         adventure.save(game);
     }
 }

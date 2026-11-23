@@ -24,6 +24,12 @@ pub struct Requirement {
     pub tier: u8,
 }
 
+#[derive(Clone, Copy)]
+pub struct SupplyOrder {
+    pub title: &'static str,
+    pub goods: [(Good, u16); 2],
+}
+
 const NAMES: [[(&str, &str); CORE_HARBORS]; Region::ALL.len()] = [
     [
         ("Kleions Ufer", "Erste Häuser an der geschützten Bucht"),
@@ -221,8 +227,16 @@ impl Level {
         73.0 + self.stage as f32 * 7.0 + self.region as usize as f32 * 4.5
     }
 
-    pub fn plots(self) -> usize {
+    pub fn inland_plots(self) -> usize {
         10 + self.stage * 2
+    }
+
+    pub fn plots(self) -> usize {
+        self.inland_plots() + if self.region == Region::Nordic { 2 } else { 0 }
+    }
+
+    pub fn coastal(self, lot: usize) -> bool {
+        self.region == Region::Nordic && (self.inland_plots()..self.plots()).contains(&lot)
     }
 
     pub fn requirements(self) -> [Requirement; 3] {
@@ -348,7 +362,105 @@ impl Level {
     }
 
     pub fn goals(self) -> impl Iterator<Item = Requirement> {
-        self.requirements().into_iter().chain(self.support())
+        let [_, workshop, special] = self.requirements();
+        let well = Build::Harbor(self.well());
+        let utilities = (self.stage >= 1 && workshop.kind != well).then_some(Requirement {
+            kind: well,
+            count: 1,
+            tier: if self.stage >= 8 { 2 } else { 1 },
+        });
+        let mill = (self.stage >= 5 && workshop.kind != Build::Sawmill).then_some(Requirement {
+            kind: Build::Sawmill,
+            count: 1,
+            tier: if self.stage >= 10 { 3 } else { 2 },
+        });
+        let storehouse = Build::Harbor(Kind::Storehouse);
+        let warehouse = (self.stage >= 3 && special.kind != storehouse).then_some(Requirement {
+            kind: storehouse,
+            count: 1,
+            tier: if self.stage >= 9 { 2 } else { 1 },
+        });
+        self.requirements()
+            .into_iter()
+            .chain(self.support())
+            .chain(utilities)
+            .chain(mill)
+            .chain(warehouse)
+    }
+
+    pub fn order_count(self) -> u8 {
+        match self.stage {
+            0 => 0,
+            1..=5 => 1,
+            6..=9 => 2,
+            _ => 3,
+        }
+    }
+
+    pub fn outpost(self) -> &'static str {
+        match self.region {
+            Region::Greece => "Küstenposten",
+            Region::Rome => "Wachstation",
+            Region::Japan => "Wegstation",
+            Region::Nordic => "Küstenschutzhaus",
+            Region::Oasis => "Rastplatz der Karawane",
+        }
+    }
+
+    pub fn order(self, index: u8) -> Option<SupplyOrder> {
+        use Good::*;
+        if index >= self.order_count() {
+            return None;
+        }
+        let scale = self.stage as u16;
+        let (title, goods) = match (index, self.stage, self.region) {
+            (0, 1, _) => ("Vorräte für die erste Schicht", [(Boards, 8), (Meals, 6)]),
+            (0, 2, _) => (
+                "Den Anleger ausbessern",
+                [(Boards, 8 + scale), (Bricks, 6 + scale)],
+            ),
+            (0, 3, _) => (
+                "Werkzeug für die Bauleute",
+                [(Boards, 7 + scale), (Tools, 4 + scale)],
+            ),
+            (0, _, Region::Greece) => (
+                "Proviant für die Küstenwache",
+                [(Meals, 6 + scale), (Oil, 5 + scale)],
+            ),
+            (0, 4 | 8 | 10, Region::Rome) => (
+                "Mehl für die Wachstation",
+                [(Flour, 8 + scale), (Boards, 5 + scale)],
+            ),
+            (0, _, Region::Rome) => (
+                "Die Wachstation instand setzen",
+                [(Bricks, 8 + scale), (Tools, 4 + scale)],
+            ),
+            (0, _, Region::Japan) => (
+                "Die Wegstation einrichten",
+                [(Boards, 8 + scale), (Paper, 5 + scale)],
+            ),
+            (0, _, Region::Nordic) => (
+                "Wintervorräte anlegen",
+                [(Cloth, 6 + scale), (Fish, 7 + scale)],
+            ),
+            (0, _, Region::Oasis) => (
+                "Die Karawane versorgen",
+                [(Water, 14 + scale), (Perfume, 5 + scale)],
+            ),
+            (1, _, _) => (
+                "Den Außenposten wetterfest machen",
+                [(Boards, 9 + scale), (Tools, 4 + scale)],
+            ),
+            (_, _, Region::Rome) => (
+                "Werkzeug für die nächste Reise",
+                [(Craft, 6 + scale), (Tools, 5 + scale)],
+            ),
+            _ => (
+                "Waren für die nächste Reise",
+                [(Craft, 6 + scale), (Cloth, 5 + scale)],
+            ),
+        };
+        Some(SupplyOrder { title, goods })
     }
 
     pub fn plan(self) -> Option<Build> {
@@ -364,7 +476,7 @@ impl Level {
             7 => Some(match self.region {
                 Region::Greece => (Good::Meals, 12),
                 Region::Rome => (Good::Bricks, 12),
-                Region::Japan => (Good::Craft, 12),
+                Region::Japan => (Good::Paper, 12),
                 Region::Nordic => (Good::Boards, 16),
                 Region::Oasis => (Good::Water, 20),
             }),

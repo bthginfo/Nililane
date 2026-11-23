@@ -2,10 +2,13 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::levels::{Level, Requirement};
+use super::logistics::{Cargo, Haul};
 use crate::{
     campaign::{CHAPTERS, REGION_SIZE, Region},
     model::Kind,
 };
+
+pub const HALL_STORAGE: u16 = 48;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Good {
@@ -23,6 +26,11 @@ pub enum Good {
     Craft,
     Cloth,
     Fiber,
+    Fish,
+    Oil,
+    Flour,
+    Paper,
+    Perfume,
 }
 
 impl Good {
@@ -34,7 +42,7 @@ impl Good {
         Self::Food,
         Self::Local,
     ];
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 19] = [
         Self::Wood,
         Self::Stone,
         Self::Clay,
@@ -49,13 +57,66 @@ impl Good {
         Self::Craft,
         Self::Cloth,
         Self::Fiber,
+        Self::Fish,
+        Self::Oil,
+        Self::Flour,
+        Self::Paper,
+        Self::Perfume,
     ];
 
-    pub fn harvest(self) -> u16 {
-        if matches!(self, Self::Ore | Self::Local) {
-            3
-        } else {
-            5
+    pub fn present_in(self, region: Region) -> bool {
+        match self {
+            Self::Oil => region == Region::Greece,
+            Self::Flour => region == Region::Rome,
+            Self::Paper => region == Region::Japan,
+            Self::Fish => region == Region::Nordic,
+            Self::Perfume => region == Region::Oasis,
+            _ => true,
+        }
+    }
+
+    pub fn uses_storage(self) -> bool {
+        Self::RAW.contains(&self) || self == Self::Fish
+    }
+
+    pub fn work_seconds(self) -> f32 {
+        match self {
+            Self::Wood => 2.35,
+            Self::Stone | Self::Ore => 2.8,
+            Self::Clay => 2.1,
+            _ => 1.65,
+        }
+    }
+
+    pub fn gather_action(self) -> &'static str {
+        match self {
+            Self::Wood => "Fällen",
+            Self::Stone => "Stein abbauen",
+            Self::Ore => "Erz abbauen",
+            Self::Clay => "Lehm stechen",
+            _ => "Sammeln",
+        }
+    }
+
+    pub fn district_name(self) -> &'static str {
+        match self {
+            Self::Wood => "Wald",
+            Self::Stone => "Steinbruch",
+            Self::Clay => "Lehmfeld",
+            Self::Ore => "Mine",
+            Self::Food => "Sammelgebiet",
+            _ => "Regionale Fundstelle",
+        }
+    }
+
+    pub fn district_color(self) -> [u8; 3] {
+        match self {
+            Self::Wood => [96, 130, 79],
+            Self::Stone => [167, 163, 146],
+            Self::Clay => [182, 129, 91],
+            Self::Ore => [142, 126, 134],
+            Self::Food => [168, 171, 106],
+            _ => [142, 157, 99],
         }
     }
 
@@ -78,7 +139,7 @@ impl Good {
                 Region::Greece => "Feldfrüchte",
                 Region::Rome => "Getreide",
                 Region::Japan => "Wildreis",
-                Region::Nordic => "Fisch und Beeren",
+                Region::Nordic => "Wildbeeren",
                 Region::Oasis => "Datteln",
             },
             Self::Water => "Wasser",
@@ -96,6 +157,11 @@ impl Good {
             Self::Craft => "Handelswaren",
             Self::Cloth => "Gewebe",
             Self::Fiber => "Fasern",
+            Self::Fish => "Fisch",
+            Self::Oil => "Olivenöl",
+            Self::Flour => "Mehl",
+            Self::Paper => "Papier",
+            Self::Perfume => "Duftöl",
         }
     }
 
@@ -121,6 +187,11 @@ impl Good {
             Self::Craft => "adventure_craft",
             Self::Cloth => "adventure_cloth",
             Self::Fiber => "woodlot",
+            Self::Fish => "fishery",
+            Self::Oil => "press",
+            Self::Flour => "mill",
+            Self::Paper => "paper_workshop",
+            Self::Perfume => "perfumer",
         }
     }
 }
@@ -134,6 +205,10 @@ pub enum Build {
 }
 
 impl Build {
+    pub fn fits(self, level: Level, lot: usize) -> bool {
+        self != Self::Harbor(Kind::Fishery) || level.coastal(lot)
+    }
+
     pub fn name(self, region: Region) -> &'static str {
         match self {
             Self::Harbor(kind) => kind.name(),
@@ -166,6 +241,7 @@ impl Build {
             Self::Harbor(level.home()),
             Self::Sawmill,
             Self::Harbor(level.well()),
+            Self::Harbor(Kind::Storehouse),
             Self::Brickyard,
             Self::Forge,
         ];
@@ -183,6 +259,7 @@ impl Build {
     pub fn page(self) -> u8 {
         match self {
             Self::Sawmill | Self::Brickyard | Self::Forge => 0,
+            Self::Harbor(Kind::Storehouse) => 0,
             Self::Harbor(k)
                 if k.water_source() || crate::model::Building::new(k).residents() > 0 =>
             {
@@ -224,6 +301,7 @@ impl Build {
             Self::Sawmill => vec![(Wood, 7), (Stone, 4)],
             Self::Brickyard => vec![(Wood, 5), (Boards, 4), (Stone, 5), (Clay, 4)],
             Self::Forge => vec![(Boards, 6), (Bricks, 5), (Stone, 5)],
+            Self::Harbor(Kind::Storehouse) => vec![(Wood, 6), (Stone, 5)],
             Self::Harbor(kind) if crate::model::Building::new(kind).residents() > 0 => {
                 vec![(Wood, 6), (Stone, 4)]
             }
@@ -244,48 +322,96 @@ impl Build {
         }
     }
 
-    pub fn recipe(self, tier: u8) -> Option<Recipe> {
+    pub fn recipe(self, tier: u8, region: Region) -> Option<Recipe> {
         use Good::*;
         use Kind::*;
         let t = u16::from(tier);
         let (need, output) = match self {
+            Self::Sawmill if tier >= 3 => (vec![(Wood, 3), (Meals, 1)], (Boards, 5 + t)),
             Self::Sawmill => (vec![(Wood, 2), (Food, 1)], (Boards, 3 + t)),
+            Self::Brickyard if tier >= 3 => (
+                vec![(Clay, 3), (Wood, 1), (Water, 1), (Meals, 1)],
+                (Bricks, 5 + t),
+            ),
             Self::Brickyard => (vec![(Clay, 3), (Wood, 1), (Water, 1)], (Bricks, 3 + t)),
+            Self::Forge if tier >= 3 => (vec![(Ore, 2), (Wood, 1), (Meals, 1)], (Tools, 3 + t)),
             Self::Forge => (vec![(Ore, 2), (Wood, 1), (Food, 1)], (Tools, 2 + t)),
+            Self::Harbor(Qanat | Aqueduct) => (vec![], (Water, 6 + t * 3)),
             Self::Harbor(kind) if kind.water_source() => (vec![], (Water, 3 + t * 2)),
-            Self::Harbor(
-                Bakery | Taverna | RiceKitchen | Smokehouse | FeastHall | Caravanserai,
-            ) => (vec![(Food, 2), (Water, 1)], (Meals, 3 + t)),
+            Self::Harbor(Fishery) => (vec![(Food, 1)], (Fish, 3 + t)),
+            Self::Harbor(Smokehouse) => (vec![(Fish, 2), (Wood, 1)], (Meals, 3 + t)),
+            Self::Harbor(FeastHall) => (vec![(Fish, 2), (Water, 1)], (Meals, 4 + t)),
+            Self::Harbor(Bakery) if region == Region::Rome => {
+                (vec![(Flour, 2), (Water, 1)], (Meals, 3 + t))
+            }
+            Self::Harbor(Bakery | Taverna | RiceKitchen | Caravanserai) => {
+                (vec![(Food, 2), (Water, 1)], (Meals, 3 + t))
+            }
             Self::Harbor(TeaHouse) => (vec![(Local, 1), (Water, 2)], (Meals, 3 + t)),
-            Self::Harbor(Fishery | DateGarden | RicePaddy | MarketGarden) => {
+            Self::Harbor(DateGarden | RicePaddy | MarketGarden) => {
                 (vec![(Water, 1)], (Food, 3 + t))
             }
             Self::Harbor(Apiary) => (vec![(Local, 1), (Water, 1)], (Food, 3 + t)),
             Self::Harbor(Grove | HerbGarden | TeaGarden) => (vec![(Water, 1)], (Local, 3 + t)),
             Self::Harbor(Sheepfold) => (vec![(Food, 1), (Water, 1)], (Fiber, 3 + t)),
             Self::Harbor(Woodlot) => (vec![(Food, 1)], (Wood, 3 + t)),
+            Self::Harbor(Mill) if region == Region::Rome => (vec![(Food, 2)], (Flour, 3 + t)),
             Self::Harbor(Mill) => (vec![(Food, 2)], (Meals, 2 + t)),
             Self::Harbor(Weaver) => (vec![(Fiber, 2), (Local, 1)], (Cloth, 3 + t)),
             Self::Harbor(SilkShop | CarpetHall | Dyer) => {
                 (vec![(Local, 2), (Water, 1), (Food, 1)], (Cloth, 2 + t))
             }
-            Self::Harbor(Press | Perfumer) => {
-                (vec![(Food, 1), (Local, 2), (Water, 1)], (Craft, 3 + t))
-            }
-            Self::Harbor(Scribe | PaperWorkshop) => (vec![(Local, 2), (Wood, 1)], (Craft, 3 + t)),
+            Self::Harbor(Press) => (vec![(Local, 2), (Water, 1)], (Oil, 3 + t)),
+            Self::Harbor(Perfumer) => (vec![(Food, 1), (Local, 2), (Water, 1)], (Perfume, 3 + t)),
+            Self::Harbor(SpiceBazaar) => (vec![(Food, 1), (Local, 2)], (Craft, 3 + t)),
+            Self::Harbor(PaperWorkshop) => (vec![(Local, 2), (Water, 1)], (Paper, 3 + t)),
+            Self::Harbor(Scribe) => (vec![(Local, 2), (Wood, 1)], (Craft, 3 + t)),
             Self::Harbor(Potter | CeramicStudio) => (vec![(Wood, 1), (Clay, 2)], (Craft, 3 + t)),
             Self::Harbor(Cooperage) => (vec![(Boards, 2), (Tools, 1)], (Craft, 3 + t)),
             Self::Harbor(Glassworks) => (vec![(Stone, 2), (Wood, 1), (Water, 1)], (Craft, 3 + t)),
             Self::Harbor(Boatyard) => (vec![(Boards, 2), (Food, 1)], (Craft, 3 + t)),
             Self::Harbor(_) => return None,
         };
-        Some(Recipe { need, output })
+        let base = match output.0 {
+            Water => 4.0,
+            Food | Local | Wood | Fiber => 7.0,
+            Boards => 8.0,
+            Meals => 10.0,
+            Flour => 9.0,
+            Oil | Paper => 13.0,
+            Perfume => 20.0,
+            Bricks => 14.0,
+            Tools | Craft => 19.0,
+            Cloth => 23.0,
+            Fish => 18.0,
+            _ => 8.0,
+        };
+        Some(Recipe {
+            need,
+            output,
+            seconds: base + f32::from(tier.saturating_sub(1)) * 0.85,
+        })
     }
 }
 
 pub struct Recipe {
     pub need: Vec<(Good, u16)>,
     pub output: (Good, u16),
+    pub seconds: f32,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct Production {
+    pub output: Cargo,
+    pub duration: f32,
+    pub left: f32,
+    pub fishing: Option<usize>,
+}
+
+impl Production {
+    pub fn progress(self) -> f32 {
+        (1.0 - self.left / self.duration).clamp(0.0, 1.0)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -304,6 +430,39 @@ pub struct Property {
 pub struct Deposit {
     pub kind: Good,
     pub at: Vec2,
+    pub scenery: Option<Scenery>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Scenery {
+    pub seed: u32,
+    pub size: f32,
+}
+
+impl Deposit {
+    pub fn new(kind: Good, at: Vec2) -> Self {
+        Self {
+            kind,
+            at,
+            scenery: None,
+        }
+    }
+
+    pub fn units(self) -> u16 {
+        if let Some(scenery) = self.scenery {
+            let amount = match self.kind {
+                Good::Wood => 7,
+                _ => 5,
+            };
+            return amount + (scenery.seed % 4) as u16;
+        }
+        match self.kind {
+            Good::Stone => 8,
+            Good::Ore => 16,
+            Good::Clay => 18,
+            _ => 10,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -320,12 +479,38 @@ pub enum Quest {
 pub struct Island {
     pub index: usize,
     pub lots: Vec<Option<Property>>,
+    #[serde(deserialize_with = "load_stores")]
     pub stores: [u16; Good::ALL.len()],
     pub workers: Vec<Task>,
     pub position: [f32; 2],
     pub phase: f32,
     pub quest: Quest,
     pub completed: bool,
+    #[serde(default)]
+    pub remaining: Vec<u16>,
+    #[serde(default)]
+    pub cargo: Option<Cargo>,
+    #[serde(default)]
+    pub hauls: Vec<Haul>,
+    #[serde(default)]
+    pub orders_delivered: u8,
+    #[serde(default)]
+    pub shipment: Option<u8>,
+    #[serde(default)]
+    pub batches: Vec<Option<Production>>,
+    #[serde(default)]
+    pub fish_left: Vec<u16>,
+}
+
+fn load_stores<'de, D: serde::Deserializer<'de>>(
+    input: D,
+) -> Result<[u16; Good::ALL.len()], D::Error> {
+    let saved = Vec::<u16>::deserialize(input)?;
+    let mut stores = [0; Good::ALL.len()];
+    for (slot, count) in stores.iter_mut().zip(saved) {
+        *slot = count;
+    }
+    Ok(stores)
 }
 
 impl Island {
@@ -339,11 +524,54 @@ impl Island {
             phase: 0.36,
             quest: Quest::Unheard,
             completed: false,
+            remaining: Vec::new(),
+            cargo: None,
+            hauls: Vec::new(),
+            orders_delivered: 0,
+            shipment: None,
+            batches: vec![None; level.plots()],
+            fish_left: Vec::new(),
         }
     }
 
     pub fn amount(&self, kind: Good) -> u16 {
         self.stores[kind as usize]
+    }
+
+    pub fn warehouse_capacity(tier: u8) -> u16 {
+        36 + u16::from(tier.saturating_sub(1)) * 24
+    }
+
+    pub fn storage_capacity(&self) -> u16 {
+        HALL_STORAGE
+            + self
+                .lots
+                .iter()
+                .flatten()
+                .filter(|p| p.kind == Build::Harbor(Kind::Storehouse))
+                .map(|p| Self::warehouse_capacity(p.tier))
+                .sum::<u16>()
+    }
+
+    pub fn raw_stock(&self) -> u16 {
+        Good::ALL
+            .into_iter()
+            .filter(|good| good.uses_storage())
+            .map(|good| self.amount(good))
+            .fold(0, u16::saturating_add)
+    }
+
+    pub fn free_storage(&self) -> u16 {
+        self.storage_capacity().saturating_sub(self.raw_stock())
+    }
+
+    pub fn discard_stock(&mut self, good: Good) -> u16 {
+        if !good.uses_storage() {
+            return 0;
+        }
+        let units = self.amount(good).min(5);
+        self.stores[good as usize] -= units;
+        units
     }
 
     pub fn staff(&self) -> u16 {
@@ -390,6 +618,9 @@ impl Island {
         }) {
             return false;
         }
+        if prev.is_none() && !kind.fits(level, lot) {
+            return false;
+        }
         let tier = prev.map_or(1, |p| p.tier + 1);
         let costs = kind.cost(tier);
         if self.locked(level, kind, tier)
@@ -417,12 +648,60 @@ impl Island {
         true
     }
 
-    pub fn add(&mut self, good: Good, units: u16) {
-        self.stores[good as usize] = self.amount(good).saturating_add(units);
+    pub fn pack_order(&mut self, level: Level) -> bool {
+        let Some(order) = level.order(self.orders_delivered) else {
+            return false;
+        };
+        if self.cargo.is_some() || self.shipment.is_some() || !self.ready(&order.goods) {
+            return false;
+        }
+        for (kind, units) in order.goods {
+            self.stores[kind as usize] -= units;
+        }
+        self.shipment = Some(self.orders_delivered);
+        true
     }
 
-    pub fn gather(&mut self, good: Good) {
-        self.add(good, good.harvest());
+    pub fn return_order(&mut self, level: Level) -> bool {
+        let Some(order) = self.shipment.and_then(|index| level.order(index)) else {
+            return false;
+        };
+        let space: u16 = order
+            .goods
+            .into_iter()
+            .filter(|(good, _)| good.uses_storage())
+            .map(|(_, count)| count)
+            .sum();
+        if space > self.free_storage() {
+            return false;
+        }
+        self.shipment = None;
+        for (kind, units) in order.goods {
+            self.add(kind, units);
+        }
+        true
+    }
+
+    pub fn deliver_order(&mut self, level: Level) -> bool {
+        if self.shipment != Some(self.orders_delivered)
+            || level.order(self.orders_delivered).is_none()
+        {
+            return false;
+        }
+        self.shipment = None;
+        self.orders_delivered += 1;
+        true
+    }
+
+    pub fn add(&mut self, good: Good, units: u16) -> u16 {
+        let space = if good.uses_storage() {
+            self.free_storage()
+        } else {
+            u16::MAX - self.amount(good)
+        };
+        let stored = units.min(space);
+        self.stores[good as usize] += stored;
+        stored
     }
 
     pub fn assignment(&self, task: Task) -> usize {
@@ -431,64 +710,183 @@ impl Island {
 
     pub fn assign(&mut self, task: Task, layout: &super::terrain::Terrain) -> bool {
         let valid = match task {
-            Task::Gather(node) => layout.deposits.get(node).is_some(),
+            Task::Gather(node) => layout.deposits.get(node).is_some_and(|deposit| {
+                self.available_near(layout, deposit.kind, deposit.at)
+                    .is_some()
+            }),
             Task::Produce(lot) => self
                 .lots
                 .get(lot)
                 .copied()
                 .flatten()
-                .is_some_and(|p| p.kind.recipe(p.tier).is_some()),
+                .is_some_and(|p| p.kind.recipe(p.tier, layout.level.region).is_some()),
         };
         if !valid || self.workers.len() >= usize::from(self.staff()) || self.assignment(task) >= 3 {
             return false;
         }
+        self.hauls.resize_with(self.workers.len(), Haul::default);
         self.workers.push(task);
+        self.hauls.push(Haul::default());
         true
     }
 
     pub fn unassign(&mut self, task: Task) -> bool {
-        let Some(index) = self.workers.iter().rposition(|&job| job == task) else {
+        let Some(index) = self
+            .workers
+            .iter()
+            .enumerate()
+            .rfind(|&(i, &job)| job == task && !self.hauls.get(i).is_some_and(|haul| haul.retiring))
+            .map(|(i, _)| i)
+        else {
             return false;
         };
-        self.workers.remove(index);
+        if let Some(haul) = self
+            .hauls
+            .get_mut(index)
+            .filter(|haul| haul.cargo.is_some())
+        {
+            haul.retiring = true;
+        } else {
+            self.remove_worker(index);
+        }
         true
     }
 
-    pub fn produce(&mut self, lot: usize) -> bool {
-        let Some(recipe) = self
+    pub fn validate_workers(&mut self, terrain: &super::Terrain, maximum: usize) {
+        for i in (0..self.workers.len()).rev() {
+            let valid = match self.workers[i] {
+                Task::Gather(node) => terrain.deposits.get(node).is_some(),
+                Task::Produce(lot) => self
+                    .lots
+                    .get(lot)
+                    .copied()
+                    .flatten()
+                    .is_some_and(|p| p.kind.recipe(p.tier, terrain.level.region).is_some()),
+            };
+            if !valid {
+                self.remove_worker(i);
+            }
+        }
+        self.workers.truncate(maximum);
+        self.hauls.truncate(maximum);
+    }
+
+    fn remove_worker(&mut self, index: usize) {
+        self.workers.remove(index);
+        if index < self.hauls.len() {
+            self.hauls.remove(index);
+        }
+    }
+
+    pub fn prepare_production(&mut self, map: &super::Terrain) {
+        self.batches.resize(self.lots.len(), None);
+        self.fish_left.truncate(map.fishing.len());
+        self.fish_left
+            .resize(map.fishing.len(), 140 + map.level.stage as u16 * 14);
+    }
+
+    pub fn batch(&self, lot: usize) -> Option<Production> {
+        self.batches.get(lot).copied().flatten()
+    }
+
+    fn fish_ground(&self, map: &super::Terrain, lot: usize) -> Option<usize> {
+        map.fishing
+            .iter()
+            .enumerate()
+            .find(|(i, place)| {
+                (place.lot == lot || !map.level.coastal(lot))
+                    && self.fish_left.get(*i).is_some_and(|left| *left > 0)
+            })
+            .map(|(i, _)| i)
+    }
+
+    pub fn fish_available(&self, map: &super::Terrain, lot: usize) -> bool {
+        self.fish_ground(map, lot).is_some()
+    }
+
+    pub fn start_production(&mut self, map: &super::Terrain, lot: usize) -> bool {
+        let Some(mut recipe) = self
             .lots
             .get(lot)
             .copied()
             .flatten()
-            .and_then(|p| p.kind.recipe(p.tier))
+            .and_then(|p| p.kind.recipe(p.tier, map.level.region))
         else {
             return false;
         };
-        if !self.ready(&recipe.need) {
+        if self.batch(lot).is_some() || !self.ready(&recipe.need) {
             return false;
+        }
+        self.prepare_production(map);
+        let (kind, mut units) = recipe.output;
+        let mut school = None;
+        let mut seconds = recipe.seconds;
+        if kind == Good::Fish {
+            if self.assignment(Task::Produce(lot)) == 0 {
+                return false;
+            }
+            school = self.fish_ground(map, lot);
+            let Some(i) = school else {
+                return false;
+            };
+            let place = map.fishing[i];
+            units = units.min(self.fish_left[i]);
+            seconds +=
+                place.at.distance(place.launch) * 0.38 + map.plots[place.lot].length() * 0.16;
+        }
+        recipe.output.1 = units;
+        if !self.room_for_recipe(&recipe) {
+            return false;
+        }
+        if let Some(i) = school {
+            self.fish_left[i] -= units;
         }
         for (good, units) in recipe.need {
             self.stores[good as usize] -= units;
         }
-        self.add(recipe.output.0, recipe.output.1);
+        let crew = self.assignment(Task::Produce(lot)).max(1);
+        let duration = seconds / (1.0 + 0.48 * (crew - 1) as f32);
+        self.batches[lot] = Some(Production {
+            output: Cargo { kind, units },
+            duration,
+            left: duration,
+            fishing: school,
+        });
         true
     }
 
-    pub fn tick_work(&mut self, terrain: &super::terrain::Terrain) {
-        // Collect raw materials before factories try to claim that round's inputs.
-        let workers = self.workers.clone();
-        for &job in &workers {
-            if let Task::Gather(node) = job
-                && let Some(deposit) = terrain.deposits.get(node)
-            {
-                self.add(deposit.kind, 2);
+    pub fn room_for_recipe(&self, recipe: &Recipe) -> bool {
+        if !recipe.output.0.uses_storage() {
+            return true;
+        }
+        let used: u16 = recipe
+            .need
+            .iter()
+            .filter(|(good, _)| good.uses_storage())
+            .map(|(_, units)| *units)
+            .sum();
+        self.raw_stock()
+            .saturating_sub(used)
+            .saturating_add(recipe.output.1)
+            <= self.storage_capacity()
+    }
+
+    pub fn tick_production(&mut self, map: &super::Terrain, dt: f32) -> bool {
+        let mut changed = false;
+        for lot in 0..self.lots.len() {
+            if let Some(mut batch) = self.batch(lot) {
+                batch.left = (batch.left - dt).max(0.0);
+                if batch.left == 0.0 {
+                    let stored = self.add(batch.output.kind, batch.output.units);
+                    batch.output.units -= stored;
+                    changed |= stored > 0;
+                }
+                self.batches[lot] = (batch.output.units > 0).then_some(batch);
+            } else if self.assignment(Task::Produce(lot)) > 0 {
+                changed |= self.start_production(map, lot);
             }
         }
-        for job in workers {
-            if let Task::Produce(lot) = job {
-                self.produce(lot);
-            }
-        }
+        changed
     }
 
     pub fn progress(&self, target: Requirement) -> u8 {
@@ -504,5 +902,6 @@ impl Island {
         level.goals().all(|g| self.progress(g) >= g.count)
             && self.amount(stock) >= count
             && (level.plan().is_none() || self.quest == Quest::Finished)
+            && self.orders_delivered >= level.order_count()
     }
 }

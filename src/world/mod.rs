@@ -1,7 +1,8 @@
 mod actors;
 mod adventure;
 pub(crate) use adventure::{
-    Scene as AdventureScene, animate as adventure_animate, position as adventure_position,
+    Scene as AdventureScene, animate as adventure_animate, fishing_visuals as adventure_fishing,
+    logistics_visuals as adventure_logistics, position as adventure_position,
     sync as adventure_scene,
 };
 mod architecture;

@@ -44,6 +44,28 @@ pub(crate) struct Relic;
 pub(crate) struct CivicLight;
 
 #[derive(Component)]
+pub(crate) struct ResourceModel {
+    site: usize,
+    alive: bool,
+    falls_at: Option<f32>,
+}
+
+#[derive(Component)]
+pub(crate) struct CargoModel(Option<usize>);
+
+#[derive(Component)]
+pub(crate) struct SpentResource(usize);
+
+#[derive(Component)]
+pub(crate) struct HarvestTool(bool);
+
+#[derive(Component)]
+pub(crate) struct FishingBoat(usize);
+
+#[derive(Component)]
+pub(crate) struct FishSchool(usize);
+
+#[derive(Component)]
 pub(crate) struct BuildLift {
     when: f32,
     base: f32,
@@ -55,6 +77,7 @@ pub(crate) struct Scene {
     buildings: Vec<Option<crate::adventure::Property>>,
     staff: usize,
     workshops: Vec<(Region, Build, u8, Handle<Mesh>)>,
+    cargo: Option<Handle<Mesh>>,
 }
 
 pub(crate) fn position(terrain: &Terrain, at: Vec2) -> Vec3 {
@@ -95,6 +118,7 @@ pub(crate) fn sync(
             let earth = palette(terrain.level.region);
             let mesh = landscape(terrain, earth);
             let region = terrain.level.region;
+            let spent = Good::RAW.map(|kind| meshes.add(spent_model(region, kind)));
             commands
                 .spawn((
                     Ground,
@@ -114,6 +138,26 @@ pub(crate) fn sync(
                         MeshMaterial3d(water),
                         NotShadowCaster,
                     ));
+                    if !terrain.fishing.is_empty() {
+                        let boat = meshes.add(workboat());
+                        let fish = meshes.add(school_model());
+                        for (index, place) in terrain.fishing.iter().enumerate() {
+                            root.spawn((
+                                FishingBoat(index),
+                                Mesh3d(boat.clone()),
+                                MeshMaterial3d(art.matte.clone()),
+                                Transform::default(),
+                                Visibility::Hidden,
+                            ));
+                            root.spawn((
+                                FishSchool(index),
+                                Mesh3d(fish.clone()),
+                                MeshMaterial3d(art.matte.clone()),
+                                Transform::from_xyz(place.at.x, -1.09, place.at.y),
+                                NotShadowCaster,
+                            ));
+                        }
+                    }
                     for patch in woods(terrain, earth) {
                         root.spawn((Mesh3d(meshes.add(patch)), MeshMaterial3d(art.matte.clone())));
                     }
@@ -135,9 +179,54 @@ pub(crate) fn sync(
                         },
                         Transform::from_xyz(0.0, terrain.height(Vec2::ZERO) + 1.6, 1.8),
                     ));
-                    for deposit in terrain.deposits.iter() {
+                    for (site, deposit) in terrain.deposits.iter().enumerate() {
                         let p = deposit.at;
                         let at = v(p.x, terrain.height(p), p.y);
+                        let alive = island.is_some_and(|i| i.remaining(terrain, site) > 0);
+                        let spent_mesh = &spent[Good::RAW
+                            .iter()
+                            .position(|kind| *kind == deposit.kind)
+                            .unwrap()];
+                        root.spawn((
+                            SpentResource(site),
+                            Mesh3d(spent_mesh.clone()),
+                            MeshMaterial3d(art.matte.clone()),
+                            Transform::from_translation(at).with_scale(Vec3::splat(
+                                deposit.scenery.map_or(1.0, |p| p.size * 0.82),
+                            )),
+                            if alive {
+                                Visibility::Hidden
+                            } else {
+                                Visibility::Inherited
+                            },
+                        ));
+                        let mut model = root.spawn((
+                            ResourceModel {
+                                site,
+                                alive,
+                                falls_at: None,
+                            },
+                            Transform::from_translation(at),
+                            if alive {
+                                Visibility::Inherited
+                            } else {
+                                Visibility::Hidden
+                            },
+                        ));
+                        if let Some(scenery) = deposit.scenery {
+                            model.insert((
+                                Mesh3d(meshes.add(scenery_model(
+                                    region,
+                                    deposit.kind,
+                                    scenery.seed,
+                                    scenery.size,
+                                    at.y,
+                                    earth,
+                                ))),
+                                MeshMaterial3d(art.matte.clone()),
+                            ));
+                            continue;
+                        }
                         let source = match deposit.kind {
                             Good::Wood if region != Region::Oasis => Some(("wood_tree", 0.77)),
                             Good::Stone => Some(("resource_rock", 0.94)),
@@ -147,17 +236,56 @@ pub(crate) fn sync(
                             Good::Ore => Some(("resource_crystal", 0.71)),
                             _ => None,
                         };
-                        if let Some((filename, scale)) = source {
-                            let path = format!("embedded://models/waldwinkel/{filename}.glb");
-                            root.spawn((
-                                SceneRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(path))),
-                                Transform::from_translation(at).with_scale(Vec3::splat(scale)),
+                        model.with_children(|model| {
+                            if let Some((filename, scale)) = source {
+                                let path = format!("embedded://models/waldwinkel/{filename}.glb");
+                                model.spawn((
+                                    SceneRoot(
+                                        assets.load(GltfAssetLabel::Scene(0).from_asset(path)),
+                                    ),
+                                    Transform::from_scale(Vec3::splat(scale)),
+                                ));
+                            }
+                            model.spawn((
+                                Mesh3d(meshes.add(deposit_model(region, deposit.kind))),
+                                MeshMaterial3d(art.matte.clone()),
                             ));
-                        }
+                        });
+                    }
+                    if terrain.level.order_count() > 0 {
+                        let kind = match region {
+                            Region::Greece => Kind::Storehouse,
+                            Region::Rome => Kind::FerryOffice,
+                            Region::Japan => Kind::Machiya,
+                            Region::Nordic => Kind::Longhouse,
+                            Region::Oasis => Kind::Caravanserai,
+                        };
+                        let at = terrain.outpost;
                         root.spawn((
-                            Mesh3d(meshes.add(deposit_model(region, deposit.kind))),
+                            Mesh3d(meshes.add(super::model(region, kind, 2))),
                             MeshMaterial3d(art.matte.clone()),
-                            Transform::from_translation(at),
+                            Transform::from_xyz(at.x, terrain.height(at), at.y)
+                                .with_scale(Vec3::splat(1.18)),
+                        ));
+                        let mut banner = Batch::default();
+                        banner.beam(Vec3::ZERO, Vec3::Y * 2.8, 0.072, earth.wood);
+                        banner.face(
+                            &[
+                                v(0., 2.72, 0.),
+                                v(0.96, 2.58, 0.03),
+                                v(0.83, 1.98, 0.08),
+                                v(0., 2.06, 0.),
+                            ],
+                            earth.flag,
+                        );
+                        root.spawn((
+                            Mesh3d(meshes.add(banner.mesh())),
+                            MeshMaterial3d(art.matte.clone()),
+                            Transform::from_xyz(
+                                at.x + 2.3,
+                                terrain.height(at + Vec2::X * 2.3),
+                                at.y,
+                            ),
                         ));
                     }
                     if terrain.level.plan().is_some() {
@@ -191,6 +319,37 @@ pub(crate) fn sync(
                         }
                     }
                 });
+            let load = scene
+                .cargo
+                .get_or_insert_with(|| {
+                    let mut crate_mesh = Batch::default();
+                    crate_box(
+                        &mut crate_mesh,
+                        Vec3::ZERO,
+                        v(0.40, 0.24, 0.31),
+                        [158, 105, 62],
+                    );
+                    meshes.add(crate_mesh.mesh())
+                })
+                .clone();
+            commands.spawn((
+                Ground,
+                CargoModel(None),
+                Mesh3d(load),
+                MeshMaterial3d(art.matte.clone()),
+                Transform::default(),
+                Visibility::Hidden,
+            ));
+            for axe in [false, true] {
+                commands.spawn((
+                    Ground,
+                    HarvestTool(axe),
+                    Mesh3d(meshes.add(harvest_tool(axe))),
+                    MeshMaterial3d(art.matte.clone()),
+                    Transform::default(),
+                    Visibility::Hidden,
+                ));
+            }
             let mut sign = Batch::default();
             let color = [255, 197, 96];
             for side in [-1.0, 1.0] {
@@ -267,6 +426,38 @@ pub(crate) fn sync(
                             spot.insert(BuildLift { when, base: p.y });
                         }
                         spot.with_children(|model| {
+                            if property.kind == Build::Harbor(Kind::Fishery)
+                                && let Some(place) =
+                                    terrain.fishing.iter().find(|place| place.lot == lot)
+                            {
+                                let mut dock = Batch::default();
+                                let facing = (place.launch - at).normalize_or_zero();
+                                let start = at + facing * 1.17;
+                                for i in 0..9 {
+                                    let point = start.lerp(place.launch, i as f32 / 9.0);
+                                    let offset = point - at;
+                                    let y = (-0.63_f32).max(terrain.height(point) + 0.061)
+                                        - terrain.height(at);
+                                    dock.beam(
+                                        v(
+                                            offset.x - facing.y * 0.72,
+                                            y,
+                                            offset.y + facing.x * 0.72,
+                                        ),
+                                        v(
+                                            offset.x + facing.y * 0.72,
+                                            y,
+                                            offset.y - facing.x * 0.72,
+                                        ),
+                                        0.17,
+                                        [146, 104, 70],
+                                    );
+                                }
+                                model.spawn((
+                                    Mesh3d(meshes.add(dock.mesh())),
+                                    MeshMaterial3d(art.matte.clone()),
+                                ));
+                            }
                             if property.kind == Build::Harbor(Kind::House)
                                 && region == Region::Greece
                             {
@@ -299,6 +490,7 @@ pub(crate) fn sync(
         for entity in &workers {
             commands.entity(entity).despawn();
         }
+        let cargo = scene.cargo.clone();
         commands
             .spawn((TownWorkers, Transform::default(), Visibility::Inherited))
             .with_children(|parent| {
@@ -309,8 +501,137 @@ pub(crate) fn sync(
                         Transform::default(),
                     ));
                     super::people::worker_rig(&mut citizen, &cast, index, terrain.level.region);
+                    if let Some(load) = &cargo {
+                        parent.spawn((
+                            CargoModel(Some(index)),
+                            Mesh3d(load.clone()),
+                            MeshMaterial3d(art.matte.clone()),
+                            Transform::default(),
+                            Visibility::Hidden,
+                        ));
+                    }
                 }
             });
+    }
+}
+
+#[allow(clippy::type_complexity)]
+pub(crate) fn logistics_visuals(
+    game: Res<Game>,
+    adventure: Res<Adventure>,
+    mut nodes: Query<(&mut ResourceModel, &mut Transform, &mut Visibility)>,
+    mut loads: Query<
+        (&CargoModel, &mut Transform, &mut Visibility),
+        (Without<ResourceModel>, Without<HarvestTool>),
+    >,
+    mut tools: Query<(&HarvestTool, &mut Transform, &mut Visibility), Without<ResourceModel>>,
+    mut spent: Query<
+        (&SpentResource, &mut Visibility),
+        (
+            Without<ResourceModel>,
+            Without<HarvestTool>,
+            Without<CargoModel>,
+        ),
+    >,
+) {
+    let Some((terrain, island)) = adventure.terrain.as_ref().zip(adventure.active()) else {
+        return;
+    };
+    if game.view != View::Adventure {
+        return;
+    }
+    for (model, mut shown) in &mut spent {
+        let visibility = if island.remaining(terrain, model.0) == 0 {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        if *shown != visibility {
+            *shown = visibility;
+        }
+    }
+    for (mut model, mut pose, mut shown) in &mut nodes {
+        let deposit = terrain.deposits[model.site];
+        let striking = adventure
+            .harvesting
+            .filter(|work| work.site == model.site)
+            .map(|work| work.duration - work.left)
+            .or_else(|| {
+                island
+                    .hauls
+                    .iter()
+                    .find(|haul| haul.site == Some(model.site) && haul.work > 0.0)
+                    .map(|haul| haul.work)
+            });
+        if model.alive && island.remaining(terrain, model.site) == 0 {
+            model.alive = false;
+            model.falls_at = Some(game.clock);
+        }
+        if let Some(since) = model.falls_at {
+            let progress = ((game.clock - since) / 0.79).clamp(0.0, 1.0);
+            let fall = progress * progress;
+            if deposit.kind == Good::Wood {
+                pose.rotation = Quat::from_rotation_z(1.51 * fall);
+            } else {
+                pose.scale = Vec3::splat(1.0 - 0.91 * fall);
+            }
+            if progress >= 1.0 {
+                *shown = Visibility::Hidden;
+                model.falls_at = None;
+            }
+        } else if model.alive {
+            let hit = striking.map_or(0.0, |elapsed| (elapsed * 12.0).sin() * 0.048);
+            let rotation = Quat::from_rotation_z(hit);
+            if pose.rotation != rotation {
+                pose.rotation = rotation;
+            }
+        }
+    }
+    for (model, mut pose, mut shown) in &mut loads {
+        let actor = match model.0 {
+            Some(worker) => island
+                .hauls
+                .get(worker)
+                .filter(|haul| haul.cargo.is_some())
+                .map(|haul| (haul.position, haul.facing, haul.gait, haul.moving, 1.18)),
+            None if island.cargo.is_some() || island.shipment.is_some() => Some((
+                island.position,
+                adventure.heading,
+                adventure.gait,
+                adventure.moved,
+                1.28,
+            )),
+            None => None,
+        };
+        if let Some((p, yaw, gait, walking, scale)) = actor {
+            let rot = Quat::from_rotation_y(yaw);
+            let sway = if walking { gait.sin() * 0.047 } else { 0.0 };
+            pose.translation =
+                position(terrain, Vec2::from_array(p)) + rot * v(0.10, 0.65 + sway, 0.48);
+            pose.rotation = rot;
+            pose.scale = Vec3::splat(scale);
+            *shown = Visibility::Inherited;
+        } else {
+            *shown = Visibility::Hidden;
+        }
+    }
+    for (tool, mut pose, mut shown) in &mut tools {
+        if let Some(work) = adventure.harvesting.filter(|work| {
+            let kind = terrain.deposits[work.site].kind;
+            matches!(kind, Good::Wood | Good::Stone | Good::Ore | Good::Clay)
+                && tool.0 == (kind == Good::Wood)
+        }) {
+            let swing = (work.duration - work.left) * 11.0;
+            let rot = Quat::from_rotation_y(adventure.heading);
+            pose.translation = position(terrain, Vec2::from_array(island.position))
+                + rot * v(-0.30, 0.82 + swing.sin() * 0.17, 0.45);
+            pose.rotation = rot
+                * Quat::from_rotation_x(0.42 + swing.cos() * 0.83)
+                * Quat::from_rotation_z(-0.31);
+            *shown = Visibility::Inherited;
+        } else {
+            *shown = Visibility::Hidden;
+        }
     }
 }
 
@@ -393,7 +714,14 @@ pub(crate) fn animate(
         nili.scale = Vec3::splat(0.94);
     }
     for (limb, mut transform) in &mut scene.p2() {
-        let movement = if adventure.moved {
+        let movement = if !limb.leg
+            && let Some(work) = adventure.harvesting
+        {
+            let beat = ((work.duration - work.left) * 10.9 + limb.side * 0.45).sin();
+            -0.64 + beat * 0.80
+        } else if !limb.leg && (island.cargo.is_some() || island.shipment.is_some()) {
+            -0.77 + adventure.gait.sin() * 0.055
+        } else if adventure.moved {
             (adventure.gait + limb.side * 1.16).sin() * if limb.leg { 0.54 } else { 0.38 }
         } else if !limb.leg {
             -0.44 * (adventure.work_swing * 7.1).sin()
@@ -441,17 +769,45 @@ pub(crate) fn animate(
     let mut poses = Vec::with_capacity(usize::from(island.staff()) * 9);
     for (worker, skin, mut model) in &mut scene.p5() {
         let job = island.workers.get(worker.0).copied();
-        let (spot, center) = match job {
-            Some(Task::Gather(node)) => {
-                let deposit = terrain.deposits[node].at;
-                let inward = -deposit.normalize_or_zero();
-                (deposit + inward * 0.84, deposit + inward * 3.79)
+        if matches!(job, Some(Task::Gather(_)))
+            && let Some(haul) = island.hauls.get(worker.0)
+        {
+            let bob = if haul.moving {
+                haul.gait.sin().abs() * 0.040
+            } else {
+                0.0
+            };
+            model.translation =
+                position(terrain, Vec2::from_array(haul.position)) + Vec3::Y * (0.028 + bob);
+            model.rotation = Quat::from_rotation_y(haul.facing);
+            model.scale = Vec3::splat(1.18);
+            let mut pose = super::people::worker_pose(
+                &cast,
+                worker.0,
+                terrain.level.region,
+                haul.gait,
+                f32::from(haul.moving),
+                if haul.work > 0.0 {
+                    haul.work * 2.3
+                } else {
+                    game.clock
+                },
+                haul.work > 0.0,
+            );
+            if haul.cargo.is_some() {
+                for joint in [1, 5] {
+                    pose[joint].rotation *= Quat::from_rotation_x(-0.65);
+                }
             }
+            poses.extend(skin.joints.iter().copied().zip(pose));
+            continue;
+        }
+        let (spot, center) = match job {
             Some(Task::Produce(lot)) => (
                 terrain.plots[lot] + Vec2::new(1.42, 1.61),
                 terrain.plots[lot] + Vec2::new(-1.39, 2.65),
             ),
-            None => {
+            _ => {
                 let Some(&home) = homes.get(worker.0 % homes.len().max(1)) else {
                     continue;
                 };
@@ -614,7 +970,7 @@ fn landscape(terrain: &Terrain, colors: Palette) -> Mesh {
             let shore = edge < 4.2 + t * 2.6;
             let stone = height > 2.8 + t * 1.5;
             let snow = terrain.level.region == Region::Nordic && height > 6.7 + t * 2.8;
-            let base = if snow {
+            let mut base = if snow {
                 [216, 224, 219]
             } else if stone {
                 colors.rock
@@ -623,6 +979,15 @@ fn landscape(terrain: &Terrain, colors: Palette) -> Mesh {
             } else {
                 colors.turf
             };
+            if !snow
+                && !shore
+                && let Some(district) = terrain.district(at)
+            {
+                let tint = district.district_color();
+                base = std::array::from_fn(|i| {
+                    ((u16::from(base[i]) * 3 + u16::from(tint[i]) * 2) / 5) as u8
+                });
+            }
             let sweep = (at.x * 0.23 + at.y * 0.14).sin() * (at.y * 0.18).cos();
             let shade = (sweep * 9.0 + (t - 0.50) * 13.0) as i16;
             b.face(&[a, e, d], shift(base, shade));
@@ -631,7 +996,9 @@ fn landscape(terrain: &Terrain, colors: Palette) -> Mesh {
     }
     let dirt = shift(colors.coast, -9);
     // A connected yard links the plots to the council hall and keeps their margins level.
-    let depth = terrain.plots.iter().fold(8.0_f32, |n, p| n.max(p.y.abs()));
+    let depth = terrain.plots[..terrain.level.inland_plots()]
+        .iter()
+        .fold(8.0_f32, |n, p| n.max(p.y.abs()));
     for z in -depth.ceil() as i32..=depth.ceil() as i32 {
         let path = Vec2::new(0.0, z as f32);
         b.slab(
@@ -739,60 +1106,24 @@ fn woods(terrain: &Terrain, colors: Palette) -> impl Iterator<Item = Mesh> {
             .clamp(Vec2::ZERO, Vec2::splat(3.0));
         tile.x as usize + tile.y as usize * 4
     };
-    let fill = 360 + terrain.level.stage * 44;
     let region = terrain.level.region;
     let seed = terrain.level.index as u32 * 8763 + 431;
-    for i in 0..fill as u32 {
-        let x = (unit(seed + 531 * i) * 2.0 - 1.0) * terrain.radius;
-        let z = (unit(seed + 711 * i + 6) * 2.0 - 1.0) * terrain.radius;
-        let p = Vec2::new(x, z);
-        if terrain.shore(p) < 3.3
-            || p.length() < 8.0
-            || terrain.plots.iter().any(|at| at.distance(p) < 3.15)
-            || terrain.deposits.iter().any(|d| d.at.distance(p) < 1.75)
-            || terrain.shrine.distance(p) < 4.0
-            || terrain.relic.distance(p) < 2.2
-        {
+    for (i, p, choice, size) in terrain.vegetation() {
+        let height = terrain.height(p);
+        if height > 3.4 || !(0.44..=0.75).contains(&choice) {
             continue;
         }
         let b = &mut patches[patch(p)];
-        let height = terrain.height(p);
-        let choice = unit(seed + i * 7 + 7);
-        let size = 0.58 + unit(seed + i * 83 + 196) * 0.94;
-        let at = v(x, height, z);
-        if height > 3.4 || choice > 0.75 {
+        let at = v(p.x, height, p.y);
+        for j in 0..3 {
             b.gem(
-                at + Vec3::Y * size * 0.14,
-                size * 0.62,
-                size * 0.37,
-                size * 0.56,
+                at + v(j as f32 * 0.17, size * 0.18, (j % 2) as f32 * 0.23),
+                size * 0.27,
+                size * 0.26,
+                size * 0.24,
                 i as f32,
-                shift(colors.rock, i.rem_euclid(23) as i16 - 9),
+                shift(colors.leaves, (i % 30) as i16 - 8),
             );
-        } else if choice < 0.44 {
-            match region {
-                Region::Oasis => super::oasis::palm(b, at, size, i as f32 * 0.61),
-                Region::Greece if i % 3 == 0 => super::buildings::olive(b, at, size),
-                Region::Rome if i % 3 == 0 => super::buildings::cypress(b, at, size),
-                _ => conifer(
-                    b,
-                    at,
-                    size,
-                    colors,
-                    region == Region::Nordic && height > 2.0,
-                ),
-            }
-        } else {
-            for j in 0..3 {
-                b.gem(
-                    at + v(j as f32 * 0.17, size * 0.18, (j % 2) as f32 * 0.23),
-                    size * 0.27,
-                    size * 0.26,
-                    size * 0.24,
-                    i as f32,
-                    shift(colors.leaves, (i % 30) as i16 - 8),
-                );
-            }
         }
     }
     for i in 0..(680 + terrain.level.stage as u32 * 64) {
@@ -840,6 +1171,293 @@ fn woods(terrain: &Terrain, colors: Palette) -> impl Iterator<Item = Mesh> {
         .filter(|mesh| mesh.count_vertices() > 0)
 }
 
+fn scenery_model(
+    region: Region,
+    kind: Good,
+    seed: u32,
+    size: f32,
+    height: f32,
+    colors: Palette,
+) -> Mesh {
+    let mut b = Batch::default();
+    let at = Vec3::ZERO;
+    if kind == Good::Stone {
+        b.gem(
+            Vec3::Y * size * 0.14,
+            size * 0.62,
+            size * 0.37,
+            size * 0.56,
+            seed as f32,
+            shift(colors.rock, (seed % 23) as i16 - 9),
+        );
+    } else {
+        match region {
+            Region::Oasis => super::oasis::palm(&mut b, at, size, seed as f32 * 0.61),
+            Region::Greece if seed.is_multiple_of(3) => super::buildings::olive(&mut b, at, size),
+            Region::Rome if seed.is_multiple_of(3) => super::buildings::cypress(&mut b, at, size),
+            _ => conifer(
+                &mut b,
+                at,
+                size,
+                colors,
+                region == Region::Nordic && height > 2.0,
+            ),
+        }
+    }
+    b.mesh()
+}
+
+fn harvest_tool(axe: bool) -> Mesh {
+    let mut b = Batch::default();
+    b.beam(v(0., -0.27, 0.), v(0., 0.33, 0.), 0.052, [132, 86, 51]);
+    if axe {
+        b.slab(v(0.11, 0.28, 0.), v(0.27, 0.21, 0.066), [107, 133, 136]);
+        b.slab(v(0.23, 0.28, 0.), v(0.041, 0.23, 0.070), [171, 192, 183]);
+    } else {
+        b.beam(
+            v(-0.22, 0.26, 0.),
+            v(0.16, 0.34, 0.),
+            0.068,
+            [110, 135, 142],
+        );
+        b.beam(v(0.16, 0.34, 0.), v(0.30, 0.24, 0.), 0.046, [167, 185, 182]);
+    }
+    b.mesh()
+}
+
+#[allow(clippy::type_complexity)]
+pub(crate) fn fishing_visuals(
+    game: Res<Game>,
+    adventure: Res<Adventure>,
+    mut vessels: Query<(&FishingBoat, &mut Transform, &mut Visibility)>,
+    mut schools: Query<(&FishSchool, &mut Transform, &mut Visibility), Without<FishingBoat>>,
+) {
+    let Some((terrain, island)) = adventure.terrain.as_ref().zip(adventure.active()) else {
+        return;
+    };
+    let phase = game.clock;
+    for (school, mut pose, mut visible) in &mut schools {
+        let left = island.fish_left.get(school.0).copied().unwrap_or(0);
+        let state = if left > 0 {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        if *visible != state {
+            *visible = state;
+        }
+        if left > 0 {
+            pose.rotation = Quat::from_rotation_y(phase * 0.34);
+            pose.translation.y = -1.071 + (phase * 3.2).sin() * 0.045;
+        }
+    }
+    for (vessel, mut pose, mut visible) in &mut vessels {
+        let home = terrain.fishing[vessel.0];
+        let batch = island
+            .batch(home.lot)
+            .filter(|batch| batch.fishing.is_some())
+            .or_else(|| {
+                island
+                    .lots
+                    .iter()
+                    .enumerate()
+                    .filter(|(lot, _)| !terrain.level.coastal(*lot))
+                    .find_map(|(lot, _)| {
+                        island
+                            .batch(lot)
+                            .filter(|batch| batch.fishing == Some(vessel.0))
+                    })
+            });
+        let Some(batch) = batch else {
+            *visible = Visibility::Hidden;
+            continue;
+        };
+        let place = terrain.fishing[batch.fishing.unwrap()];
+        let progress = batch.progress();
+        let outbound = ((progress - 0.09) / 0.30).clamp(0.0, 1.0);
+        let inbound = ((progress - 0.62) / 0.30).clamp(0.0, 1.0);
+        let at = home.launch.lerp(place.at, outbound * (1.0 - inbound));
+        let goal = if progress < 0.62 {
+            place.at - home.launch
+        } else {
+            home.launch - place.at
+        };
+        pose.translation = v(at.x, -1.10 + (phase * 2.8).sin() * 0.075, at.y);
+        pose.rotation = Quat::from_euler(
+            EulerRot::YXZ,
+            goal.x.atan2(goal.y),
+            (phase * 2.1).sin() * 0.065,
+            (phase * 3.0).cos() * 0.084,
+        );
+        *visible = Visibility::Inherited;
+    }
+}
+
+fn workboat() -> Mesh {
+    let mut boat = Batch::default();
+    let oak = [124, 76, 47];
+    let gunwale = [195, 138, 84];
+    let shape = [(-1.34, 0.035), (-0.86, 0.42), (0.64, 0.45), (1.30, 0.04)];
+    for pair in shape.windows(2) {
+        let [(z, w), (next, wide)] = [pair[0], pair[1]];
+        for side in [-1.0, 1.0] {
+            let a = v(w * side, 0.23, z);
+            let b = v(wide * side, 0.23, next);
+            let c = v(wide * side * 0.48, 0.015, next * 0.91);
+            let d = v(w * side * 0.48, 0.015, z * 0.91);
+            boat.face(&[a, b, c, d], oak);
+            boat.face(&[d, c, b, a], shift(oak, 12));
+            boat.beam(a, b, 0.052, gunwale);
+        }
+    }
+    boat.slab(v(0., 0.086, 0.), v(0.64, 0.067, 1.66), gunwale);
+    for z in [-0.59, 0.38] {
+        boat.slab(v(0., 0.223, z), v(0.76, 0.063, 0.19), [156, 98, 58]);
+    }
+    boat.beam(
+        v(0.33, 0.19, -0.18),
+        v(0.92, 0.09, -0.75),
+        0.047,
+        [191, 131, 76],
+    );
+    boat.slab(v(0.91, 0.078, -0.76), v(0.31, 0.036, 0.16), [132, 89, 60]);
+    boat.frustum(v(0.08, 0.20, 0.37), 0.18, 0.23, 0.26, 9, [175, 134, 82]);
+    boat.frustum(v(-0.07, 0.20, -0.33), 0.17, 0.19, 0.42, 7, [95, 127, 142]);
+    boat.gem(
+        v(-0.07, 0.72, -0.31),
+        0.111,
+        0.139,
+        0.112,
+        0.2,
+        [219, 168, 119],
+    );
+    boat.frustum(v(-0.07, 0.75, -0.31), 0.128, 0.068, 0.10, 8, [132, 100, 62]);
+    boat.mesh()
+}
+
+fn school_model() -> Mesh {
+    let mut fish = Batch::default();
+    for i in 0..7 {
+        let angle = i as f32 * 2.399;
+        let p = v(
+            angle.cos() * (1.1 + (i % 3) as f32 * 0.16),
+            (i % 3) as f32 * 0.027,
+            angle.sin() * 0.91,
+        );
+        let tint = shift([121, 185, 186], i * 6 - 10);
+        fish.gem(p, 0.14, 0.076, 0.25, angle, tint);
+        let tail = p + v(angle.sin() * -0.25, 0., angle.cos() * -0.25);
+        fish.face(
+            &[p, tail + v(0.025, 0.068, 0.), tail - v(0.03, 0.057, 0.)],
+            [192, 215, 198],
+        );
+        fish.beam(
+            p + v(-0.28, 0.01, 0.24),
+            p + v(0.27, 0.01, 0.28),
+            0.021,
+            [175, 222, 218],
+        );
+    }
+    fish.mesh()
+}
+
+fn spent_model(region: Region, kind: Good) -> Mesh {
+    let mut mesh = Batch::default();
+    let colors = palette(region);
+    match kind {
+        Good::Wood => {
+            mesh.frustum(Vec3::ZERO, 0.35, 0.26, 0.22, 9, colors.wood);
+            mesh.frustum(v(0., 0.22, 0.), 0.245, 0.238, 0.027, 9, [202, 153, 91]);
+            mesh.frustum(v(0., 0.247, 0.), 0.148, 0.143, 0.011, 9, [225, 178, 111]);
+            mesh.frustum(
+                v(0.012, 0.258, -0.016),
+                0.065,
+                0.058,
+                0.008,
+                8,
+                [178, 123, 78],
+            );
+            for angle in [0.28_f32, 2.41, 4.55] {
+                let root = v(angle.cos(), 0., angle.sin());
+                mesh.beam(
+                    root * 0.22 + v(0., 0.08, 0.),
+                    root * 0.62 + v(0., 0.025, 0.),
+                    0.077,
+                    colors.wood,
+                );
+            }
+        }
+        Good::Stone | Good::Ore => {
+            let stone = if kind == Good::Ore {
+                [100, 105, 110]
+            } else {
+                colors.rock
+            };
+            for (i, (x, z, size)) in [
+                (0.22, 0.00, 0.38),
+                (-0.23, -0.07, 0.30),
+                (0.01, 0.47, 0.13),
+                (-0.44, 0.31, 0.085),
+                (0.45, -0.35, 0.092),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                mesh.gem(
+                    v(x, size * 0.24, z),
+                    size,
+                    size * 0.46,
+                    size * 0.68,
+                    i as f32,
+                    shift(stone, i as i16 * 7 - 14),
+                );
+            }
+        }
+        Good::Clay => {
+            mesh.frustum(Vec3::ZERO, 0.73, 0.62, 0.052, 10, [144, 83, 64]);
+            mesh.frustum(v(0., 0.052, 0.), 0.49, 0.45, 0.018, 10, [105, 64, 52]);
+            for (x, z) in [(-0.51, 0.14), (0.31, -0.47), (0.56, 0.27)] {
+                mesh.gem(v(x, 0.066, z), 0.17, 0.11, 0.14, x, [176, 105, 74]);
+            }
+        }
+        Good::Local if region == Region::Japan => {
+            for (x, z, h) in [
+                (-0.27, 0.03, 0.19),
+                (-0.06, -0.21, 0.27),
+                (0.17, 0.13, 0.16),
+                (0.36, -0.15, 0.14),
+            ] {
+                mesh.frustum(v(x, 0., z), 0.056, 0.047, h, 7, [126, 153, 86]);
+                mesh.frustum(v(x, h, z), 0.037, 0.035, 0.011, 7, [218, 202, 123]);
+            }
+        }
+        Good::Local if region == Region::Nordic => {
+            mesh.frustum(Vec3::ZERO, 0.64, 0.53, 0.045, 8, [135, 123, 104]);
+            for (x, z) in [(-0.43, 0.19), (0.42, 0.22), (0.2, -0.43)] {
+                mesh.gem(v(x, 0.055, z), 0.12, 0.069, 0.093, z, [112, 116, 110]);
+            }
+        }
+        _ => {
+            mesh.frustum(Vec3::ZERO, 0.59, 0.55, 0.026, 9, shift(colors.wood, 14));
+            for (x, z) in [(-0.31, 0.14), (0.16, -0.34), (0.32, 0.15), (-0.11, -0.17)] {
+                mesh.beam(
+                    v(x, 0.025, z),
+                    v(x + 0.057, 0.17, z - 0.067),
+                    0.035,
+                    shift(colors.leaves, -13),
+                );
+                mesh.beam(
+                    v(x, 0.034, z),
+                    v(x - 0.14, 0.066, z + 0.11),
+                    0.022,
+                    [181, 146, 91],
+                );
+            }
+        }
+    }
+    mesh.mesh()
+}
+
 fn conifer(b: &mut Batch, at: Vec3, s: f32, color: Palette, snow: bool) {
     b.frustum(at, s * 0.115, s * 0.062, s * 1.19, 7, color.wood);
     for (i, (y, r, h)) in [(0.66, 0.57, 0.86), (1.05, 0.44, 0.77), (1.42, 0.32, 0.77)]
@@ -873,6 +1491,119 @@ fn deposit_model(region: Region, good: Good) -> Mesh {
     let at = v(0.0, 0.028, 0.0);
     match good {
         Good::Wood if region == Region::Oasis => super::oasis::palm(&mut b, at, 1.17, 0.32),
+        Good::Food if matches!(region, Region::Greece | Region::Rome | Region::Japan) => {
+            let rice = region == Region::Japan;
+            b.frustum(
+                at,
+                0.74,
+                0.69,
+                0.043,
+                9,
+                if rice {
+                    [112, 165, 139]
+                } else {
+                    [159, 118, 71]
+                },
+            );
+            for i in 0..22 {
+                let angle = i as f32 * 2.399;
+                let radius = 0.62 * (i as f32 / 22.0).sqrt();
+                let root = v(radius * angle.cos(), 0.065, radius * angle.sin());
+                let h = 0.25 + unit(i * 121 + 19) * 0.18;
+                let top = root + v(-0.034, h, 0.044);
+                b.beam(
+                    root,
+                    top,
+                    0.023,
+                    if rice { [113, 158, 77] } else { [169, 140, 63] },
+                );
+                b.gem(
+                    top,
+                    0.045,
+                    0.082,
+                    0.057,
+                    angle,
+                    if rice {
+                        [201, 190, 106]
+                    } else {
+                        [226, 182, 83]
+                    },
+                );
+            }
+        }
+        Good::Food if region == Region::Oasis => {
+            super::oasis::palm(&mut b, at, 0.75, 0.79);
+            super::oasis::palm(&mut b, v(0.46, 0.025, 0.41), 0.5, 1.44);
+            for (x, z) in [(-0.20, 0.34), (0.21, 0.37), (0.40, -0.20), (-0.41, 0.06)] {
+                b.gem(v(x, 0.08, z), 0.09, 0.065, 0.075, x, [149, 81, 46]);
+            }
+        }
+        Good::Local if region == Region::Greece => {
+            super::buildings::olive(&mut b, at, 0.68);
+            for i in 0..16 {
+                let a = i as f32 * 2.399;
+                b.gem(
+                    v(a.cos() * 0.31, 0.76 + unit(i * 527) * 0.25, a.sin() * 0.26),
+                    0.05,
+                    0.067,
+                    0.041,
+                    a,
+                    [92, 76, 62],
+                );
+            }
+        }
+        Good::Local if region == Region::Japan => {
+            for i in 0..7 {
+                let a = i as f32 * 2.399;
+                let base = v(a.cos() * 0.35, 0.03, a.sin() * 0.35);
+                let h = 0.78 + unit(i * 621 + 45) * 0.75;
+                b.frustum(base, 0.057, 0.044, h, 7, [109, 155, 82]);
+                for ring in 1..4 {
+                    let y = h * ring as f32 / 4.2;
+                    b.frustum(base + Vec3::Y * y, 0.056, 0.053, 0.018, 7, [161, 174, 100]);
+                    let p = base + Vec3::Y * y;
+                    b.face(
+                        &[
+                            p,
+                            p + v(a.cos() * 0.22, 0.15, -0.075),
+                            p + v(a.cos() * 0.13, 0.042, 0.081),
+                        ],
+                        [101, 145, 74],
+                    );
+                }
+            }
+        }
+        Good::Local if region == Region::Nordic => {
+            b.frustum(at, 0.61, 0.56, 0.06, 9, [140, 133, 106]);
+            for i in 0..6 {
+                let a = i as f32 * 2.399;
+                b.gem(
+                    v(a.cos() * 0.29, 0.11, a.sin() * 0.31),
+                    0.12,
+                    0.083,
+                    0.095,
+                    a,
+                    shift([214, 137, 67], i * 6 - 12),
+                );
+            }
+        }
+        Good::Local if region == Region::Oasis => {
+            for i in 0..15 {
+                let a = i as f32 * 2.399;
+                let p = v(a.cos() * 0.49, 0.03, a.sin() * 0.49);
+                let h = 0.19 + unit(i * 827 + 150) * 0.13;
+                b.beam(p, p + Vec3::Y * h, 0.024, [110, 145, 73]);
+                b.frustum(p + Vec3::Y * h, 0.026, 0.091, 0.071, 6, [167, 131, 180]);
+                b.gem(
+                    p + Vec3::Y * (h + 0.078),
+                    0.04,
+                    0.035,
+                    0.039,
+                    a,
+                    [188, 88, 66],
+                );
+            }
+        }
         Good::Food | Good::Local => {
             for (i, (x, z)) in [(-0.48, 0.14), (0.09, -0.23), (0.42, 0.29)]
                 .into_iter()

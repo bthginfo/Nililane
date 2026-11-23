@@ -115,6 +115,8 @@ pub fn run() {
                 (
                     world::adventure_scene,
                     world::adventure_animate,
+                    world::adventure_logistics,
+                    world::adventure_fishing,
                     ui::project_adventure,
                     world::animate_weather,
                     world::animate_pets,

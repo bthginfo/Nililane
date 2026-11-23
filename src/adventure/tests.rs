@@ -1,5 +1,3 @@
-use std::collections::{HashSet, VecDeque};
-
 use super::*;
 
 struct Expedition {
@@ -22,44 +20,20 @@ impl Expedition {
 
     fn walk_to(&mut self, position: Vec2, distance: f32) {
         let here = Vec2::from_array(self.island.position);
-        let can_walk = |p| self.terrain.walkable(p, &self.island.lots);
-        let direct = here.distance(position);
-        if direct < distance {
+        if here.distance(position) < distance {
             return;
         }
-        let stride = 0.4;
-        let travel = (direct - distance + stride).min(direct);
-        let steps = (travel / stride).ceil() as u32;
-        let direction = (position - here).normalize();
-        if (1..=steps).all(|step| can_walk(here + direction * (step as f32 * stride).min(travel))) {
-            self.island.position = (here + direction * travel).to_array();
-            self.visits += 1;
-            return;
-        }
-        let start = here.round().as_ivec2();
-        let mut open = VecDeque::from([start]);
-        let mut seen = HashSet::from([start]);
-        while let Some(at) = open.pop_front() {
-            let point = at.as_vec2();
-            if point.distance(position) < distance && can_walk(point) {
-                self.island.position = point.to_array();
-                self.visits += 1;
-                return;
-            }
-            for d in [IVec2::X, IVec2::Y, IVec2::NEG_X, IVec2::NEG_Y] {
-                let next = at + d;
-                if can_walk(next.as_vec2())
-                    && can_walk((at.as_vec2() + next.as_vec2()) * 0.5)
-                    && seen.insert(next)
-                {
-                    open.push_back(next);
-                }
-            }
-        }
-        panic!(
-            "{}: keine Route von {here:?} nach {position:?}",
-            self.terrain.level.name
-        );
+        let route = self
+            .terrain
+            .route(here, position, distance - 0.05, &self.island.lots)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: keine Route von {here:?} nach {position:?}",
+                    self.terrain.level.name
+                )
+            });
+        self.island.position = route.first().copied().unwrap_or(here).to_array();
+        self.visits += 1;
     }
 
     fn supply(&mut self, good: Good, target: u16) {
@@ -67,24 +41,47 @@ impl Expedition {
             return;
         }
         if Good::RAW.contains(&good) {
-            let (index, deposit) = self
-                .terrain
-                .deposits
-                .iter()
-                .copied()
-                .enumerate()
-                .find(|(_, deposit)| deposit.kind == good)
-                .unwrap();
-            self.walk_to(deposit.at, reach(Target::Deposit(index)));
             while self.island.amount(good) < target {
-                self.island.gather(good);
+                while self.island.free_storage() < NILI_CAPACITY {
+                    let surplus = Good::ALL
+                        .into_iter()
+                        .filter(|&kind| {
+                            kind.uses_storage() && kind != good && self.island.amount(kind) > 0
+                        })
+                        .max_by_key(|&kind| self.island.amount(kind))
+                        .unwrap_or_else(|| {
+                            panic!("{}: Kein Platz für {good:?}", self.terrain.level.name)
+                        });
+                    assert!(self.island.discard_stock(surplus) > 0);
+                }
+                let index = self
+                    .island
+                    .available_near(&self.terrain, good, terrain::HALL_DOOR)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "{}: Inselvorrat an {good:?} erschöpft",
+                            self.terrain.level.name
+                        )
+                    });
+                let deposit = self.terrain.deposits[index];
+                self.walk_to(deposit.at, reach(Target::Deposit(index)));
+                let before = self.island.amount(good);
+                assert!(self.island.carry_resource(&self.terrain, index).is_some());
+                assert_eq!(self.island.amount(good), before);
+                self.walk_to(terrain::HALL_DOOR, 1.15);
+                assert!(self.island.unload().is_some());
+                assert!(
+                    self.island.cargo.is_none(),
+                    "{}: Lager kann die Fracht nicht aufnehmen",
+                    self.terrain.level.name
+                );
             }
             return;
         }
         let level = self.terrain.level;
         let output = |build: Build| {
             build
-                .recipe(1)
+                .recipe(1, level.region)
                 .is_some_and(|recipe| recipe.output.0 == good)
         };
         let workshop = self
@@ -104,49 +101,42 @@ impl Expedition {
         });
         let task = Task::Produce(lot);
         let property = self.island.lots[lot].unwrap();
-        let recipe = property.kind.recipe(property.tier).unwrap();
+        let recipe = property.kind.recipe(property.tier, level.region).unwrap();
         assert!(
             recipe.need.iter().all(|&(input, _)| input != good),
             "{}: Produktionskreislauf für {good:?}",
             level.name
         );
-        let rounds = (target - self.island.amount(good))
-            .div_ceil(recipe.output.1)
-            .max(1);
-        let inputs: Vec<_> = recipe
-            .need
-            .into_iter()
-            .map(|(input, amount)| (input, amount * rounds))
-            .collect();
-        for _ in 0..4 {
-            if self.island.ready(&inputs) {
-                break;
+        while self.island.amount(good) < target {
+            for _ in 0..4 {
+                if self.island.ready(&recipe.need) {
+                    break;
+                }
+                for &(input, amount) in recipe.need.iter().rev() {
+                    self.supply(input, amount);
+                }
             }
-            for &(input, amount) in inputs.iter().rev() {
-                self.supply(input, amount);
-            }
-        }
-        assert!(
-            self.island.ready(&inputs),
-            "{}: fehlende Vorlage für {good:?}",
-            level.name
-        );
-        let assigned = self.island.assign(task, &self.terrain);
-        for _ in 0..rounds {
-            if assigned {
-                self.island.tick_work(&self.terrain);
-            } else {
+            let assigned = self.island.assign(task, &self.terrain);
+            if !assigned {
                 self.walk_to(self.terrain.plots[lot], reach(Target::Plot(lot)));
-                assert!(
-                    self.island.produce(lot),
-                    "{}: Betrieb {property:?} steht still",
-                    level.name
-                );
+            }
+            assert!(
+                self.island.start_production(&self.terrain, lot),
+                "{}: Betrieb {property:?} steht still",
+                level.name
+            );
+            let batch = self.island.batch(lot).unwrap();
+            self.island
+                .tick_production(&self.terrain, batch.duration + 0.01);
+            assert!(
+                self.island.batch(lot).is_none(),
+                "{}: Lager voll für {good:?}",
+                level.name
+            );
+            if assigned {
+                assert!(self.island.unassign(task));
             }
             self.rounds += 1;
-        }
-        if assigned {
-            assert!(self.island.unassign(task));
         }
         assert!(
             self.island.amount(good) >= target,
@@ -157,8 +147,15 @@ impl Expedition {
 
     fn build(&mut self, kind: Build, previous: Option<usize>) -> usize {
         let level = self.terrain.level;
+        let vacant = |town: &Island| {
+            town.lots
+                .iter()
+                .enumerate()
+                .find(|(lot, p)| p.is_none() && kind.fits(level, *lot))
+                .map(|(lot, _)| lot)
+        };
         let lot = previous
-            .or_else(|| self.island.lots.iter().position(Option::is_none))
+            .or_else(|| vacant(&self.island))
             .unwrap_or_else(|| panic!("{}: kein Bauplatz für {kind:?}", level.name));
         let tier = self.island.lots[lot].map_or(1, |p| p.tier + 1);
         assert!(
@@ -177,7 +174,7 @@ impl Expedition {
         }
         // Supporting workshops may have occupied that vacant lot in the meantime.
         let lot = if previous.is_none() && self.island.lots[lot].is_some() {
-            self.island.lots.iter().position(Option::is_none).unwrap()
+            vacant(&self.island).unwrap()
         } else {
             lot
         };
@@ -188,6 +185,10 @@ impl Expedition {
             "{}: Bau abgelehnt für {kind:?} Stufe {tier}",
             level.name
         );
+        let offset = Vec2::from_array(self.island.position) - at;
+        if Terrain::inside_building(offset) {
+            self.island.position = (at + Terrain::just_outside(offset)).to_array();
+        }
         lot
     }
 
@@ -244,12 +245,45 @@ fn all_sixty_expeditions_have_walkable_goals_and_finish_with_real_production() {
         assert!(!run.island.victory(level));
         assert!(run.island.lots.iter().all(Option::is_none));
         run.requirements(2);
+        if level.stage >= 1 {
+            run.build(Build::Harbor(crate::model::Kind::Storehouse), None);
+        }
+        if level.stage >= 7 {
+            run.build(Build::Harbor(crate::model::Kind::Storehouse), None);
+        }
         if level.plan().is_some() {
             run.quest();
         }
         run.requirements(3);
-        if let Some(goal) = level.support() {
-            run.build(goal.kind, None);
+        for goal in level.goals() {
+            while run.island.progress(goal) < goal.count {
+                let slot = run
+                    .island
+                    .lots
+                    .iter()
+                    .position(|p| p.is_some_and(|p| p.kind == goal.kind && p.tier < goal.tier));
+                run.build(goal.kind, slot);
+            }
+        }
+        for index in 0..level.order_count() {
+            let order = level.order(index).unwrap();
+            for _ in 0..4 {
+                if run.island.ready(&order.goods) {
+                    break;
+                }
+                for (good, count) in order.goods {
+                    run.supply(good, count);
+                }
+            }
+            run.walk_to(terrain::HALL_DOOR, 1.1);
+            assert!(
+                run.island.pack_order(level),
+                "{}: {}",
+                level.name,
+                order.title
+            );
+            run.walk_to(run.terrain.outpost, reach(Target::Outpost));
+            assert!(run.island.deliver_order(level));
         }
         let (good, count) = level.reserve();
         run.supply(good, count);
@@ -317,6 +351,14 @@ fn every_resource_and_landmark_is_on_land_and_outside_the_plots() {
                 level.name
             );
         }
+        if level.order_count() > 0 {
+            assert!(map.accessible(map.outpost));
+            assert!(
+                map.plots
+                    .iter()
+                    .all(|plot| plot.distance(map.outpost) > 3.1)
+            );
+        }
     }
 }
 
@@ -330,14 +372,190 @@ fn empty_inventory_stops_work_without_spending_and_starts_again_at_night() {
     assert!(run.island.assign(work, &run.terrain));
     assert!(!run.island.assign(Task::Produce(home), &run.terrain));
     let before = run.island.stores;
-    run.island.tick_work(&run.terrain);
+    run.island.tick_production(&run.terrain, 1.0);
     assert_eq!(run.island.stores, before);
     run.island.phase = 0.05;
     run.supply(Good::Wood, 2);
     run.supply(Good::Food, 1);
-    run.island.tick_work(&run.terrain);
+    run.island.tick_production(&run.terrain, 0.1);
+    assert_eq!(run.island.amount(Good::Boards), 0);
+    let duration = run.island.batch(saw).unwrap().duration;
+    run.island.tick_production(&run.terrain, duration + 0.01);
     assert_eq!(run.island.amount(Good::Boards), 4);
     assert!(run.island.unassign(work));
+}
+
+#[test]
+fn nili_finishes_the_work_animation_then_unloads_once() {
+    let mut adventure = Adventure::default();
+    adventure.open(0, true);
+    adventure.screen = Screen::Walk;
+    let mut campaign = Campaign::default();
+    let mut game = Game::default();
+    game.view = View::Adventure;
+    let target = Target::Deposit(0);
+    let at = adventure.target_position(target).unwrap() + Vec2::X;
+    adventure.active_mut().unwrap().position = at.to_array();
+    act(
+        Command::Use(target),
+        &mut adventure,
+        &mut game,
+        &mut campaign,
+    );
+    assert!(adventure.harvesting.is_some());
+    process_work(&mut adventure, &mut game, &mut campaign, 0.17);
+    assert!(adventure.active().unwrap().cargo.is_none());
+    for _ in 0..24 {
+        process_work(&mut adventure, &mut game, &mut campaign, 0.17);
+    }
+    let island = adventure.active().unwrap();
+    assert_eq!(island.amount(Good::Wood), 0);
+    assert_eq!(island.cargo.unwrap().units, NILI_CAPACITY);
+    assert!(adventure.target_position(target).is_none());
+    act(
+        Command::Use(Target::Hall),
+        &mut adventure,
+        &mut game,
+        &mut campaign,
+    );
+    assert!(adventure.active().unwrap().cargo.is_some());
+    adventure.active_mut().unwrap().position = terrain::HALL_DOOR.to_array();
+    act(
+        Command::Use(Target::Hall),
+        &mut adventure,
+        &mut game,
+        &mut campaign,
+    );
+    act(
+        Command::Use(Target::Hall),
+        &mut adventure,
+        &mut game,
+        &mut campaign,
+    );
+    assert!(adventure.active().unwrap().cargo.is_none());
+    assert_eq!(
+        adventure.active().unwrap().amount(Good::Wood),
+        NILI_CAPACITY
+    );
+}
+
+#[test]
+fn a_citizen_walks_extracts_and_returns_with_saved_cargo() {
+    let mut run = Expedition::start(3);
+    let level = run.terrain.level;
+    run.build(Build::Harbor(level.home()), None);
+    let site = run
+        .island
+        .available_near(&run.terrain, Good::Stone, terrain::HALL_DOOR)
+        .unwrap();
+    let task = Task::Gather(site);
+    assert!(run.island.assign(task, &run.terrain));
+    let before = run.island.amount(Good::Stone);
+    for _ in 0..1200 {
+        run.island.tick_hauling(&run.terrain, 0.10);
+        if run.island.hauls[0].cargo.is_some() {
+            break;
+        }
+    }
+    let haul = &run.island.hauls[0];
+    let load = haul.cargo.unwrap();
+    assert_eq!(run.island.amount(Good::Stone), before);
+    assert!(Vec2::from_array(haul.position).distance(terrain::HALL_DOOR) > 2.0);
+    assert!(run.island.unassign(task));
+    let snapshot = serde_json::to_string(&run.island).unwrap();
+    let mut restored: Island = serde_json::from_str(&snapshot).unwrap();
+    restored.prepare_logistics(&run.terrain);
+    for _ in 0..1200 {
+        restored.tick_hauling(&run.terrain, 0.10);
+        if restored.workers.is_empty() {
+            break;
+        }
+    }
+    assert!(restored.workers.is_empty());
+    assert_eq!(restored.amount(Good::Stone), before + load.units);
+    assert_eq!(
+        restored.remaining(&run.terrain, site),
+        run.island.remaining(&run.terrain, site)
+    );
+}
+
+#[test]
+fn a_full_hall_keeps_the_remainder_on_nili_and_a_warehouse_expands_capacity() {
+    let level = Level::at(0);
+    let terrain = Terrain::new(level);
+    let mut island = Island::new(level);
+    assert_eq!(island.add(Good::Stone, 45), 45);
+    assert_eq!(island.carry_resource(&terrain, 0).unwrap().units, 10);
+    assert_eq!(island.unload().unwrap().units, 3);
+    assert!(island.unload().is_none());
+    assert_eq!(island.cargo.unwrap().units, 7);
+    assert_eq!(island.discard_stock(Good::Stone), 5);
+    assert_eq!(island.unload().unwrap().units, 5);
+    assert_eq!(island.cargo.unwrap().units, 2);
+    assert!(island.build(level, 0, Build::Harbor(crate::model::Kind::Storehouse)));
+    assert_eq!(island.storage_capacity(), 84);
+    assert_eq!(island.unload().unwrap().units, 2);
+    assert!(island.cargo.is_none());
+}
+
+#[test]
+fn nordic_fish_requires_a_coastal_hut_a_worker_and_a_completed_trip() {
+    use crate::model::Kind;
+    let mut run =
+        Expedition::start(Region::Nordic.start() / crate::campaign::REGION_SIZE * CORE_HARBORS);
+    let level = run.terrain.level;
+    assert!(!run.terrain.fishing.is_empty());
+    run.build(Build::Harbor(level.home()), None);
+    let lot = run.build(Build::Harbor(Kind::Fishery), None);
+    assert!(level.coastal(lot));
+    assert!(
+        run.terrain
+            .fishing
+            .iter()
+            .all(|place| run.terrain.shore(place.at) < 0.0)
+    );
+    run.supply(Good::Food, 1);
+    assert!(!run.island.start_production(&run.terrain, lot));
+    assert!(run.island.assign(Task::Produce(lot), &run.terrain));
+    let fish_at_sea = run.island.fish_left.iter().sum::<u16>();
+    assert!(run.island.start_production(&run.terrain, lot));
+    let trip = run.island.batch(lot).unwrap();
+    assert!(trip.fishing.is_some());
+    assert!(trip.duration > Build::Sawmill.recipe(1, level.region).unwrap().seconds);
+    run.island
+        .tick_production(&run.terrain, trip.duration * 0.45);
+    assert_eq!(run.island.amount(Good::Fish), 0);
+    let saved = serde_json::to_vec(&run.island).unwrap();
+    let mut loaded: Island = serde_json::from_slice(&saved).unwrap();
+    loaded.tick_production(&run.terrain, trip.duration);
+    assert_eq!(loaded.amount(Good::Fish), trip.output.units);
+    assert_eq!(
+        loaded.fish_left.iter().sum::<u16>(),
+        fish_at_sea - trip.output.units
+    );
+}
+
+#[test]
+fn an_older_island_keeps_stored_material_when_the_inventory_grows() {
+    let level = Level::at(0);
+    let mut value = serde_json::to_value(Island::new(level)).unwrap();
+    let supplies = value["stores"].as_array_mut().unwrap();
+    supplies.truncate(14);
+    supplies[Good::Stone as usize] = serde_json::json!(32);
+    for key in [
+        "cargo",
+        "remaining",
+        "hauls",
+        "shipment",
+        "orders_delivered",
+        "fish_left",
+        "batches",
+    ] {
+        value.as_object_mut().unwrap().remove(key);
+    }
+    let restored: Island = serde_json::from_value(value).unwrap();
+    assert_eq!(restored.amount(Good::Stone), 32);
+    assert_eq!(restored.amount(Good::Fish), 0);
 }
 
 #[test]

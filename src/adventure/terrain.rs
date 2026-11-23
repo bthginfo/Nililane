@@ -1,14 +1,37 @@
 use bevy::prelude::*;
+use std::collections::{HashMap, VecDeque};
 
-use super::{Good, Level, Property, simulation::Deposit};
+use super::{
+    Good, Level, Property,
+    simulation::{Deposit, Scenery},
+};
+
+pub const HALL_DOOR: Vec2 = Vec2::new(0.0, 3.2);
+
+#[derive(Clone, Copy)]
+pub struct ResourceZone {
+    pub kind: Good,
+    pub center: Vec2,
+    pub radius: f32,
+}
+
+#[derive(Clone, Copy)]
+pub struct FishingGround {
+    pub at: Vec2,
+    pub launch: Vec2,
+    pub lot: usize,
+}
 
 #[derive(Clone)]
 pub struct Terrain {
     pub level: Level,
     pub plots: Vec<Vec2>,
     pub deposits: Vec<Deposit>,
+    pub zones: Vec<ResourceZone>,
+    pub fishing: Vec<FishingGround>,
     pub shrine: Vec2,
     pub relic: Vec2,
+    pub outpost: Vec2,
     pub radius: f32,
     shape: f32,
     angle: f32,
@@ -21,7 +44,7 @@ impl Terrain {
         let radius = level.diameter() * 0.5;
         let seed = level.index as u32 * 152_093 + 25_739;
         let angle = unit(seed) * 3.8 - 1.9;
-        let plots: Vec<_> = (0..level.plots())
+        let plots: Vec<_> = (0..level.inland_plots())
             .map(|i| {
                 let width = 5 + usize::from(level.stage > 5) + usize::from(level.stage > 9);
                 let row = i / width;
@@ -39,18 +62,9 @@ impl Terrain {
             })
             .collect();
         let deposits = vec![
-            Deposit {
-                kind: Good::Wood,
-                at: Vec2::new(-5.3, 3.1),
-            },
-            Deposit {
-                kind: Good::Stone,
-                at: Vec2::new(5.9, 2.4),
-            },
-            Deposit {
-                kind: Good::Food,
-                at: Vec2::new(-4.9, -2.2),
-            },
+            Deposit::new(Good::Wood, Vec2::new(-5.3, 3.1)),
+            Deposit::new(Good::Stone, Vec2::new(5.9, 2.4)),
+            Deposit::new(Good::Food, Vec2::new(-4.9, -2.2)),
         ];
         let peak = Vec2::new(-radius * 0.40, -radius * 0.50);
         let base = 5.6 + level.stage as f32 * 0.66;
@@ -76,8 +90,11 @@ impl Terrain {
             level,
             plots,
             deposits,
+            zones: Vec::new(),
+            fishing: Vec::new(),
             shrine: Vec2::new(radius * 0.37, radius * 0.27),
             relic: peak,
+            outpost: Vec2::ZERO,
             radius,
             shape,
             angle,
@@ -95,7 +112,7 @@ impl Terrain {
                 distance * Vec2::from_angle(direction)
             }));
             if let Some(at) = positions.into_iter().find(|&at| map.deposit_site(at)) {
-                map.deposits.push(Deposit { kind, at });
+                map.deposits.push(Deposit::new(kind, at));
             }
         }
         for (i, kind) in Good::RAW.into_iter().chain(Good::RAW).enumerate() {
@@ -103,10 +120,177 @@ impl Terrain {
             let distance = radius * (0.58 + unit(seed + i as u32 * 401) * 0.17);
             let at = distance * Vec2::from_angle(a);
             if map.deposit_site(at) {
-                map.deposits.push(Deposit { kind, at });
+                map.deposits.push(Deposit::new(kind, at));
             }
         }
+        if level.region == crate::campaign::Region::Nordic {
+            for sector in [0.18, 2.37] {
+                let direction = (0..32)
+                    .map(|n| sector + angle * 0.28 + n as f32 * 0.23)
+                    .find(|&a| {
+                        let at = Vec2::from_angle(a) * (map.radius_at(a) - 3.5);
+                        map.plots.iter().all(|p| p.distance(at) > 6.0)
+                            && map.shrine.distance(at) > 5.0
+                    })
+                    .unwrap_or(sector);
+                let shore = map.radius_at(direction);
+                let ray = Vec2::from_angle(direction);
+                let lot = map.plots.len();
+                map.plots.push(ray * (shore - 3.5));
+                map.fishing.push(FishingGround {
+                    at: ray * (shore + 9.0 + level.stage as f32 * 0.52),
+                    launch: ray * (shore + 1.65),
+                    lot,
+                });
+            }
+        }
+        map.outpost = (0..90)
+            .map(|n| {
+                let direction = 0.78 + angle * 0.5 + n as f32 * 0.61;
+                Vec2::from_angle(direction) * radius * (0.52 + (n % 7) as f32 * 0.027)
+            })
+            .find(|&at| {
+                map.deposit_site(at)
+                    && map.shrine.distance(at) > 10.0
+                    && map.relic.distance(at) > 9.0
+            })
+            .unwrap_or(Vec2::new(radius * 0.57, 1.0));
+        map.fill_resources();
         map
+    }
+
+    fn fill_resources(&mut self) {
+        let seed = self.level.index as u32 * 8763 + 431;
+        let legacy = std::mem::take(&mut self.deposits);
+        self.zones = Good::RAW
+            .into_iter()
+            .zip([3.0, 0.0, 1.0, 4.2, 5.25, 2.0])
+            .map(|(kind, sector)| {
+                let angle = sector + 0.40 * self.angle;
+                let distance =
+                    self.radius_at(angle) * (0.63 + unit(seed + kind as u32 * 53) * 0.09);
+                let mut center = Vec2::from_angle(angle) * distance;
+                if self.level.order_count() > 0
+                    && center.distance(self.outpost) < self.radius * 0.15
+                {
+                    center = Vec2::from_angle(angle - 0.25) * distance;
+                }
+                let size = match kind {
+                    Good::Wood => 0.27,
+                    Good::Stone => 0.235,
+                    _ => 0.195,
+                };
+                ResourceZone {
+                    kind,
+                    center,
+                    radius: self.radius * size,
+                }
+            })
+            .collect();
+        // Keep the identities used by existing citizen assignments, even when their sites move.
+        for (index, deposit) in legacy.into_iter().enumerate() {
+            let at = if self.level.stage == 0 && index < 3 {
+                deposit.at
+            } else {
+                self.zone_site(self.zone(deposit.kind), seed + index as u32 * 4903)
+                    .map_or(deposit.at, |(at, _)| at)
+            };
+            self.deposits.push(Deposit::new(deposit.kind, at));
+        }
+        for zone in self.zones.clone() {
+            let desired = match zone.kind {
+                Good::Wood => 24 + self.level.stage * 4,
+                Good::Stone => 25 + self.level.stage * 4,
+                Good::Clay | Good::Ore => 13 + self.level.stage,
+                _ => 13 + self.level.stage,
+            };
+            let present = self
+                .deposits
+                .iter()
+                .filter(|deposit| deposit.kind == zone.kind)
+                .count();
+            for serial in present..desired {
+                let key = seed + (zone.kind as u32 + 1) * 72_901 + serial as u32 * 1_013;
+                let Some((at, variation)) = self.zone_site(zone, key) else {
+                    break;
+                };
+                let scenery = matches!(zone.kind, Good::Wood | Good::Stone).then(|| Scenery {
+                    seed: variation,
+                    size: 0.70 + unit(variation + 81) * 0.96,
+                });
+                self.deposits.push(Deposit {
+                    kind: zone.kind,
+                    at,
+                    scenery,
+                });
+            }
+        }
+    }
+
+    pub fn zone(&self, good: Good) -> ResourceZone {
+        *self
+            .zones
+            .iter()
+            .find(|zone| zone.kind == good)
+            .expect("raw material has a district")
+    }
+
+    pub fn district(&self, at: Vec2) -> Option<Good> {
+        self.zones
+            .iter()
+            .min_by(|a, b| {
+                (a.center.distance(at) / a.radius).total_cmp(&(b.center.distance(at) / b.radius))
+            })
+            .filter(|zone| zone.center.distance(at) <= zone.radius)
+            .map(|zone| zone.kind)
+    }
+
+    fn zone_site(&self, zone: ResourceZone, seed: u32) -> Option<(Vec2, u32)> {
+        let spacing = if matches!(zone.kind, Good::Wood | Good::Stone) {
+            1.62
+        } else {
+            2.10
+        };
+        (0..240).find_map(|attempt| {
+            let key = seed + attempt * 181;
+            let angle = std::f32::consts::TAU * unit(key);
+            let expand = if attempt >= 140 { 1.22 } else { 1.0 };
+            let at = zone.center
+                + zone.radius * expand * unit(key + 71).sqrt() * Vec2::from_angle(angle);
+            (self.shore(at) > 3.25
+                && at.length() > 9.4
+                && self.plots.iter().all(|plot| plot.distance(at) > 3.35)
+                && self
+                    .deposits
+                    .iter()
+                    .all(|deposit| deposit.at.distance(at) > spacing)
+                && self.shrine.distance(at) > 4.0
+                && self.relic.distance(at) > 3.0
+                && (self.level.order_count() == 0 || self.outpost.distance(at) > 4.0))
+                .then_some((at, key % 100_003))
+        })
+    }
+
+    pub fn vegetation(&self) -> impl Iterator<Item = (u32, Vec2, f32, f32)> + '_ {
+        let seed = self.level.index as u32 * 8763 + 431;
+        (0..(360 + self.level.stage as u32 * 44)).filter_map(move |i| {
+            let at = Vec2::new(
+                unit(seed + 531 * i) * 2.0 - 1.0,
+                unit(seed + 711 * i + 6) * 2.0 - 1.0,
+            ) * self.radius;
+            (self.shore(at) >= 3.3
+                && at.length() >= 8.0
+                && self.plots.iter().all(|p| p.distance(at) >= 3.15)
+                && self.deposits.iter().all(|d| d.at.distance(at) >= 1.12)
+                && self.shrine.distance(at) >= 4.0
+                && (self.level.order_count() == 0 || self.outpost.distance(at) >= 4.0)
+                && self.relic.distance(at) >= 2.2)
+                .then(|| {
+                    let choice = unit(seed + i * 7 + 7);
+                    let size = 0.58 + unit(seed + i * 83 + 196) * 0.94;
+                    (i, at, choice, size)
+                })
+        })
     }
 
     fn deposit_site(&self, at: Vec2) -> bool {
@@ -119,6 +303,7 @@ impl Terrain {
                 .iter()
                 .all(|deposit| deposit.at.distance(at) > 4.0)
             && (self.level.plan().is_none() || self.shrine.distance(at) > 3.2)
+            && (self.level.order_count() == 0 || self.outpost.distance(at) > 3.6)
     }
 
     pub fn radius_at(&self, angle: f32) -> f32 {
@@ -198,6 +383,60 @@ impl Terrain {
             }
         }
         here
+    }
+
+    pub fn route(
+        &self,
+        start: Vec2,
+        goal: Vec2,
+        reach: f32,
+        lots: &[Option<Property>],
+    ) -> Option<Vec<Vec2>> {
+        let can_walk = |at| self.walkable(at, lots);
+        let clear = |from: Vec2, to: Vec2| {
+            let steps = (from.distance(to) / 0.35).ceil().max(1.0) as u32;
+            (1..=steps).all(|i| can_walk(from.lerp(to, i as f32 / steps as f32)))
+        };
+        let distance = start.distance(goal);
+        if distance <= reach {
+            return Some(Vec::new());
+        }
+        let stop = start.lerp(goal, ((distance - reach + 0.09) / distance).min(1.0));
+        if clear(start, stop) {
+            return Some(vec![stop]);
+        }
+        let mut paths: HashMap<IVec2, Option<IVec2>> = HashMap::new();
+        let mut open = VecDeque::new();
+        let origin = start.round().as_ivec2();
+        for y in -1..=1 {
+            for x in -1..=1 {
+                let at = origin + IVec2::new(x, y);
+                if clear(start, at.as_vec2()) {
+                    open.push_back(at);
+                    paths.insert(at, None);
+                }
+            }
+        }
+        while let Some(at) = open.pop_front() {
+            let point = at.as_vec2();
+            if point.distance(goal) <= reach {
+                let mut route = vec![point];
+                let mut previous = paths[&at];
+                while let Some(parent) = previous {
+                    route.push(parent.as_vec2());
+                    previous = paths[&parent];
+                }
+                return Some(route);
+            }
+            for direction in [IVec2::X, IVec2::Y, IVec2::NEG_X, IVec2::NEG_Y] {
+                let next = at + direction;
+                if !paths.contains_key(&next) && clear(point, next.as_vec2()) {
+                    paths.insert(next, Some(at));
+                    open.push_back(next);
+                }
+            }
+        }
+        None
     }
 
     pub fn accessible(&self, at: Vec2) -> bool {
