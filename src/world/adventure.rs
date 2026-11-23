@@ -1,12 +1,12 @@
 use bevy::{
     pbr::NotShadowCaster,
     prelude::*,
-    render::{camera::ScalingMode, mesh::skinning::SkinnedMesh},
+    render::{camera::ScalingMode, mesh::skinning::SkinnedMesh, view::NoFrustumCulling},
     window::PrimaryWindow,
 };
 
 use crate::{
-    adventure::{Adventure, Build, Good, Quest, Screen, Task, Terrain, terrain::unit},
+    adventure::{Adventure, Build, Good, Quest, Screen, Target, Task, Terrain, terrain::unit},
     campaign::Region,
     game::{Game, Panel, View},
     model::Kind,
@@ -32,10 +32,16 @@ pub(crate) struct TownBuildings;
 pub(crate) struct TownWorkers;
 
 #[derive(Component)]
+pub(crate) struct ConstructionModels;
+
+#[derive(Component)]
 pub(crate) struct Worker(usize);
 
 #[derive(Component)]
 pub(crate) struct Marker;
+
+#[derive(Component, Default)]
+pub(crate) struct RouteTrail(Option<(Target, Vec2)>);
 
 #[derive(Component)]
 pub(crate) struct Relic;
@@ -56,8 +62,12 @@ pub(crate) struct CargoModel(Option<usize>);
 #[derive(Component)]
 pub(crate) struct SpentResource(usize);
 
-#[derive(Component)]
-pub(crate) struct HarvestTool(bool);
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WorkTool {
+    Axe,
+    Pick,
+    Hammer,
+}
 
 #[derive(Component)]
 pub(crate) struct FishingBoat(usize);
@@ -76,6 +86,7 @@ pub(crate) struct Scene {
     chapter: Option<usize>,
     buildings: Vec<Option<crate::adventure::Property>>,
     staff: usize,
+    staging: Vec<Option<[u16; Good::ALL.len()]>>,
     workshops: Vec<(Region, Build, u8, Handle<Mesh>)>,
     cargo: Option<Handle<Mesh>>,
 }
@@ -99,6 +110,8 @@ pub(crate) fn sync(
     buildings: Query<Entity, With<TownBuildings>>,
     workers: Query<Entity, With<TownWorkers>>,
     marker: Query<Entity, With<Marker>>,
+    mut trail: Query<(&mut RouteTrail, &Mesh3d, &mut Visibility)>,
+    construction: Query<Entity, With<ConstructionModels>>,
 ) {
     let terrain = adventure
         .terrain
@@ -114,6 +127,7 @@ pub(crate) fn sync(
         scene.chapter = chapter;
         scene.buildings.clear();
         scene.staff = 0;
+        scene.staging.clear();
         if let Some(terrain) = terrain {
             let earth = palette(terrain.level.region);
             let mesh = landscape(terrain, earth);
@@ -127,6 +141,17 @@ pub(crate) fn sync(
                 ))
                 .with_children(|root| {
                     root.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(art.matte.clone())));
+                    root.spawn((
+                        RouteTrail::default(),
+                        Mesh3d(meshes.add(Batch::default().mesh())),
+                        MeshMaterial3d(materials.add(StandardMaterial {
+                            unlit: true,
+                            ..default()
+                        })),
+                        Visibility::Hidden,
+                        NoFrustumCulling,
+                        NotShadowCaster,
+                    ));
                     let water = materials.add(StandardMaterial {
                         base_color: Color::srgb_u8(59, 142, 159),
                         perceptual_roughness: 0.42,
@@ -340,11 +365,15 @@ pub(crate) fn sync(
                 Transform::default(),
                 Visibility::Hidden,
             ));
-            for axe in [false, true] {
+            for tool in [WorkTool::Pick, WorkTool::Axe, WorkTool::Hammer] {
                 commands.spawn((
                     Ground,
-                    HarvestTool(axe),
-                    Mesh3d(meshes.add(harvest_tool(axe))),
+                    tool,
+                    Mesh3d(meshes.add(if tool == WorkTool::Hammer {
+                        build_hammer()
+                    } else {
+                        harvest_tool(tool == WorkTool::Axe)
+                    })),
                     MeshMaterial3d(art.matte.clone()),
                     Transform::default(),
                     Visibility::Hidden,
@@ -371,11 +400,71 @@ pub(crate) fn sync(
         }
     }
     let Some((terrain, island)) = terrain.zip(island) else {
-        for entity in buildings.iter().chain(workers.iter()) {
+        for entity in buildings
+            .iter()
+            .chain(workers.iter())
+            .chain(construction.iter())
+        {
             commands.entity(entity).despawn();
         }
         return;
     };
+    let stages = island
+        .construction
+        .iter()
+        .map(|site| site.as_ref().map(|site| site.materials));
+    if scene.staging.iter().copied().ne(stages.clone()) {
+        scene.staging = stages.collect();
+        for entity in &construction {
+            commands.entity(entity).despawn();
+        }
+        let mut batch = Batch::default();
+        for (lot, materials) in scene
+            .staging
+            .iter()
+            .enumerate()
+            .filter_map(|(lot, site)| site.as_ref().map(|site| (lot, site)))
+        {
+            build_site(&mut batch, terrain, terrain.plots[lot], materials);
+        }
+        if batch.vertices() > 0 {
+            commands.spawn((
+                ConstructionModels,
+                Mesh3d(meshes.add(batch.mesh())),
+                MeshMaterial3d(art.matte.clone()),
+                Transform::from_translation(ORIGIN),
+            ));
+        }
+    }
+    if !switched && let Ok((mut trail, handle, mut shown)) = trail.single_mut() {
+        let active = game.panel == Panel::None && adventure.screen == Screen::Walk;
+        let target = adventure.waypoint.filter(|&target| {
+            active && adventure.target_position(target).is_some() && !adventure.close_enough(target)
+        });
+        let here = Vec2::from_array(island.position);
+        if let Some(target) = target {
+            if scene.buildings != island.lots
+                || trail
+                    .0
+                    .is_none_or(|(old, from)| old != target || from.distance_squared(here) > 0.81)
+            {
+                trail.0 = Some((target, here));
+                let path = adventure.waypoint_path().unwrap_or_default();
+                let batch = trail_arrows(terrain, &path);
+                *shown = if batch.vertices() == 0 {
+                    Visibility::Hidden
+                } else {
+                    if let Some(mesh) = meshes.get_mut(&handle.0) {
+                        *mesh = batch.mesh();
+                    }
+                    Visibility::Inherited
+                };
+            }
+        } else if trail.0.is_some() {
+            trail.0 = None;
+            *shown = Visibility::Hidden;
+        }
+    }
     if scene.buildings != island.lots {
         scene.buildings.clone_from(&island.lots);
         for entity in &buildings {
@@ -419,9 +508,10 @@ pub(crate) fn sync(
                             MeshMaterial3d(art.matte.clone()),
                             Transform::from_translation(p),
                         ));
-                        if let Some((_, when)) = adventure
-                            .scene_change
-                            .filter(|(i, when)| *i == lot && game.clock - *when < 1.2)
+                        if let Some(&(_, when)) = adventure
+                            .scene_changes
+                            .iter()
+                            .find(|(i, when)| *i == lot && game.clock - *when < 1.2)
                         {
                             spot.insert(BuildLift { when, base: p.y });
                         }
@@ -484,7 +574,7 @@ pub(crate) fn sync(
                 }
             });
     }
-    let population = usize::from(island.staff());
+    let population = usize::from(island.staff()).max(island.assigned_staff());
     if switched || scene.staff != population {
         scene.staff = population;
         for entity in &workers {
@@ -515,6 +605,156 @@ pub(crate) fn sync(
     }
 }
 
+fn trail_arrows(terrain: &Terrain, path: &[Vec2]) -> Batch {
+    let mut batch = Batch::default();
+    let distance = path
+        .windows(2)
+        .map(|points| points[0].distance(points[1]))
+        .sum::<f32>();
+    let mut next = 0.64f32.min(distance * 0.5);
+    for edge in path.windows(2) {
+        let offset = edge[1] - edge[0];
+        let length = offset.length();
+        let forward = offset.normalize_or_zero();
+        let side = forward.perp();
+        while next < length && batch.vertices() < 18 * 12 {
+            let center = edge[0] + forward * next;
+            for (size, lift, tint) in [(1.0, 0.24, [26, 72, 75]), (0.70, 0.26, [144, 255, 212])] {
+                let point = |x: f32, y: f32| {
+                    let q = center + (forward * x + side * y) * size;
+                    v(q.x, terrain.height(q) + lift, q.y)
+                };
+                let tip = point(0.39, 0.0);
+                let notch = point(0.07, 0.0);
+                batch.face(&[tip, notch, point(-0.22, 0.43)], tint);
+                batch.face(&[tip, point(-0.22, -0.43), notch], tint);
+            }
+            next += 1.12;
+        }
+        next -= length;
+    }
+    batch
+}
+
+fn build_site(batch: &mut Batch, terrain: &Terrain, at: Vec2, materials: &[u16; Good::ALL.len()]) {
+    let origin = v(at.x, terrain.height(at), at.y);
+    let wood = [143, 106, 73];
+    let foot = |x, z| origin + v(x, 0.06, z);
+    for x in [-1.56, 1.56] {
+        let post = foot(x, 1.47);
+        batch.frustum(post, 0.10, 0.07, 0.88, 5, wood);
+        batch.slab(
+            post + v(0.0, 0.16, 0.0),
+            v(0.28, 0.16, 0.30),
+            [169, 141, 107],
+        );
+        batch.beam(
+            post + v(0.0, 0.31, 0.0),
+            foot(x, -1.50) + v(0.0, 0.18, 0.0),
+            0.05,
+            [221, 176, 108],
+        );
+    }
+    let sign = foot(-1.56, 1.47) + v(0.04, 0.76, 0.16);
+    batch.slab(sign, v(0.53, 0.38, 0.12), [36, 118, 112]);
+    batch.beam(
+        sign + v(-0.13, -0.09, 0.073),
+        sign + v(0.12, 0.10, 0.073),
+        0.055,
+        [249, 226, 158],
+    );
+    batch.beam(
+        sign + v(0.04, 0.14, 0.073),
+        sign + v(0.17, 0.01, 0.073),
+        0.088,
+        [249, 226, 158],
+    );
+    batch.slab(foot(0.0, -1.47), v(3.18, 0.10, 0.22), [185, 149, 109]);
+    batch.slab(foot(0.0, 1.47), v(3.18, 0.10, 0.22), [185, 149, 109]);
+
+    for (pile, kind) in Good::ALL
+        .into_iter()
+        .filter(|&good| materials[good as usize] > 0)
+        .enumerate()
+    {
+        let count = materials[kind as usize].div_ceil(4).min(5);
+        let p = foot(
+            -1.31 + (pile % 5) as f32 * 0.66,
+            2.04 + (pile / 5) as f32 * 0.66,
+        );
+        for bundle in 0..count {
+            let p = p + v(
+                f32::from(bundle % 2) * 0.20,
+                f32::from(bundle / 2) * 0.14,
+                f32::from(bundle) * 0.045,
+            );
+            match kind {
+                Good::Wood | Good::Boards => {
+                    let tint = if kind == Good::Wood {
+                        [144, 93, 57]
+                    } else {
+                        [202, 157, 96]
+                    };
+                    batch.slab(p + Vec3::Y * 0.12, v(0.23, 0.13, 0.77), tint);
+                    batch.slab(p + v(0.0, 0.197, 0.21), v(0.26, 0.025, 0.08), [98, 75, 52]);
+                }
+                Good::Stone | Good::Ore | Good::Clay => {
+                    let tint = match kind {
+                        Good::Stone => [183, 174, 161],
+                        Good::Ore => [104, 122, 123],
+                        _ => [182, 108, 82],
+                    };
+                    batch.gem(
+                        p + Vec3::Y * 0.16,
+                        0.26,
+                        0.16,
+                        0.23,
+                        f32::from(bundle) * 0.39,
+                        tint,
+                    );
+                }
+                Good::Bricks => {
+                    batch.slab(p + Vec3::Y * 0.09, v(0.34, 0.15, 0.23), [185, 99, 69]);
+                    batch.slab(p + v(0.04, 0.20, 0.04), v(0.28, 0.09, 0.21), [210, 122, 88]);
+                }
+                Good::Water | Good::Oil | Good::Perfume => {
+                    amphora(batch, p + v(0.0, 0.06, 0.05), 0.48, [205, 149, 95]);
+                }
+                Good::Fiber | Good::Cloth | Good::Paper => {
+                    batch.beam(
+                        p + v(0.0, 0.17, -0.23),
+                        p + v(0.0, 0.17, 0.31),
+                        0.19,
+                        [199, 176, 120],
+                    );
+                    batch.slab(p + v(0.0, 0.245, 0.02), v(0.22, 0.04, 0.09), [65, 120, 119]);
+                }
+                _ => {
+                    crate_box(
+                        batch,
+                        p + Vec3::Y * 0.13,
+                        v(0.27, 0.21, 0.32),
+                        [165, 111, 67],
+                    );
+                    let tint = if matches!(kind, Good::Tools | Good::Craft) {
+                        [160, 184, 187]
+                    } else {
+                        [231, 186, 111]
+                    };
+                    batch.slab(p + Vec3::Y * 0.255, v(0.19, 0.051, 0.12), tint);
+                }
+            }
+        }
+    }
+}
+
+fn build_hammer() -> Mesh {
+    let mut batch = Batch::default();
+    batch.beam(v(0.0, -0.17, 0.0), v(0.0, 0.26, 0.0), 0.065, [169, 118, 70]);
+    batch.slab(v(0.0, 0.23, 0.0), v(0.24, 0.12, 0.13), [120, 142, 151]);
+    batch.mesh()
+}
+
 #[allow(clippy::type_complexity)]
 pub(crate) fn logistics_visuals(
     game: Res<Game>,
@@ -522,14 +762,14 @@ pub(crate) fn logistics_visuals(
     mut nodes: Query<(&mut ResourceModel, &mut Transform, &mut Visibility)>,
     mut loads: Query<
         (&CargoModel, &mut Transform, &mut Visibility),
-        (Without<ResourceModel>, Without<HarvestTool>),
+        (Without<ResourceModel>, Without<WorkTool>),
     >,
-    mut tools: Query<(&HarvestTool, &mut Transform, &mut Visibility), Without<ResourceModel>>,
+    mut tools: Query<(&WorkTool, &mut Transform, &mut Visibility), Without<ResourceModel>>,
     mut spent: Query<
         (&SpentResource, &mut Visibility),
         (
             Without<ResourceModel>,
-            Without<HarvestTool>,
+            Without<WorkTool>,
             Without<CargoModel>,
         ),
     >,
@@ -590,10 +830,9 @@ pub(crate) fn logistics_visuals(
     for (model, mut pose, mut shown) in &mut loads {
         let actor = match model.0 {
             Some(worker) => island
-                .hauls
-                .get(worker)
-                .filter(|haul| haul.cargo.is_some())
-                .map(|haul| (haul.position, haul.facing, haul.gait, haul.moving, 1.18)),
+                .walking_worker(worker)
+                .filter(|(_, carrying)| *carrying)
+                .map(|(haul, _)| (haul.position, haul.facing, haul.gait, haul.moving, 1.18)),
             None if island.cargo.is_some() || island.shipment.is_some() => Some((
                 island.position,
                 adventure.heading,
@@ -616,12 +855,20 @@ pub(crate) fn logistics_visuals(
         }
     }
     for (tool, mut pose, mut shown) in &mut tools {
-        if let Some(work) = adventure.harvesting.filter(|work| {
-            let kind = terrain.deposits[work.site].kind;
-            matches!(kind, Good::Wood | Good::Stone | Good::Ore | Good::Clay)
-                && tool.0 == (kind == Good::Wood)
-        }) {
-            let swing = (work.duration - work.left) * 11.0;
+        let swing = if *tool == WorkTool::Hammer && adventure.building.is_some() {
+            Some(game.clock * 9.0)
+        } else {
+            adventure.harvesting.and_then(|work| {
+                let kind = terrain.deposits[work.site].kind;
+                let work_tool = match kind {
+                    Good::Wood => WorkTool::Axe,
+                    Good::Stone | Good::Ore | Good::Clay => WorkTool::Pick,
+                    _ => return None,
+                };
+                (*tool == work_tool).then_some((work.duration - work.left) * 11.0)
+            })
+        };
+        if let Some(swing) = swing {
             let rot = Quat::from_rotation_y(adventure.heading);
             pose.translation = position(terrain, Vec2::from_array(island.position))
                 + rot * v(-0.30, 0.82 + swing.sin() * 0.17, 0.45);
@@ -719,6 +966,8 @@ pub(crate) fn animate(
         {
             let beat = ((work.duration - work.left) * 10.9 + limb.side * 0.45).sin();
             -0.64 + beat * 0.80
+        } else if !limb.leg && adventure.building.is_some() {
+            -0.43 + (game.clock * 9.0 + limb.side * 0.18).sin() * 0.55
         } else if !limb.leg && (island.cargo.is_some() || island.shipment.is_some()) {
             -0.77 + adventure.gait.sin() * 0.055
         } else if adventure.moved {
@@ -769,9 +1018,7 @@ pub(crate) fn animate(
     let mut poses = Vec::with_capacity(usize::from(island.staff()) * 9);
     for (worker, skin, mut model) in &mut scene.p5() {
         let job = island.workers.get(worker.0).copied();
-        if matches!(job, Some(Task::Gather(_)))
-            && let Some(haul) = island.hauls.get(worker.0)
-        {
+        if let Some((haul, carrying)) = island.walking_worker(worker.0) {
             let bob = if haul.moving {
                 haul.gait.sin().abs() * 0.040
             } else {
@@ -794,7 +1041,7 @@ pub(crate) fn animate(
                 },
                 haul.work > 0.0,
             );
-            if haul.cargo.is_some() {
+            if carrying {
                 for joint in [1, 5] {
                     pose[joint].rotation *= Quat::from_rotation_x(-0.65);
                 }

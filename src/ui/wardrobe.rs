@@ -14,7 +14,6 @@ pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign, gam
             align_items: AlignItems::Center,
             ..row(10.0)
         },
-        BackgroundColor(Color::srgba(0.024, 0.090, 0.10, 0.25)),
         FocusPolicy::Block,
     ))
     .with_children(|root| {

@@ -1,5 +1,75 @@
 use super::*;
 
+#[test]
+fn showing_a_waypoint_leaves_nili_in_place_and_finds_a_walkable_detour() {
+    let mut adventure = Adventure::default();
+    adventure.open(0, true);
+    let mut game = Game::default();
+    let mut save = Campaign::default();
+    let start = Vec2::new(-5.0, -0.3);
+    adventure.active_mut().unwrap().position = start.to_array();
+    let target = Target::Deposit(1);
+
+    act(
+        Command::SetRoute(target),
+        &mut adventure,
+        &mut game,
+        &mut save,
+    );
+    assert_eq!(adventure.screen, Screen::Walk);
+    assert_eq!(adventure.active().unwrap().position, start.to_array());
+    let path = adventure.waypoint_path().unwrap();
+    assert_eq!(path[0], start);
+    assert!(path.len() > 2, "the direct path crosses the town hall");
+    let destination = adventure.target_position(target).unwrap();
+    assert!(path.last().unwrap().distance(destination) < reach(target));
+    let terrain = adventure.terrain.as_ref().unwrap();
+    let lots = &adventure.active().unwrap().lots;
+    for edge in path.windows(2) {
+        assert!(
+            terrain
+                .walk(edge[0], edge[1] - edge[0], lots)
+                .distance(edge[1])
+                < 0.001
+        );
+    }
+
+    act(Command::ClearRoute, &mut adventure, &mut game, &mut save);
+    assert!(adventure.waypoint_path().is_none());
+}
+
+#[test]
+fn a_completed_island_can_be_played_on_and_its_summary_reopened() {
+    let mut adventure = Adventure {
+        book: Book::default(),
+        ..Adventure::default()
+    };
+    adventure.open(0, false);
+    adventure.active_mut().unwrap().completed = true;
+    let mut game = Game::default();
+    let mut save = Campaign::default();
+    save.reward_adventure(0);
+    let stars = save.available_stars();
+
+    act(Command::Summary, &mut adventure, &mut game, &mut save);
+    assert_eq!(adventure.screen, Screen::Finish);
+    assert_eq!(first(&adventure), Some(Action::Adventure(Command::Next)));
+    act(Command::Close, &mut adventure, &mut game, &mut save);
+    assert_eq!(adventure.screen, Screen::Walk);
+    assert_eq!(adventure.active().unwrap().index, 0);
+    assert!(adventure.unlocked(1));
+    adventure.active_mut().unwrap().position = [5.0, 2.1];
+    act(Command::Summary, &mut adventure, &mut game, &mut save);
+    assert_eq!(adventure.active().unwrap().position, [5.0, 2.1]);
+    assert_eq!(adventure.next_island().unwrap().index, 1);
+    assert_eq!(save.available_stars(), stars);
+
+    adventure.open(LEVELS - 1, false);
+    adventure.active_mut().unwrap().completed = true;
+    act(Command::Summary, &mut adventure, &mut game, &mut save);
+    assert_eq!(first(&adventure), Some(Action::Adventure(Command::Close)));
+}
+
 struct Expedition {
     terrain: Terrain,
     island: Island,
@@ -181,9 +251,23 @@ impl Expedition {
         let at = self.terrain.plots[lot];
         self.walk_to(at, reach(Target::Plot(lot)));
         assert!(
-            self.island.build(level, lot, kind),
+            self.island.plan_build(level, lot, kind),
             "{}: Bau abgelehnt für {kind:?} Stufe {tier}",
             level.name
+        );
+        assert!(self.island.with_crew(lot, -1));
+        while !self.island.site(lot).unwrap().ready() {
+            self.walk_to(terrain::HALL_DOOR, 1.15);
+            let load = self.island.take_building_load(lot).unwrap();
+            self.walk_to(at, reach(Target::Plot(lot)));
+            assert_eq!(self.island.drop_building_load(lot), Some(load));
+        }
+        let seconds = self.island.site(lot).unwrap().seconds();
+        assert_eq!(
+            self.island
+                .tick_construction(&self.terrain, seconds + 0.03, Some(lot))
+                .1,
+            [lot]
         );
         let offset = Vec2::from_array(self.island.position) - at;
         if Terrain::inside_building(offset) {
@@ -484,7 +568,7 @@ fn a_full_hall_keeps_the_remainder_on_nili_and_a_warehouse_expands_capacity() {
     let level = Level::at(0);
     let terrain = Terrain::new(level);
     let mut island = Island::new(level);
-    assert_eq!(island.add(Good::Stone, 45), 45);
+    assert_eq!(island.add(Good::Stone, HALL_STORAGE - 3), HALL_STORAGE - 3);
     assert_eq!(island.carry_resource(&terrain, 0).unwrap().units, 10);
     assert_eq!(island.unload().unwrap().units, 3);
     assert!(island.unload().is_none());
@@ -492,10 +576,138 @@ fn a_full_hall_keeps_the_remainder_on_nili_and_a_warehouse_expands_capacity() {
     assert_eq!(island.discard_stock(Good::Stone), 5);
     assert_eq!(island.unload().unwrap().units, 5);
     assert_eq!(island.cargo.unwrap().units, 2);
-    assert!(island.build(level, 0, Build::Harbor(crate::model::Kind::Storehouse)));
-    assert_eq!(island.storage_capacity(), 84);
-    assert_eq!(island.unload().unwrap().units, 2);
-    assert!(island.cargo.is_none());
+    assert!(island.unload().is_none());
+
+    let mut run = Expedition::start(0);
+    run.build(Build::Harbor(crate::model::Kind::Storehouse), None);
+    assert_eq!(run.island.storage_capacity(), HALL_STORAGE + 36);
+}
+
+#[test]
+fn building_from_the_hand_uses_no_storage_and_requires_time() {
+    let mut run = Expedition::start(0);
+    let level = run.terrain.level;
+    let home = Build::Harbor(level.home());
+    assert!(run.island.plan_build(level, 2, home));
+    assert!(run.island.lots[2].is_none());
+    assert!(
+        run.island
+            .tick_construction(&run.terrain, 20.0, Some(2))
+            .1
+            .is_empty()
+    );
+    assert_eq!(run.island.add(Good::Stone, HALL_STORAGE), HALL_STORAGE);
+    let wood = run.island.carry_resource(&run.terrain, 0).unwrap();
+    assert!(run.island.unload().is_none());
+    let laid = run.island.drop_building_load(2).unwrap();
+    assert_eq!(laid.kind, Good::Wood);
+    assert!(laid.units > 0);
+    assert_eq!(run.island.raw_stock(), HALL_STORAGE);
+    assert_eq!(
+        run.island.cargo.map_or(0, |remainder| remainder.units),
+        wood.units - laid.units
+    );
+    for (good, _) in home.cost(1) {
+        let need = run.island.site(2).unwrap().missing(good);
+        if need > 0 {
+            run.island.cargo = Some(logistics::Cargo {
+                kind: good,
+                units: need,
+            });
+            assert_eq!(run.island.drop_building_load(2).unwrap().units, need);
+        }
+    }
+    let duration = run.island.site(2).unwrap().seconds();
+    assert!(
+        run.island
+            .tick_construction(&run.terrain, duration * 0.6, Some(2))
+            .1
+            .is_empty()
+    );
+    assert_eq!(
+        run.island
+            .tick_construction(&run.terrain, duration * 0.5, Some(2))
+            .1,
+        [2]
+    );
+    assert!(run.island.plan_build(level, 2, home));
+    assert!(run.island.site(2).unwrap().seconds() > duration);
+}
+
+#[test]
+fn builders_walk_materials_out_and_a_second_builder_speeds_up_work() {
+    let mut run = Expedition::start(0);
+    let level = run.terrain.level;
+    let home = Build::Harbor(level.home());
+    run.build(home, None);
+    let lot = 4;
+    for (good, count) in home.cost(1) {
+        assert_eq!(run.island.add(good, count), count);
+    }
+    assert!(run.island.plan_build(level, lot, home));
+    let mut solo = run.island.clone();
+    let mut team = run.island;
+    assert!(team.with_crew(lot, 1));
+    let walks = |island: &mut Island| {
+        island.tick_construction(&run.terrain, 0.12, None);
+        island.tick_construction(&run.terrain, 0.12, None);
+        assert!(
+            island
+                .builders
+                .iter()
+                .any(|builder| builder.walk.cargo.is_some())
+        );
+        assert!(
+            island
+                .site(lot)
+                .unwrap()
+                .materials
+                .iter()
+                .all(|&units| units == 0)
+        );
+        (0..650)
+            .find(|_| {
+                island.tick_construction(&run.terrain, 0.12, None);
+                island.lots[lot].is_some()
+            })
+            .expect("construction must complete")
+    };
+    assert!(walks(&mut team) < walks(&mut solo));
+}
+
+#[test]
+fn couriers_finish_a_delivery_once_after_save_and_reload() {
+    for region in 0..5 {
+        let mut run = Expedition::start(region * CORE_HARBORS + 1);
+        let level = run.terrain.level;
+        let order = level.order(0).unwrap();
+        run.island.lots[0] = Some(Property {
+            kind: Build::Harbor(level.home()),
+            tier: 1,
+        });
+        for (good, count) in order.goods {
+            assert_eq!(run.island.add(good, count), count);
+        }
+        assert!(run.island.send_courier(level));
+        assert!(!run.island.pack_order(level));
+        assert_eq!(run.island.orders_delivered, 0);
+        for _ in 0..12 {
+            run.island.tick_courier(&run.terrain, 0.12);
+        }
+        let first_leg = run.island.courier.as_ref().unwrap().walk.position;
+        assert_ne!(first_leg, terrain::HALL_DOOR.to_array());
+        let snapshot = serde_json::to_vec(&run.island).unwrap();
+        let mut restored: Island = serde_json::from_slice(&snapshot).unwrap();
+        for _ in 0..1800 {
+            restored.tick_courier(&run.terrain, 0.12);
+            if restored.courier.is_none() {
+                break;
+            }
+        }
+        assert_eq!(restored.orders_delivered, 1, "{}", level.name);
+        assert!(restored.courier.is_none());
+        assert_eq!(restored.assigned_staff(), 0);
+    }
 }
 
 #[test]

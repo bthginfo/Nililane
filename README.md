@@ -9,11 +9,11 @@ Siedlungen.
 
 ## Android-Downloads
 
-**[Handy-APK für ARM64-Smartphones](https://media.githubusercontent.com/media/bthginfo/Nililane/7e4d1baa8a669d145f468ad64afb234938b7a3b3/Nililane-3.2.0-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/7e4d1baa8a669d145f468ad64afb234938b7a3b3/Nililane-3.2.0-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.2.0-phone)
+**[Handy-APK 3.3.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/120fb0223f71012996e8f1953100f50cff520179/Nililane-3.3.0-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/120fb0223f71012996e8f1953100f50cff520179/Nililane-3.3.0-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.3.0-phone)
 
-**[Tablet-APK 3.2.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/211b9ac2a8eb34921ab431cc653804ac3340d6ce/Nililane-3.2.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/211b9ac2a8eb34921ab431cc653804ac3340d6ce/Nililane-3.2.0-x86_64.apk) · [Tablet-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.2.0)
+**[Tablet-APK 3.3.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/120fb0223f71012996e8f1953100f50cff520179/Nililane-3.3.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/120fb0223f71012996e8f1953100f50cff520179/Nililane-3.3.0-x86_64.apk) · [Tablet-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.3.0)
 
-[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/211b9ac2a8eb34921ab431cc653804ac3340d6ce/Nililane-3.2.0.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/211b9ac2a8eb34921ab431cc653804ac3340d6ce/Nililane-3.2.0-x86_64.apk.sha256)
+[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/120fb0223f71012996e8f1953100f50cff520179/Nililane-3.3.0.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/120fb0223f71012996e8f1953100f50cff520179/Nililane-3.3.0-x86_64.apk.sha256)
 
 ![Siedlung auf der griechischen Torinsel mit Werkstätten und Bürgern](docs/bilder/abenteuer-siedlung.jpg)
 
@@ -89,28 +89,39 @@ Start, LB und RB. N öffnet Nilis Touren. F öffnet das Gästebuch.
 Im Hauptmenü erreichst du die **Abenteuerkampagne**. Auf jeder Insel wartet
 ein Rathaus. Geh zu einem Rohstoff, starte den Abbau und bring die Ladung
 zum Rathaus. Nili trägt bis zu zehn Einheiten einer Sorte. Nach dem Abbau
-bleiben Stümpfe, Bruchstücke oder abgeerntete Stellen zurück. Auf der Karte
-markierst du den Weg zu Wäldern, Steinbrüchen, Lehmfeldern und Minen.
+bleiben Stümpfe, Bruchstücke oder abgeerntete Stellen zurück. **Weg anzeigen**
+und die Markierungen auf der Inselkarte legen eine türkise Spur zum Ziel.
+Du führst Nili selbst entlang der Spur.
 
 ![Inselkarte mit Geländeformen, Rohstoffplätzen und Lagerbestand](docs/bilder/abenteuer-karte.jpg)
 
 - 60 Inseln in fünf Gebieten mit 10 bis 34 Bauplätzen. Nach den zwölf
   Inseln eines Gebiets öffnet sich das nächste.
-- Das Rathaus fasst 48 Einheiten Rohstoffe. Ein Speicher bringt
+- Das Rathaus fasst 72 Einheiten Rohstoffe. Ein Speicher bringt
   zunächst 36 weitere Plätze, jeder Ausbau 24. Bei vollem Lager bleibt
   die Restfracht beim Träger. Unter **Rohstofflager** siehst du den
   Bestand und kannst einzelne Vorräte aussortieren.
+- Du kannst Gebäude und Ausbauten bei leerem Lager planen. Freie Bürger holen
+  Baumaterial am Rathaus und legen es auf der Baustelle ab. Nili kann passende
+  Fracht direkt aus der Hand ablegen, auch bei vollem Lager. Sobald alle Stapel
+  da sind, kann Nili mitbauen. Mit einem größeren Bautrupp geht die Arbeit
+  schneller. Höhere Ausbaustufen dauern länger.
 - Baue einen Wohnhof und weise Bürger zum Sammeln oder zur Arbeit in
   einer Werkstatt zu. Sammler laufen selbst zum Abbaugebiet und bringen
   ihre Ladung zurück. Werkstätten zeigen die Zutaten und den Fortschritt
   des Arbeitsgangs. Ziegel, Werkzeuge und Gewebe brauchen länger als Bretter.
-- Ab der zweiten Insel gibt es Lieferaufträge. Pack die verlangten Waren
-  am Rathaus und bring sie zum Außenposten. Spätere Inseln haben bis zu
-  drei Lieferungen und mehr Bau- und Ausbauziele.
+- Ab der zweiten Insel kannst du eine fertige **Fracht packen**, sobald Nili
+  am Rathaus steht. Alternativ wählst du unter **Lieferungen** die Aktion
+  **Bürger schicken**. Der Bürger holt die Waren am Rathaus, liefert sie am
+  Außenposten ab und kommt zurück. Spätere Inseln haben bis zu drei Lieferungen
+  und mehr Bau- und Ausbauziele.
 - Auf späteren Inseln schalten Fundstücke und Warenlieferungen Baupläne
   für neue Gebäude oder höhere Ausbaustufen frei.
 - Tageslicht, Laternen und Musik wechseln während des Spiels. Du kannst
   jederzeit weiter sammeln und bauen.
+- Nach dem letzten Inselziel zeigt die **Siedlungsbilanz** unter anderem
+  Einwohner, Bauplätze und Vorräte. Bleib zum Weiterbauen auf der Insel
+  oder reise zur nächsten. Die Bilanz kannst du jederzeit erneut öffnen.
 - Die Einführung lässt sich auf der Abenteuerkarte erneut starten.
   Die Siedlungen und die Hafenreisen haben eigene Spielstände. Sterne und
   die Garderobe gehören in beiden Modi zu Nili.
@@ -125,7 +136,8 @@ markierst du den Weg zu Wäldern, Steinbrüchen, Lehmfeldern und Minen.
 | Rohstoffdetails und Bürgerzuweisung | Rechten Stick drücken oder auf „Details“ tippen |
 | Inselkarte und Lager | X oder „Karte“ |
 | Bürgeraufträge | Y oder „Bürger“ |
-| Aufträge | RB oder „Aufträge“ |
+| Aufträge und Siedlungsbilanz | RB oder die gleichnamige Schaltfläche |
+| Weg in der Einführung ein- oder ausblenden | View oder „Weg anzeigen“ |
 | Pause | Start, B oder „Pause“ |
 
 ## Neu in 2.7.0

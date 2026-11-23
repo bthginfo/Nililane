@@ -514,13 +514,12 @@ pub(super) fn expedition(
         label(r, hud, level.name, 24.0, Face::Serif, SAND);
     });
     pocket(p, hud, game, false, |menu| {
-        choice(
-            menu,
-            hud,
-            Action::Adventure(Command::Inspect(Target::Hall)),
-            "Aufträge",
-            "book",
-        );
+        let (command, title, art) = if island.completed {
+            (Command::Summary, "Siedlungsbilanz", "check")
+        } else {
+            (Command::Inspect(Target::Hall), "Aufträge", "book")
+        };
+        choice(menu, hud, Action::Adventure(command), title, art);
         choice(
             menu,
             hud,

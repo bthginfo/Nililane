@@ -46,7 +46,7 @@ pub(super) fn modal(
     image: &str,
     content: impl FnOnce(&mut ChildSpawnerCommands),
 ) {
-    dark_scrim(p).with_children(|overlay| {
+    overlay(p).with_children(|overlay| {
         let mut node = frame_node(
             Val::Percent(93.0),
             if hud.phone { 8.0 } else { 14.0 },

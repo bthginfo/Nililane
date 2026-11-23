@@ -300,6 +300,21 @@ fn note_at(spot: Rect, note: Vec2, screen: Vec2) -> Vec2 {
         .unwrap_or_else(|| right.clamp(edge, max))
 }
 
+fn shade_rects(viewport: Rect, spot: Rect) -> [Rect; 4] {
+    [
+        Rect::from_corners(viewport.min, Vec2::new(viewport.max.x, spot.min.y)),
+        Rect::from_corners(
+            Vec2::new(viewport.min.x, spot.min.y),
+            Vec2::new(spot.min.x, spot.max.y),
+        ),
+        Rect::from_corners(
+            Vec2::new(spot.max.x, spot.min.y),
+            Vec2::new(viewport.max.x, spot.max.y),
+        ),
+        Rect::from_corners(Vec2::new(viewport.min.x, spot.max.y), viewport.max),
+    ]
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn update(
     game: Res<Game>,
@@ -376,18 +391,8 @@ pub fn update(
     let margin = frame.size() * 0.5 + Vec2::splat(8.0);
     let center = frame.center().clamp(margin, (screen - margin).max(margin));
     let spot = Rect::from_center_size(center, frame.size());
-    let shades = [
-        Rect::from_corners(Vec2::ZERO, Vec2::new(screen.x, spot.min.y)),
-        Rect::from_corners(
-            Vec2::new(0.0, spot.min.y),
-            Vec2::new(spot.min.x, spot.max.y),
-        ),
-        Rect::from_corners(
-            Vec2::new(spot.max.x, spot.min.y),
-            Vec2::new(screen.x, spot.max.y),
-        ),
-        Rect::from_corners(Vec2::new(0.0, spot.max.y), screen),
-    ];
+    let viewport = Rect::from_corners(-origin, screen + Vec2::new(right, bottom));
+    let shades = shade_rects(viewport, spot);
     for (piece, mut node, computed, outline) in &mut pieces {
         match piece {
             Piece::Shade(i) => place_box(&mut node, shades[*i]),
@@ -415,6 +420,25 @@ pub fn update(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spotlight_dims_the_screen_edges_past_the_safe_area() {
+        let viewport = Rect::from_corners(Vec2::new(-43.0, -12.0), Vec2::new(800.0, 480.0));
+        let spot = Rect::from_corners(Vec2::new(176.0, 148.0), Vec2::new(364.0, 288.0));
+        let shades = shade_rects(viewport, spot);
+        for point in [
+            viewport.min + Vec2::splat(0.5),
+            viewport.max - Vec2::splat(0.5),
+            Vec2::new(viewport.min.x + 0.5, spot.center().y),
+            Vec2::new(viewport.max.x - 0.5, spot.center().y),
+        ] {
+            assert_eq!(
+                shades.iter().filter(|shade| shade.contains(point)).count(),
+                1
+            );
+        }
+        assert!(shades.iter().all(|shade| !shade.contains(spot.center())));
+    }
 
     #[test]
     fn notes_fit_next_to_spots_near_each_viewport_edge() {

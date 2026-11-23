@@ -1,14 +1,15 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use super::construction::{Builder, BuildingSite};
 use super::levels::{Level, Requirement};
-use super::logistics::{Cargo, Haul};
+use super::logistics::{Cargo, Courier, Haul};
 use crate::{
     campaign::{CHAPTERS, REGION_SIZE, Region},
     model::Kind,
 };
 
-pub const HALL_STORAGE: u16 = 48;
+pub const HALL_STORAGE: u16 = 72;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Good {
@@ -497,6 +498,14 @@ pub struct Island {
     #[serde(default)]
     pub shipment: Option<u8>,
     #[serde(default)]
+    pub courier: Option<Courier>,
+    #[serde(default)]
+    pub construction: Vec<Option<BuildingSite>>,
+    #[serde(default)]
+    pub builders: Vec<Builder>,
+    #[serde(default)]
+    pub building_load: Option<usize>,
+    #[serde(default)]
     pub batches: Vec<Option<Production>>,
     #[serde(default)]
     pub fish_left: Vec<u16>,
@@ -529,6 +538,10 @@ impl Island {
             hauls: Vec::new(),
             orders_delivered: 0,
             shipment: None,
+            courier: None,
+            construction: vec![None; level.plots()],
+            builders: Vec::new(),
+            building_load: None,
             batches: vec![None; level.plots()],
             fish_left: Vec::new(),
         }
@@ -609,33 +622,6 @@ impl Island {
                 && (level.stage < 9 || tier >= 3))
     }
 
-    pub fn build(&mut self, level: Level, lot: usize, kind: Build) -> bool {
-        let Some(prev) = self.lots.get(lot).copied() else {
-            return false;
-        };
-        if prev.is_some_and(|property| {
-            property.kind != kind || property.tier >= crate::model::MAX_LEVEL
-        }) {
-            return false;
-        }
-        if prev.is_none() && !kind.fits(level, lot) {
-            return false;
-        }
-        let tier = prev.map_or(1, |p| p.tier + 1);
-        let costs = kind.cost(tier);
-        if self.locked(level, kind, tier)
-            || !Build::all(level).contains(&kind)
-            || !self.ready(&costs)
-        {
-            return false;
-        }
-        for (good, units) in costs {
-            self.stores[good as usize] -= units;
-        }
-        self.lots[lot] = Some(Property { kind, tier });
-        true
-    }
-
     pub fn turn_in(&mut self, level: Level) -> bool {
         let Some(offering) = level.offering() else {
             return false;
@@ -649,17 +635,36 @@ impl Island {
     }
 
     pub fn pack_order(&mut self, level: Level) -> bool {
-        let Some(order) = level.order(self.orders_delivered) else {
-            return false;
-        };
-        if self.cargo.is_some() || self.shipment.is_some() || !self.ready(&order.goods) {
+        if self.cargo.is_some() {
             return false;
         }
+        let Some(order) = self.reserve_order(level) else {
+            return false;
+        };
+        self.shipment = Some(order);
+        true
+    }
+
+    pub fn order_ready(&self, level: Level) -> bool {
+        self.shipment.is_none()
+            && self
+                .courier
+                .as_ref()
+                .is_none_or(|trip| trip.order.is_none())
+            && level
+                .order(self.orders_delivered)
+                .is_some_and(|order| self.ready(&order.goods))
+    }
+
+    pub(super) fn reserve_order(&mut self, level: Level) -> Option<u8> {
+        if !self.order_ready(level) {
+            return None;
+        }
+        let order = level.order(self.orders_delivered)?;
         for (kind, units) in order.goods {
             self.stores[kind as usize] -= units;
         }
-        self.shipment = Some(self.orders_delivered);
-        true
+        Some(self.orders_delivered)
     }
 
     pub fn return_order(&mut self, level: Level) -> bool {
@@ -708,6 +713,14 @@ impl Island {
         self.workers.iter().filter(|&&job| job == task).count()
     }
 
+    pub fn assigned_staff(&self) -> usize {
+        self.workers.len() + usize::from(self.courier.is_some()) + self.builders.len()
+    }
+
+    pub fn available_staff(&self) -> usize {
+        usize::from(self.staff()).saturating_sub(self.assigned_staff())
+    }
+
     pub fn assign(&mut self, task: Task, layout: &super::terrain::Terrain) -> bool {
         let valid = match task {
             Task::Gather(node) => layout.deposits.get(node).is_some_and(|deposit| {
@@ -721,7 +734,7 @@ impl Island {
                 .flatten()
                 .is_some_and(|p| p.kind.recipe(p.tier, layout.level.region).is_some()),
         };
-        if !valid || self.workers.len() >= usize::from(self.staff()) || self.assignment(task) >= 3 {
+        if !valid || self.available_staff() == 0 || self.assignment(task) >= 3 {
             return false;
         }
         self.hauls.resize_with(self.workers.len(), Haul::default);
@@ -767,8 +780,10 @@ impl Island {
                 self.remove_worker(i);
             }
         }
-        self.workers.truncate(maximum);
-        self.hauls.truncate(maximum);
+        let available =
+            maximum.saturating_sub(usize::from(self.courier.is_some()) + self.builders.len());
+        self.workers.truncate(available);
+        self.hauls.truncate(available);
     }
 
     fn remove_worker(&mut self, index: usize) {

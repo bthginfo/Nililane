@@ -182,7 +182,7 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
     let start = offset + if second { CORE_HARBORS } else { 0 };
     let mut node = frame_node(Val::Percent(95.0), 10.0, 19.0);
     node.max_width = Val::Px(1190.0);
-    dark_scrim(p).with_children(|cover| {
+    overlay(p).with_children(|cover| {
         card(cover, node, INK).with_children(|body| {
             body.spawn(Node {
                 justify_content: JustifyContent::SpaceBetween,

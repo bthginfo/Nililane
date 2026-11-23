@@ -1,5 +1,34 @@
 # Spielreview und Abnahme
 
+## Baustellen und Lieferungen 3.3.0
+
+- Beim Antippen von **Weg anzeigen** auf dem Tablet erschien die Entfernung
+  zum Bauplatz. Die Spur nutzt begehbare Wege. Ein Zielzeichen bleibt auch
+  über einem verdeckten Ziel sichtbar. Die Routenprüfung läuft um das Rathaus.
+- Auf Kleions Ufer ließ sich ein Wohnhof vormerken, obwohl kein Holz im
+  Lager lag. Bei 72 von 72 belegten Lagerplätzen legte Nili sechs Holz
+  direkt auf der Baustelle ab. Anschließend holte sie Stein am Rathaus,
+  brachte ihn zur Baustelle und baute den Wohnhof. Zwischen Abladen und
+  Fertigstellung waren die Stapel und der Baufortschritt zu sehen.
+- In der Simulation holen Bautrupps Material aus dem Lager und tragen es
+  zum Bauplatz. Zwei Arbeiter stellen das Gebäude früher fertig als einer.
+  Auf allen 60 Abenteuerinseln wurden Gebäude und Ausbauten über Baustellen
+  errichtet und die Inselziele samt Lieferungen erfüllt. Alle 120 Hafeninseln
+  bestehen die Kampagnenprüfung.
+- Bürger können in allen fünf Gebieten zum Außenposten laufen. Ein Test
+  speichert auf dem Hinweg, lädt erneut und prüft eine einzige Zustellung
+  sowie die Rückkehr des Bürgers. Nili kann Lieferungen am Rathaus packen.
+- Die Siedlungsbilanz nach Kleions Ufer zeigte Belegung, Einwohner und
+  Vorräte. Das Ende der Insel und die Belohnung werden vor der Wahl zum
+  Bleiben oder Weiterreisen gespeichert.
+- Die x86_64-APKs liefen im Android-Emulator. Das Tablet-Update ließ den
+  vorhandenen Abenteuer-Spielstand beim Installieren bytegleich. Das
+  Einstellungsmenü dunkelte im Handyformat mit simuliertem Displayausschnitt
+  die linke, rechte und untere Bildschirmkante ab. Die ARM64-Pakete sind
+  mit dem bisherigen Android-Zertifikat signiert.
+
+Alle 54 Rust-Tests, die Formatprüfung und Clippy mit `-D warnings` waren erfolgreich.
+
 ## Abenteuer-Logistik 3.2.0
 
 - **Einstieg.** Auf Kleions Ufer zeigte der Abbau einen Arbeitsbalken

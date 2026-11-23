@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::{Good, Island, Task, Terrain, terrain::HALL_DOOR};
+use super::{Good, Island, Level, Task, Terrain, terrain::HALL_DOOR};
 
 pub const NILI_CAPACITY: u16 = 10;
 const CITIZEN_CAPACITY: u16 = 6;
@@ -11,6 +11,12 @@ pub const RESOURCE_REACH: f32 = 2.05;
 pub struct Cargo {
     pub kind: Good,
     pub units: u16,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Courier {
+    pub walk: Haul,
+    pub order: Option<u8>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -49,21 +55,21 @@ impl Default for Haul {
 }
 
 impl Haul {
-    fn face(&mut self, point: Vec2) {
+    pub(super) fn face(&mut self, point: Vec2) {
         let delta = point - Vec2::from_array(self.position);
         if delta.length_squared() > 0.0001 {
             self.facing = delta.x.atan2(delta.y);
         }
     }
 
-    fn reset_site(&mut self, site: Option<usize>) {
+    pub(super) fn reset_site(&mut self, site: Option<usize>) {
         self.site = site;
         self.work = 0.0;
         self.path.clear();
         self.retry = 0.0;
     }
 
-    fn go(&mut self, island: &Island, map: &Terrain, goal: Vec2, radius: f32, dt: f32) {
+    pub(super) fn go(&mut self, island: &Island, map: &Terrain, goal: Vec2, radius: f32, dt: f32) {
         let start = Vec2::from_array(self.position);
         self.retry = (self.retry - dt).max(0.0);
         if self.path.is_empty() && self.retry == 0.0 {
@@ -98,6 +104,7 @@ impl Haul {
 
 impl Island {
     pub fn prepare_logistics(&mut self, map: &Terrain) {
+        self.prepare_construction(map);
         self.remaining.truncate(map.deposits.len());
         self.remaining.extend(
             map.deposits[self.remaining.len()..]
@@ -113,6 +120,76 @@ impl Island {
                 haul.reset_site(None);
             }
         }
+        if let Some(courier) = self.courier.as_mut()
+            && !map.accessible(Vec2::from_array(courier.walk.position))
+        {
+            courier.walk = Haul::default();
+        }
+    }
+
+    pub fn send_courier(&mut self, level: Level) -> bool {
+        if self.courier.is_some() || self.available_staff() == 0 {
+            return false;
+        }
+        let Some(order) = self.reserve_order(level) else {
+            return false;
+        };
+        self.courier = Some(Courier {
+            walk: Haul::default(),
+            order: Some(order),
+        });
+        true
+    }
+
+    pub fn tick_courier(&mut self, map: &Terrain, dt: f32) -> bool {
+        let Some(mut courier) = self.courier.take() else {
+            return false;
+        };
+        let outbound = courier.order.is_some();
+        let (goal, reach, pace) = if outbound {
+            (map.outpost, 2.7, dt * 0.84)
+        } else {
+            (HALL_DOOR, 0.55, dt)
+        };
+        courier.walk.moving = false;
+        let arrived = Vec2::from_array(courier.walk.position).distance(goal) <= reach;
+        if arrived {
+            let Some(order) = courier.order.take() else {
+                return true;
+            };
+            if order == self.orders_delivered && map.level.order(order).is_some() {
+                self.orders_delivered += 1;
+            }
+            courier.walk.reset_site(None);
+        } else {
+            courier.walk.go(self, map, goal, reach - 0.12, pace);
+        }
+        self.courier = Some(courier);
+        arrived
+    }
+
+    pub fn walking_worker(&self, index: usize) -> Option<(&Haul, bool)> {
+        if let Some(extra) = index.checked_sub(self.workers.len()) {
+            let builder_index = if let Some(courier) = &self.courier {
+                if extra == 0 {
+                    return Some((&courier.walk, courier.order.is_some()));
+                }
+                extra - 1
+            } else {
+                extra
+            };
+            return self
+                .builders
+                .get(builder_index)
+                .map(|b| (&b.walk, b.walk.cargo.is_some()));
+        }
+        if matches!(self.workers.get(index), Some(Task::Gather(_))) {
+            return self
+                .hauls
+                .get(index)
+                .map(|haul| (haul, haul.cargo.is_some()));
+        }
+        None
     }
 
     pub fn remaining(&self, map: &Terrain, site: usize) -> u16 {
@@ -181,6 +258,9 @@ impl Island {
             units: cargo.units - units,
             ..cargo
         });
+        if self.cargo.is_none() {
+            self.building_load = None;
+        }
         (units > 0).then_some(Cargo { units, ..cargo })
     }
 

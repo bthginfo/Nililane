@@ -1,8 +1,8 @@
 use super::*;
 use crate::{
     adventure::{
-        Adventure, Build, Command, Good, Island, LEVELS, Level, NILI_CAPACITY, Quest, Screen,
-        Target, Task, Terrain,
+        Adventure, Build, BuildingSite, Command, Good, HALL_STORAGE, Island, Level, MAX_BUILD_CREW,
+        NILI_CAPACITY, Quest, Screen, Target, Task, Terrain,
     },
     campaign::{CORE_HARBORS, Region},
     world::StreetCamera,
@@ -86,7 +86,9 @@ pub(super) fn draw(root: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, a: &
 
         Screen::Walk => walk(root, hud, game, a, island, level),
         Screen::Lot(lot) => {
-            if let Some(property) = island.lots[lot] {
+            if let Some(site) = island.site(lot) {
+                construction_panel(root, hud, a, island, level, lot, site);
+            } else if let Some(property) = island.lots[lot] {
                 property_panel(root, hud, island, terrain, lot, property);
             } else {
                 build_menu(root, hud, a, island, level);
@@ -174,7 +176,7 @@ pub(super) fn draw(root: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, a: &
         Screen::Labor => labor(root, hud, a, terrain, island),
         Screen::Mission => mission(root, hud, a, island, level),
         Screen::Map => map(root, hud, a, terrain, island),
-        Screen::Storage => storage(root, hud, island, level),
+        Screen::Storage => storage(root, hud, a, island, level),
         Screen::Pause => {
             panels::modal(root, hud, 608.0, level.name, "Pause", "pause", |p| {
                 action(
@@ -187,6 +189,18 @@ pub(super) fn draw(root: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, a: &
                     Style::Primary,
                     false,
                 );
+                if island.completed {
+                    action(
+                        p,
+                        hud,
+                        Command::Summary,
+                        "Siedlungsbilanz",
+                        "check",
+                        "",
+                        Style::Quiet,
+                        false,
+                    );
+                }
                 button(
                     p,
                     hud,
@@ -296,7 +310,7 @@ fn atlas(root: &mut ChildSpawnerCommands, hud: &Hud, a: &Adventure) {
     let cover = format!("adventure_cover_{}", region as usize);
     let mut node = frame_node(Val::Percent(94.0), 12.0, 20.0);
     node.max_width = Val::Px(1110.0);
-    dark_scrim(root).with_children(|overlay| {
+    overlay(root).with_children(|overlay| {
         card(overlay, node, INK).with_children(|p| {
             p.spawn(row(12.0)).with_children(|r| {
                 icon(r, hud, "adventure", 58.0);
@@ -504,17 +518,15 @@ fn walk(
         tasks.right = Val::Px(16.0);
         tasks.top = Val::Px(14.0);
         card(root, tasks, INK).with_children(|c| {
-            action(
-                c,
-                hud,
-                Command::Inspect(Target::Hall),
-                "Aufträge",
-                "book",
-                "RB",
-                Style::Quiet,
-                false,
-            );
-            objectives(c, hud, level, island);
+            let (command, label, art) = if island.completed {
+                (Command::Summary, "Siedlungsbilanz", "check")
+            } else {
+                (Command::Inspect(Target::Hall), "Aufträge", "book")
+            };
+            action(c, hud, command, label, art, "RB", Style::Quiet, false);
+            if !island.completed {
+                objectives(c, hud, level, island);
+            }
         });
     }
     if let Some((art, hint, target)) = a.tutorial() {
@@ -542,53 +554,28 @@ fn walk(
                     }
                 });
             });
-            if !a.close_enough(target) {
+            if let Some(waypoint) = a.waypoint {
+                route_status(c, hud, a, waypoint);
+            } else if !a.close_enough(target) {
                 action(
                     c,
                     hud,
                     Command::SetRoute(target),
-                    "Weg zeigen",
+                    "Weg anzeigen",
                     "adventure_hill",
-                    "",
+                    "View",
                     Style::Quiet,
                     false,
                 );
             }
         });
-    } else if let Some(target) = a
-        .waypoint
-        .and_then(|target| a.target_position(target).map(|at| (target, at)))
-    {
-        let meters = target.1.distance(Vec2::from_array(island.position)).round() as u32;
+    } else if let Some(target) = a.waypoint {
         let mut marker = frame_node(Val::Auto, 0.0, 8.0);
         marker.position_type = PositionType::Absolute;
         marker.left = Val::Px(16.0);
         marker.top = Val::Px(if hud.phone { 73.0 } else { 116.0 });
         card(root, marker, INK).with_children(|c| {
-            c.spawn(row(7.0)).with_children(|r| {
-                icon(r, hud, "adventure_hill", 23.0);
-                label(r, hud, target_name(target.0, a), 18.0, Face::Bold, SAND);
-                r.spawn((
-                    RouteDistance,
-                    Text::new(format!("{meters} m")),
-                    TextFont {
-                        font: hud.fonts[1].clone(),
-                        font_size: 17.0,
-                        ..default()
-                    },
-                    TextColor(GOLD),
-                ));
-                action(
-                    r,
-                    hud,
-                    Command::ClearRoute,
-                    "×",
-                    "",
-                    "",
-                    Style::Quiet,
-                    false,
-                );
-            });
+            route_status(c, hud, a, target);
         });
     }
     if hud.phone {
@@ -634,7 +621,9 @@ fn walk(
                         Face::Bold,
                         SAND,
                     );
-                    label(line, hud, "→ Rathaus", 17.0, Face::Bold, GOLD);
+                    let at_site = matches!(a.waypoint, Some(Target::Plot(lot)) if island.site(lot).is_some())
+                        || island.building_load.is_some();
+                    label(line, hud, if at_site { "→ Baustelle" } else { "→ Rathaus" }, 17.0, Face::Bold, GOLD);
                 });
             });
         } else if island.shipment.is_some() {
@@ -696,6 +685,14 @@ fn walk(
                         Style::Quiet,
                         false,
                     );
+                    if level.order(island.orders_delivered).is_some() {
+                        action(r, hud, Command::Deliveries, "Lieferungen", "ferry", "", Style::Quiet, false);
+                    }
+                    if a.delivery_action() == Some(Command::PackOrder) && let Some(lot) = a.supply_lot() {
+                        action(r, hud, Command::TakeMaterial(lot), "Baumaterial", "hammer", "", Style::Quiet, false);
+                    }
+                } else if let Target::Plot(lot) = target && island.site(lot).is_some() {
+                    action(r, hud, Command::Inspect(target), "Baustelle", "hammer", "R3", Style::Quiet, false);
                 }
                 let mut disabled = false;
                 let (label, art) = match target {
@@ -705,9 +702,25 @@ fn walk(
                         disabled = island.remaining(terrain, id) == 0 || island.room_for(kind) == 0;
                         (kind.gather_action(), kind.icon(level.region))
                     }
+                    Target::Plot(lot) if island.site(lot).is_some() => {
+                        let site = island.site(lot).unwrap();
+                        if island.cargo.is_some_and(|load| site.missing(load.kind) > 0) {
+                            ("Material ablegen", "storehouse")
+                        } else if a.building == Some(lot) {
+                            ("Baupause", "pause")
+                        } else if site.ready() {
+                            ("Mitbauen", "hammer")
+                        } else {
+                            ("Baustelle ansehen", "hammer")
+                        }
+                    }
                     Target::Plot(lot) if island.lots[lot].is_none() => ("Bauen", "hammer"),
                     Target::Plot(_) => ("Gebäude ansehen", "house"),
                     Target::Hall if island.cargo.is_some() => ("Fracht abladen", "storehouse"),
+                    Target::Hall if a.delivery_action() == Some(Command::PackOrder) => {
+                        ("Fracht packen", "ferry")
+                    }
+                    Target::Hall if a.supply_lot().is_some() => ("Baumaterial holen", "hammer"),
                     Target::Hall => ("Rathaus ansehen", "book"),
                     Target::Outpost if island.shipment.is_some() => {
                         ("Lieferung abgeben", "storehouse")
@@ -797,6 +810,23 @@ fn walk(
                                 GOLD
                             },
                         );
+                    } else if let Target::Plot(lot) = target
+                        && let Some(site) = island.site(lot)
+                    {
+                        let received = site.materials.iter().sum::<u16>();
+                        let needed = site.needed.iter().sum::<u16>();
+                        if site.ready() {
+                            construction_bar(r, lot, site.progress(), 84.0);
+                        } else {
+                            label(
+                                r,
+                                hud,
+                                format!("{received}/{needed}"),
+                                17.0,
+                                Face::Bold,
+                                GOLD,
+                            );
+                        }
                     }
                     if let Target::Plot(lot) = target
                         && let Some(property) = island.lots[lot]
@@ -842,7 +872,7 @@ fn walk(
         let mut node = frame_node(Val::Auto, 0.0, 7.0);
         node.position_type = PositionType::Absolute;
         card(root, node, INK)
-            .insert(RoutePointer)
+            .insert((RoutePointer, Visibility::Hidden))
             .with_children(|c| {
                 c.spawn(row(5.0)).with_children(|r| {
                     icon(r, hud, "adventure_hill", 24.0);
@@ -859,6 +889,210 @@ fn walk(
                 });
             });
     }
+}
+
+fn route_status(p: &mut ChildSpawnerCommands, hud: &Hud, a: &Adventure, target: Target) {
+    p.spawn(row(8.0)).with_children(|r| {
+        icon(r, hud, target_icon(target, a), 24.0);
+        r.spawn(Node {
+            flex_grow: 1.0,
+            min_width: Val::Px(0.0),
+            ..column(0.0)
+        })
+        .with_children(|copy| {
+            label(copy, hud, target_name(target, a), 18.0, Face::Bold, SAND);
+            copy.spawn((
+                RouteDistance,
+                Text::new(route_distance(a, target)),
+                TextFont {
+                    font: hud.fonts[1].clone(),
+                    font_size: 16.0,
+                    ..default()
+                },
+                TextColor(Color::srgb_u8(144, 255, 212)),
+            ));
+        });
+        action(
+            r,
+            hud,
+            Command::ClearRoute,
+            "Ausblenden",
+            "",
+            "View",
+            Style::Quiet,
+            false,
+        );
+    });
+}
+
+fn route_distance(a: &Adventure, target: Target) -> String {
+    if a.close_enough(target) {
+        return "In Reichweite".to_owned();
+    }
+    let Some((at, island)) = a.target_position(target).zip(a.active()) else {
+        return String::new();
+    };
+    let meters = at.distance(Vec2::from_array(island.position)).round() as u32;
+    format!("{meters} m bis zum Ziel")
+}
+
+fn construction_panel(
+    root: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    a: &Adventure,
+    island: &Island,
+    level: Level,
+    lot: usize,
+    site: &BuildingSite,
+) {
+    let ready = site.ready();
+    let held = island.cargo.is_some_and(|load| site.missing(load.kind) > 0);
+    panels::modal(
+        root,
+        hud,
+        720.0,
+        &format!("Baustelle · Stufe {}", site.property.tier),
+        site.property.kind.name(level.region),
+        build_icon(site.property.kind),
+        |p| {
+            p.spawn(Node {
+                flex_wrap: FlexWrap::Wrap,
+                row_gap: Val::Px(7.0),
+                ..row(8.0)
+            })
+            .with_children(|r| {
+                for good in Good::ALL
+                    .into_iter()
+                    .filter(|&good| site.needed[good as usize] > 0)
+                {
+                    let i = good as usize;
+                    card(r, frame_node(Val::Auto, 3.0, 8.0), CARD).with_children(|card| {
+                        card.spawn(row(7.0)).with_children(|chip| {
+                            icon(chip, hud, good.icon(level.region), 26.0);
+                            label(
+                                chip,
+                                hud,
+                                format!("{} / {}", site.materials[i], site.needed[i]),
+                                21.0,
+                                Face::Bold,
+                                if site.missing(good) == 0 { GREEN } else { GOLD },
+                            );
+                        });
+                        label(card, hud, good.name(level.region), 16.0, Face::Body, SAND);
+                    });
+                }
+            });
+            if ready {
+                panels::metric(p, hud, "check", "Baumaterial vollständig");
+                construction_bar(p, lot, site.progress(), 320.0);
+            } else {
+                label(
+                    p,
+                    hud,
+                    "Freie Bürger holen Baumaterial am Rathaus.",
+                    18.0,
+                    Face::Body,
+                    MUTED,
+                );
+            }
+            p.spawn(row(8.0)).with_children(|r| {
+                action(
+                    r,
+                    hud,
+                    Command::BuildCrew(lot, -1),
+                    "−",
+                    "",
+                    "",
+                    Style::Quiet,
+                    site.crew == 0,
+                );
+                panels::metric(
+                    r,
+                    hud,
+                    "adventure_labor",
+                    format!("Bautrupp {}/{}", island.site_workers(lot), site.crew),
+                );
+                action(
+                    r,
+                    hud,
+                    Command::BuildCrew(lot, 1),
+                    "+",
+                    "",
+                    "",
+                    Style::Quiet,
+                    site.crew >= MAX_BUILD_CREW,
+                );
+            });
+            p.spawn(Node {
+                flex_wrap: FlexWrap::Wrap,
+                row_gap: Val::Px(7.0),
+                ..row(8.0)
+            })
+            .with_children(|r| {
+                if held || ready {
+                    action(
+                        r,
+                        hud,
+                        Command::Use(Target::Plot(lot)),
+                        if held { "Material ablegen" } else { "Mitbauen" },
+                        "hammer",
+                        "A",
+                        Style::Primary,
+                        !a.close_enough(Target::Plot(lot)),
+                    );
+                } else if island.cargo.is_none()
+                    && island.shipment.is_none()
+                    && island.site_supply(lot).is_some()
+                {
+                    action(
+                        r,
+                        hud,
+                        Command::TakeMaterial(lot),
+                        "Baumaterial holen",
+                        "storehouse",
+                        "",
+                        Style::Primary,
+                        false,
+                    );
+                }
+                back(r, hud, "Zur Insel");
+                action(
+                    r,
+                    hud,
+                    Command::CancelBuild(lot),
+                    "Plan aufheben",
+                    "",
+                    "",
+                    Style::Quiet,
+                    false,
+                );
+            });
+        },
+    );
+}
+
+fn construction_bar(p: &mut ChildSpawnerCommands, lot: usize, progress: f32, width: f32) {
+    p.spawn((
+        Node {
+            width: Val::Px(width),
+            height: Val::Px(7.0),
+            ..default()
+        },
+        BackgroundColor(JADE),
+        BorderRadius::MAX,
+    ))
+    .with_children(|track| {
+        track.spawn((
+            WorkProgress::Construction(lot),
+            Node {
+                width: Val::Percent(progress * 100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+            BackgroundColor(GOLD),
+            BorderRadius::MAX,
+        ));
+    });
 }
 
 fn build_menu(
@@ -931,7 +1165,7 @@ fn build_menu(
                             } else {
                                 Style::Quiet
                             },
-                            locked || !fits || !island.ready(&costs),
+                            locked || !fits,
                             Node {
                                 width: Val::Percent(32.7),
                                 min_height: Val::Px(97.0),
@@ -1059,7 +1293,7 @@ fn property_panel(
                     ))
                     .with_children(|bar| {
                         bar.spawn((
-                            BatchProgress(lot),
+                            WorkProgress::Production(lot),
                             Node {
                                 width: Val::Percent(batch.progress() * 100.0),
                                 height: Val::Percent(100.0),
@@ -1190,11 +1424,11 @@ fn property_panel(
                         r,
                         hud,
                         Command::Build(property.kind),
-                        &format!("Auf Stufe {target} ausbauen"),
+                        &format!("Stufe {target} planen"),
                         "hammer",
                         "",
                         Style::Primary,
-                        locked || !island.ready(&costs),
+                        locked,
                     );
                     if locked {
                         label(r, hud, "Bauplan fehlt", 18.0, Face::Bold, WARN);
@@ -1276,7 +1510,31 @@ fn labor(
                     },
                     false,
                 );
+                if level.order(island.orders_delivered).is_some() || island.courier.is_some() {
+                    action(
+                        r,
+                        hud,
+                        Command::Deliveries,
+                        "Lieferungen",
+                        "ferry",
+                        "",
+                        Style::Quiet,
+                        false,
+                    );
+                }
             });
+            if let Some(courier) = &island.courier {
+                panels::metric(
+                    p,
+                    hud,
+                    "ferry",
+                    if courier.order.is_some() {
+                        "Ein Bürger bringt die Fracht zum Außenposten."
+                    } else {
+                        "Der Bürger kehrt zum Rathaus zurück."
+                    },
+                );
+            }
             let jobs: Vec<_> = if collection {
                 Good::RAW
                     .into_iter()
@@ -1461,7 +1719,14 @@ fn map(
                             .iter()
                             .map(|place| (Target::Plot(place.lot), terrain.plots[place.lot])),
                     );
-                    if let Some(Target::Plot(lot)) = a.target {
+                    for (lot, site) in island.construction.iter().enumerate() {
+                        if site.is_some() && !level.coastal(lot) {
+                            pins.push((Target::Plot(lot), terrain.plots[lot]));
+                        }
+                    }
+                    if let Some(Target::Plot(lot)) = a.target
+                        && !pins.iter().any(|(target, _)| *target == Target::Plot(lot))
+                    {
                         pins.push((Target::Plot(lot), terrain.plots[lot]));
                     }
                     for good in Good::RAW {
@@ -1614,7 +1879,13 @@ fn storage_meter(p: &mut ChildSpawnerCommands, hud: &Hud, island: &Island) {
     });
 }
 
-fn storage(root: &mut ChildSpawnerCommands, hud: &Hud, island: &Island, level: Level) {
+fn storage(
+    root: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    a: &Adventure,
+    island: &Island,
+    level: Level,
+) {
     panels::modal(
         root,
         hud,
@@ -1624,12 +1895,50 @@ fn storage(root: &mut ChildSpawnerCommands, hud: &Hud, island: &Island, level: L
         "storehouse",
         |p| {
             storage_meter(p, hud, island);
+            if let Some(lot) = a.supply_lot() {
+                action(
+                    p,
+                    hud,
+                    Command::TakeMaterial(lot),
+                    "Baumaterial holen",
+                    "hammer",
+                    "",
+                    Style::Primary,
+                    false,
+                );
+            }
+            if level.order(island.orders_delivered).is_some() {
+                p.spawn(row(8.0)).with_children(|r| {
+                    action(
+                        r,
+                        hud,
+                        Command::Deliveries,
+                        "Lieferaufträge",
+                        "ferry",
+                        "",
+                        Style::Quiet,
+                        false,
+                    );
+                    if a.delivery_action() == Some(Command::PackOrder) {
+                        action(
+                            r,
+                            hud,
+                            Command::PackOrder,
+                            "Fracht packen",
+                            "storehouse",
+                            "",
+                            Style::Primary,
+                            false,
+                        );
+                    }
+                });
+            }
             label(
                 p,
                 hud,
                 format!(
-                    "48 Plätze im Rathaus · {} in Speichern",
-                    island.storage_capacity() - 48
+                    "{HALL_STORAGE} Plätze im Rathaus · {} in Speichern",
+                    island.storage_capacity() - HALL_STORAGE
                 ),
                 17.0,
                 Face::Body,
@@ -1963,38 +2272,70 @@ fn shipment_panel(
                 false,
             );
         }
+    } else if island
+        .courier
+        .as_ref()
+        .is_some_and(|trip| trip.order.is_some())
+    {
+        panels::metric(
+            p,
+            hud,
+            "adventure_labor",
+            "Ein Bürger trägt die Fracht zum Außenposten.",
+        );
     } else {
         costs_row(p, hud, level.region, island, &order.goods);
-        let at_hall = a.close_enough(Target::Hall);
-        if at_hall && island.cargo.is_some() {
+        let command = a.delivery_action();
+        let caption = match command {
+            Some(Command::Use(Target::Hall)) => "Rohstoffe abladen",
+            Some(Command::SetRoute(Target::Hall)) => "Weg zum Rathaus",
+            _ => "Fracht packen",
+        };
+        let ready = island.order_ready(level);
+        p.spawn(Node {
+            flex_wrap: FlexWrap::Wrap,
+            row_gap: Val::Px(7.0),
+            ..row(8.0)
+        })
+        .with_children(|r| {
             action(
-                p,
+                r,
                 hud,
-                Command::Use(Target::Hall),
-                "Rohstoffe abladen",
+                command.unwrap_or(Command::PackOrder),
+                caption,
                 "storehouse",
                 "",
                 Style::Primary,
-                false,
+                command.is_none(),
             );
-        } else {
             action(
+                r,
+                hud,
+                Command::SendCourier,
+                "Bürger schicken",
+                "adventure_labor",
+                "",
+                Style::Quiet,
+                !ready || island.available_staff() == 0 || island.courier.is_some(),
+            );
+        });
+        if island.courier.is_some() {
+            label(
                 p,
                 hud,
-                if at_hall {
-                    Command::PackOrder
-                } else {
-                    Command::SetRoute(Target::Hall)
-                },
-                if at_hall {
-                    "Fracht packen"
-                } else {
-                    "Weg zum Rathaus"
-                },
-                "storehouse",
-                "",
-                Style::Primary,
-                at_hall && !island.ready(&order.goods),
+                "Der Bürger kehrt gerade zurück.",
+                17.0,
+                Face::Body,
+                MUTED,
+            );
+        } else if island.available_staff() == 0 && ready {
+            label(
+                p,
+                hud,
+                "Für den Transport brauchst du einen freien Bürger.",
+                17.0,
+                Face::Body,
+                MUTED,
             );
         }
     }
@@ -2008,6 +2349,7 @@ fn finish(
     level: Level,
 ) {
     let cover = format!("adventure_cover_{}", level.region as usize);
+    let next = a.next_island();
     panels::modal(
         root,
         hud,
@@ -2020,72 +2362,112 @@ fn finish(
         },
         "check",
         |p| {
-            picture(p, hud, &cover, Val::Percent(100.0), Val::Px(160.0));
-            p.spawn(row(14.0)).with_children(|r| {
-                panels::metric(
-                    r,
-                    hud,
-                    "house",
-                    format!("{} Gebäude gebaut", island.lots.iter().flatten().count()),
-                );
-                panels::metric(
-                    r,
-                    hud,
-                    "adventure_labor",
-                    format!("{} Bürger", island.staff()),
-                );
+            picture(p, hud, &cover, Val::Percent(100.0), Val::Px(138.0));
+            p.spawn(row(9.0)).with_children(|r| {
+                label(r, hud, "Siedlungsbilanz", 23.0, Face::Bold, SAND);
                 if !a.practice() {
-                    panels::metric(r, hud, "star", "+2 Sterne für Nili");
+                    panels::metric(r, hud, "star", "2 Sterne verdient");
                 }
             });
-            if a.selected + 1 < LEVELS && !a.practice() {
-                let next = Level::at(a.selected + 1);
-                let heading = if next.region != level.region {
-                    format!("Neues Gebiet: {}", next.region.name())
-                } else {
-                    format!("Freigeschaltet: {}", next.name)
-                };
-                label(p, hud, heading, 22.0, Face::Bold, GOLD);
+            let buildings = island.lots.iter().flatten().count();
+            let extra = if level.order_count() > 0 {
+                (
+                    "ferry",
+                    "Lieferungen",
+                    format!("{} / {}", island.orders_delivered, level.order_count()),
+                )
+            } else {
+                (
+                    "hammer",
+                    "Bürger im Einsatz",
+                    island.assigned_staff().to_string(),
+                )
+            };
+            for metrics in [
+                [
+                    (
+                        "house",
+                        "Bebaute Bauplätze",
+                        format!("{buildings} / {}", level.plots()),
+                    ),
+                    ("age_adult", "Einwohner", island.staff().to_string()),
+                ],
+                [
+                    (
+                        "storehouse",
+                        "Rohstoffe im Lager",
+                        format!("{} / {}", island.raw_stock(), island.storage_capacity()),
+                    ),
+                    extra,
+                ],
+            ] {
+                p.spawn(row(8.0)).with_children(|r| {
+                    for (art, title, value) in metrics {
+                        let mut tile = frame_node(Val::Percent(50.0), 4.0, 9.0);
+                        tile.flex_direction = FlexDirection::Row;
+                        tile.align_items = AlignItems::Center;
+                        tile.column_gap = Val::Px(9.0);
+                        card(r, tile, CARD).with_children(|cell| {
+                            icon(cell, hud, art, 34.0);
+                            cell.spawn(column(1.0)).with_children(|words| {
+                                label(words, hud, value, 23.0, Face::Bold, GOLD);
+                                label(words, hud, title, 17.0, Face::Body, SAND);
+                            });
+                        });
+                    }
+                });
             }
-            p.spawn(row(9.0)).with_children(|r| {
-                let next = if a.practice() {
-                    "Zur Inselkarte"
+            if let Some(next) = next {
+                let destination = if next.region != level.region {
+                    format!("{} · {}", next.region.name(), next.name)
                 } else {
-                    "Nächste Insel"
+                    next.name.to_owned()
                 };
-                if a.practice() || a.selected + 1 == LEVELS {
-                    action(
-                        r,
-                        hud,
-                        Command::Atlas,
-                        "Zur Inselkarte",
-                        "chart",
-                        "A",
-                        Style::Primary,
-                        false,
-                    );
-                } else {
-                    action(
-                        r,
-                        hud,
-                        Command::Next,
-                        next,
-                        "ferry",
-                        "A",
-                        Style::Primary,
-                        false,
-                    );
-                    action(
-                        r,
-                        hud,
-                        Command::Atlas,
-                        "Inselkarte",
-                        "chart",
-                        "",
-                        Style::Quiet,
-                        false,
-                    );
-                }
+                action(
+                    p,
+                    hud,
+                    Command::Next,
+                    &format!("Nächste Insel · {destination}"),
+                    "ferry",
+                    "A",
+                    Style::Primary,
+                    false,
+                );
+            }
+            p.spawn(Node {
+                flex_wrap: FlexWrap::Wrap,
+                row_gap: Val::Px(7.0),
+                ..row(8.0)
+            })
+            .with_children(|r| {
+                action(
+                    r,
+                    hud,
+                    Command::Close,
+                    if a.practice() {
+                        "Weiter üben"
+                    } else {
+                        "Bei Siedlung bleiben"
+                    },
+                    "house",
+                    if next.is_some() { "B" } else { "A" },
+                    if next.is_some() {
+                        Style::Quiet
+                    } else {
+                        Style::Primary
+                    },
+                    false,
+                );
+                action(
+                    r,
+                    hud,
+                    Command::Atlas,
+                    "Inselkarte",
+                    "chart",
+                    "",
+                    Style::Quiet,
+                    false,
+                );
                 button(
                     r,
                     hud,
@@ -2229,11 +2611,7 @@ fn costs_row(
 }
 
 fn free_staff(island: &Island) -> String {
-    format!(
-        "{} / {} frei",
-        usize::from(island.staff()).saturating_sub(island.workers.len()),
-        island.staff()
-    )
+    format!("{} / {} frei", island.available_staff(), island.staff())
 }
 
 fn team(p: &mut ChildSpawnerCommands, hud: &Hud, island: &Island, task: Task) {
@@ -2264,7 +2642,7 @@ fn assignment(p: &mut ChildSpawnerCommands, hud: &Hud, island: &Island, task: Ta
         "",
         "",
         Style::Quiet,
-        assigned >= 3 || island.workers.len() >= usize::from(island.staff()),
+        assigned >= 3 || island.available_staff() == 0,
     );
 }
 
@@ -2315,6 +2693,7 @@ fn target_icon(target: Target, a: &Adventure) -> &'static str {
     let terrain = a.terrain.as_ref().unwrap();
     match target {
         Target::Deposit(id) => terrain.deposits[id].kind.icon(terrain.level.region),
+        Target::Plot(id) if a.active().unwrap().site(id).is_some() => "hammer",
         Target::Plot(id) if terrain.level.coastal(id) => "fishery",
         Target::Plot(id) => {
             a.active().unwrap().lots[id].map_or("hammer", |property| build_icon(property.kind))
@@ -2330,6 +2709,14 @@ fn target_name(target: Target, a: &Adventure) -> &'static str {
     let terrain = a.terrain.as_ref().unwrap();
     match target {
         Target::Deposit(id) => terrain.deposits[id].kind.name(terrain.level.region),
+        Target::Plot(id) if a.active().unwrap().site(id).is_some() => a
+            .active()
+            .unwrap()
+            .site(id)
+            .unwrap()
+            .property
+            .kind
+            .name(terrain.level.region),
         Target::Plot(id) => a.active().unwrap().lots[id].map_or(
             if terrain.level.coastal(id) {
                 "Küstenbauplatz"
@@ -2387,7 +2774,10 @@ pub(crate) struct RouteDistance;
 pub(crate) struct HarvestProgress;
 
 #[derive(Component)]
-pub(crate) struct BatchProgress(usize);
+pub(crate) enum WorkProgress {
+    Construction(usize),
+    Production(usize),
+}
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn project(
@@ -2414,7 +2804,7 @@ pub(crate) fn project(
         ),
     >,
     mut batches: Query<
-        (&BatchProgress, &mut Node),
+        (&WorkProgress, &mut Node),
         (
             Without<HarvestProgress>,
             Without<WorldTip>,
@@ -2429,9 +2819,13 @@ pub(crate) fn project(
         bar.width = Val::Percent((1.0 - harvest.left / harvest.duration) * 100.0);
     }
     if let Some(island) = a.active() {
-        for (lot, mut bar) in &mut batches {
-            if let Some(batch) = island.batch(lot.0) {
-                bar.width = Val::Percent(batch.progress() * 100.0);
+        for (source, mut bar) in &mut batches {
+            let progress = match *source {
+                WorkProgress::Construction(lot) => island.site(lot).map(BuildingSite::progress),
+                WorkProgress::Production(lot) => island.batch(lot).map(|batch| batch.progress()),
+            };
+            if let Some(progress) = progress {
+                bar.width = Val::Percent(progress * 100.0);
             }
         }
     }
@@ -2501,6 +2895,7 @@ pub(crate) fn project(
         }
     }
     if let Some(target) = a.waypoint.or_else(|| a.tutorial().map(|t| t.2))
+        && !a.close_enough(target)
         && let Some(point) = project(target, 0.8)
     {
         let min = Vec2::new(55.0, if game.phone { 184.0 } else { 284.0 });
@@ -2515,10 +2910,16 @@ pub(crate) fn project(
             (size.y - 136.0).max(min.y + 5.0),
         );
         let edge = point.clamp(min, max);
+        let offscreen = point.distance(edge) > 18.0;
+        let badge = if offscreen {
+            edge
+        } else {
+            project(target, 3.3).unwrap_or(point).clamp(min, max)
+        };
         for (mut node, mut visible) in &mut pointers {
-            node.left = Val::Px(edge.x);
-            node.top = Val::Px(edge.y);
-            *visible = if point.distance(edge) > 18.0 {
+            node.left = Val::Px(badge.x - 36.0);
+            node.top = Val::Px(badge.y - 22.0);
+            *visible = if offscreen || a.waypoint.is_some() {
                 Visibility::Inherited
             } else {
                 Visibility::Hidden
@@ -2528,19 +2929,26 @@ pub(crate) fn project(
             let delta = point - edge;
             let direction = ((delta.y.atan2(delta.x) * 4.0 / std::f32::consts::PI).round() as i32)
                 .rem_euclid(8) as usize;
-            let glyph = ["→", "↘", "↓", "↙", "←", "↖", "↑", "↗"][direction];
+            let glyph = if offscreen {
+                ["→", "↘", "↓", "↙", "←", "↖", "↑", "↗"][direction]
+            } else {
+                "↓"
+            };
             if text.0 != glyph {
                 text.0 = glyph.to_owned();
             }
         }
-        if let Some(at) = a.target_position(target)
-            && let Ok(mut text) = distance.single_mut()
-        {
-            let meters = Vec2::from_array(island.position).distance(at).round() as u32;
-            let message = format!("{meters} m");
-            if text.0 != message {
-                text.0 = message;
-            }
+    } else {
+        for (_, mut visible) in &mut pointers {
+            *visible = Visibility::Hidden;
+        }
+    }
+    if let Some(target) = a.waypoint
+        && let Ok(mut text) = distance.single_mut()
+    {
+        let message = route_distance(&a, target);
+        if text.0 != message {
+            text.0 = message;
         }
     }
 }

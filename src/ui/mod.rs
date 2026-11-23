@@ -158,6 +158,13 @@ pub fn draw(
     } else {
         first(&game, &save)
     };
+    let shade = match (game.view, game.panel) {
+        (_, Panel::Wardrobe) => Color::srgba(0.024, 0.090, 0.10, 0.25),
+        (_, Panel::Guide | Panel::Options) | (View::Chart, _) => SHADOW,
+        (View::Adventure, _) if expedition.screen != crate::adventure::Screen::Walk => SHADOW,
+        (View::Street, panel) if panel != Panel::None => SHADOW,
+        _ => Color::NONE,
+    };
     let root = commands
         .spawn((
             Root,
@@ -166,6 +173,7 @@ pub fn draw(
                 height: Val::Percent(100.0),
                 ..default()
             },
+            BackgroundColor(shade),
             FocusPolicy::Pass,
         ))
         .with_children(|outer| {
@@ -818,7 +826,7 @@ fn button_shell<'p>(
     ))
 }
 
-fn dark_scrim<'p>(p: &'p mut ChildSpawnerCommands) -> EntityCommands<'p> {
+fn overlay<'p>(p: &'p mut ChildSpawnerCommands) -> EntityCommands<'p> {
     p.spawn((
         Node {
             width: Val::Percent(100.0),
@@ -827,7 +835,6 @@ fn dark_scrim<'p>(p: &'p mut ChildSpawnerCommands) -> EntityCommands<'p> {
             justify_content: JustifyContent::Center,
             ..default()
         },
-        BackgroundColor(SHADOW),
         FocusPolicy::Block,
     ))
 }
