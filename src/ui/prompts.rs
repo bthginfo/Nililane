@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::{
     coach::{self, Step},
     errands::{RouteStage, Stop},
@@ -6,11 +8,27 @@ use crate::{
     world::{Art, Hippo, StreetCamera, lot_position, route_position},
 };
 
-use super::*;
+use super::{
+    floating::{self, CaptionMeasure, SafeViewport},
+    *,
+};
 
 const MARKERS: usize = 4;
-const WIDTH: f32 = 145.0;
-const HEIGHT: f32 = 44.0;
+const MARKER_ICON: f32 = 33.0;
+const MARKER_FONT: f32 = 15.5;
+const MARKER_GAP: f32 = 3.0;
+const MARKER_PAD: Vec2 = Vec2::new(5.0, 4.0);
+const MARKER_TAIL: f32 = 8.0;
+
+pub(super) fn marker_size(text: Vec2) -> Vec2 {
+    Vec2::new(MARKER_ICON + MARKER_GAP + text.x, MARKER_ICON.max(text.y))
+        + 2.0 * MARKER_PAD
+        + Vec2::splat(4.0)
+}
+
+pub(super) fn stock_caption(service: Service, stock: u16, capacity: u16) -> String {
+    format!("{stock}/{capacity} {}", stock_unit(service, capacity))
+}
 
 pub(super) fn step_words(step: Step) -> (&'static str, &'static str) {
     match step {
@@ -146,7 +164,10 @@ fn sequence(p: &mut ChildSpawnerCommands, hud: &Hud, step: Step) {
 }
 
 #[derive(Component)]
-pub struct Marker(usize);
+pub struct Marker {
+    slot: usize,
+    pub(super) bounds: Option<Rect>,
+}
 
 #[derive(Component)]
 pub struct MarkerIcon(usize);
@@ -163,40 +184,49 @@ pub(super) fn spawn(p: &mut ChildSpawnerCommands, hud: &Hud) {
             true,
             Node {
                 position_type: PositionType::Absolute,
-                width: Val::Px(WIDTH),
-                height: Val::Px(HEIGHT),
-                padding: UiRect::axes(Val::Px(5.0), Val::Px(4.0)),
+                padding: UiRect::axes(Val::Px(MARKER_PAD.x), Val::Px(MARKER_PAD.y)),
                 justify_content: JustifyContent::Center,
-                ..row(3.0)
+                ..row(MARKER_GAP)
             },
         )
-        .insert((Marker(slot), Visibility::Hidden, ZIndex(-2)))
+        .insert((
+            Marker { slot, bounds: None },
+            Visibility::Hidden,
+            ZIndex(-2),
+        ))
         .with_children(|pin| {
             pin.spawn((
                 MarkerIcon(slot),
                 ImageNode::new(hud.pictures["hammer"].clone()),
                 Node {
-                    width: Val::Px(33.0),
-                    height: Val::Px(33.0),
+                    width: Val::Px(MARKER_ICON),
+                    height: Val::Px(MARKER_ICON),
                     flex_shrink: 0.0,
                     ..default()
                 },
+                FocusPolicy::Pass,
             ));
             pin.spawn((
                 MarkerText(slot),
                 Text::new(""),
                 TextColor(INK),
+                TextLayout::new_with_no_wrap(),
                 TextFont {
                     font: hud.fonts[1].clone(),
-                    font_size: 15.5,
+                    font_size: MARKER_FONT,
                     ..default()
                 },
+                Node {
+                    flex_shrink: 0.0,
+                    ..default()
+                },
+                FocusPolicy::Pass,
             ));
             pin.spawn((
                 Node {
                     position_type: PositionType::Absolute,
                     left: Val::Percent(47.0),
-                    bottom: Val::Px(-8.0),
+                    bottom: Val::Px(-MARKER_TAIL),
                     width: Val::Px(10.0),
                     height: Val::Px(10.0),
                     ..default()
@@ -454,17 +484,17 @@ fn map_signs(town: &Town, game: &Game) -> Vec<MapSign> {
     signs
 }
 
-#[derive(Clone, Copy)]
 struct Projected {
     sign: MapSign,
-    at: Vec2,
+    text: Cow<'static, str>,
+    bounds: Rect,
 }
 
 type Marks<'w, 's> = Query<
     'w,
     's,
     (
-        &'static Marker,
+        &'static mut Marker,
         &'static mut Node,
         &'static mut Visibility,
         &'static mut ButtonAction,
@@ -485,13 +515,13 @@ pub fn update(
     mut markers: Marks,
     mut images: Query<(&MarkerIcon, &mut ImageNode)>,
     mut labels: Query<(&MarkerText, &mut Text)>,
+    mut measure: CaptionMeasure,
 ) {
     if markers.is_empty() {
         return;
     }
-    let size = Vec2::new(window.width(), window.height()) / scale.0;
-    let safe = insets().map(|n| f32::from(n) / (scale.0 * window.scale_factor()));
-    let mut active: [Option<Projected>; MARKERS] = [None; MARKERS];
+    let viewport = SafeViewport::new(&window, scale.0);
+    let mut active: [Option<Projected>; MARKERS] = [const { None }; MARKERS];
     if let (Some(town), Ok((camera, transform))) = (save.active_town(), camera.single())
         && game.view == View::Street
         && game.panel == Panel::None
@@ -499,6 +529,11 @@ pub fn update(
         let chapter = &CHAPTERS[town.chapter];
         let mut filled = 0;
         let manual = matches!(&town.phase, Phase::Open(day) if day.manual_route().is_some());
+        let font = TextFont {
+            font: hud.fonts[1].clone(),
+            font_size: MARKER_FONT,
+            ..default()
+        };
         for sign in map_signs(town, &game) {
             let plot = |lot| {
                 let mut place = lot_position(lot, chapter.layout.width());
@@ -532,47 +567,72 @@ pub fn update(
             let Ok(point) = camera.world_to_viewport(transform, place) else {
                 continue;
             };
-            let mut at = point / scale.0 - Vec2::new(WIDTH * 0.5, HEIGHT + 3.0);
-            let left = safe[0] + 8.0;
-            let top = safe[1] + if manual { 48.0 } else { 109.0 };
-            let edge = size.x - safe[2] - 12.0 - WIDTH;
-            let bottom = size.y - safe[3] - HEIGHT - if manual { 192.0 } else { 145.0 };
-            let in_rail = !manual && at.y < safe[1] + 337.0;
-            let right = edge - if in_rail { 337.0 } else { 0.0 };
-            let overlaps = |point: Vec2| {
-                active.iter().flatten().any(|p| {
-                    let delta = (p.at - point).abs();
-                    delta.x < WIDTH + 6.0 && delta.y < HEIGHT + 8.0
-                })
-            };
-            if matches!(sign.point, Point::Stock(_)) {
-                at.x = at.x.clamp(left, right.max(left));
-                at.y = at.y.clamp(top, bottom.max(top));
-                if overlaps(at) {
-                    at.y = (at.y - HEIGHT - 10.0).max(top);
-                }
-            }
-            if at.x < left || at.x > right || at.y < top || at.y > bottom || overlaps(at) {
+            let anchor = viewport.point(point);
+            if !anchor.cmpge(Vec2::ZERO).all() || !anchor.cmple(viewport.size).all() {
                 continue;
             }
-            active[filled] = Some(Projected { sign, at });
+            let text = if let Point::Stock(lot) = sign.point {
+                let Phase::Open(day) = &town.phase else {
+                    continue;
+                };
+                let Some(service) = town.lots[lot].and_then(|b| b.kind.service()) else {
+                    continue;
+                };
+                Cow::Owned(stock_caption(
+                    service,
+                    day.stock[lot],
+                    day.stock_capacity(lot),
+                ))
+            } else {
+                Cow::Borrowed(sign.title)
+            };
+            let Some(text_size) = measure.size(&text, &font, viewport.pixels_per_unit) else {
+                continue;
+            };
+            let size = marker_size(text_size);
+            let in_rail = !manual && anchor.y - size.y < 337.0 && (!hud.phone || game.quick_menu);
+            let limits = Rect {
+                min: Vec2::new(8.0, if manual { 48.0 } else { 109.0 }),
+                max: viewport.size
+                    - Vec2::new(
+                        12.0 + if in_rail { 337.0 } else { 0.0 },
+                        MARKER_TAIL + if manual { 184.0 } else { 137.0 },
+                    ),
+            };
+            let Some(mut bounds) = floating::above(limits, anchor, size, MARKER_TAIL + 3.0) else {
+                continue;
+            };
+            let overlaps = |candidate| {
+                active
+                    .iter()
+                    .flatten()
+                    .any(|p| floating::overlap(p.bounds, candidate, Vec2::new(6.0, 10.0)))
+            };
+            if matches!(sign.point, Point::Stock(_)) && overlaps(bounds) {
+                let Some(higher) =
+                    floating::fit(limits, bounds.min - Vec2::Y * (size.y + 11.0), size)
+                else {
+                    continue;
+                };
+                bounds = higher;
+            }
+            if overlaps(bounds) {
+                continue;
+            }
+            active[filled] = Some(Projected { sign, text, bounds });
             filled += 1;
             if filled == MARKERS {
                 break;
             }
         }
     }
-    for (marker, mut node, mut visibility, mut button, mut focus) in &mut markers {
-        if let Some(p) = active[marker.0] {
+    for (mut marker, mut node, mut visibility, mut button, mut focus) in &mut markers {
+        marker.bounds = active[marker.slot].as_ref().map(|p| p.bounds);
+        if let Some(p) = &active[marker.slot] {
             if *visibility == Visibility::Hidden {
                 *visibility = Visibility::Inherited;
             }
-            let left = Val::Px(p.at.x - safe[0]);
-            let top = Val::Px(p.at.y - safe[1]);
-            if (node.left, node.top) != (left, top) {
-                node.left = left;
-                node.top = top;
-            }
+            floating::place_box(&mut node, p.bounds);
             if let Some(action) = p.sign.action
                 && button.action != action
             {
@@ -596,34 +656,17 @@ pub fn update(
         }
     }
     for (tag, mut image) in &mut images {
-        if let Some(p) = active[tag.0]
+        if let Some(p) = &active[tag.0]
             && image.image != hud.pictures[p.sign.icon]
         {
             image.image = hud.pictures[p.sign.icon].clone();
         }
     }
     for (tag, mut label) in &mut labels {
-        if let Some(p) = active[tag.0] {
-            let text = match p.sign.point {
-                Point::Stock(lot) => save.active_town().and_then(|town| {
-                    let Phase::Open(day) = &town.phase else {
-                        return None;
-                    };
-                    let service = town.lots[lot]?.kind.service()?;
-                    let capacity = day.stock_capacity(lot);
-                    Some(format!(
-                        "{}/{} {}",
-                        day.stock[lot],
-                        capacity,
-                        stock_unit(service, capacity)
-                    ))
-                }),
-                _ => None,
-            };
-            let next = text.as_deref().unwrap_or(p.sign.title);
-            if label.0 != next {
-                next.clone_into(&mut label.0);
-            }
+        if let Some(p) = &active[tag.0]
+            && label.0 != p.text.as_ref()
+        {
+            p.text.as_ref().clone_into(&mut label.0);
         }
     }
 }

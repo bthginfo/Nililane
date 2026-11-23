@@ -9,11 +9,11 @@ Siedlungen.
 
 ## Android-Downloads
 
-**[Handy-APK 3.3.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/120fb0223f71012996e8f1953100f50cff520179/Nililane-3.3.0-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/120fb0223f71012996e8f1953100f50cff520179/Nililane-3.3.0-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.3.0-phone)
+**[Handy-APK 3.3.1 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/21f3bfa2b4682d1961b68b0d2235e636fe1fc690/Nililane-3.3.1-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/21f3bfa2b4682d1961b68b0d2235e636fe1fc690/Nililane-3.3.1-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.3.1-phone)
 
-**[Tablet-APK 3.3.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/120fb0223f71012996e8f1953100f50cff520179/Nililane-3.3.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/120fb0223f71012996e8f1953100f50cff520179/Nililane-3.3.0-x86_64.apk) · [Tablet-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.3.0)
+**[Tablet-APK 3.3.1 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/21f3bfa2b4682d1961b68b0d2235e636fe1fc690/Nililane-3.3.1.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/21f3bfa2b4682d1961b68b0d2235e636fe1fc690/Nililane-3.3.1-x86_64.apk) · [Tablet-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.3.1)
 
-[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/120fb0223f71012996e8f1953100f50cff520179/Nililane-3.3.0.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/120fb0223f71012996e8f1953100f50cff520179/Nililane-3.3.0-x86_64.apk.sha256)
+[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/21f3bfa2b4682d1961b68b0d2235e636fe1fc690/Nililane-3.3.1.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/21f3bfa2b4682d1961b68b0d2235e636fe1fc690/Nililane-3.3.1-x86_64.apk.sha256)
 
 ![Siedlung auf der griechischen Torinsel mit Werkstätten und Bürgern](docs/bilder/abenteuer-siedlung.jpg)
 

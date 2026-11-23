@@ -1,5 +1,6 @@
 mod adventure;
 mod bubbles;
+mod floating;
 mod guests;
 mod lessons;
 mod panels;
@@ -650,6 +651,30 @@ fn label(
             ..default()
         },
         TextColor(color),
+        FocusPolicy::Pass,
+    ));
+}
+
+fn badge_label(
+    p: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    content: impl Into<String>,
+    size: f32,
+    color: Color,
+) {
+    p.spawn((
+        Text::new(content),
+        TextFont {
+            font: hud.fonts[Face::Bold as usize].clone(),
+            font_size: size,
+            ..default()
+        },
+        TextColor(color),
+        TextLayout::new_with_no_wrap(),
+        Node {
+            flex_shrink: 0.0,
+            ..default()
+        },
         FocusPolicy::Pass,
     ));
 }

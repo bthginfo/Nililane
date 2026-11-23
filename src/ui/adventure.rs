@@ -789,21 +789,20 @@ fn walk(
         let mut node = frame_node(Val::Auto, 0.0, 8.0);
         node.position_type = PositionType::Absolute;
         card(root, node, INK)
-            .insert(WorldTip(target))
+            .insert((WorldTip(target), Visibility::Hidden))
             .with_children(|c| {
                 c.spawn(row(8.0)).with_children(|r| {
                     icon(r, hud, target_icon(target, a), 24.0);
-                    label(r, hud, target_name(target, a), 17.0, Face::Bold, SAND);
+                    badge_label(r, hud, target_name(target, a), 17.0, SAND);
                     if let Target::Deposit(id) = target {
                         let remaining = island.remaining(a.terrain.as_ref().unwrap(), id);
-                        label(r, hud, remaining.to_string(), 17.0, Face::Bold, GOLD);
+                        badge_label(r, hud, remaining.to_string(), 17.0, GOLD);
                     } else if target == Target::Hall {
-                        label(
+                        badge_label(
                             r,
                             hud,
                             format!("{}/{}", island.raw_stock(), island.storage_capacity()),
                             17.0,
-                            Face::Bold,
                             if island.free_storage() == 0 {
                                 WARN
                             } else {
@@ -818,14 +817,7 @@ fn walk(
                         if site.ready() {
                             construction_bar(r, lot, site.progress(), 84.0);
                         } else {
-                            label(
-                                r,
-                                hud,
-                                format!("{received}/{needed}"),
-                                17.0,
-                                Face::Bold,
-                                GOLD,
-                            );
+                            badge_label(r, hud, format!("{received}/{needed}"), 17.0, GOLD);
                         }
                     }
                     if let Target::Plot(lot) = target
@@ -837,12 +829,11 @@ fn walk(
                             .find(|&(good, need)| island.amount(good) < need)
                     {
                         icon(r, hud, good.icon(level.region), 21.0);
-                        label(
+                        badge_label(
                             r,
                             hud,
                             format!("{}/{}", island.amount(good), need),
                             16.0,
-                            Face::Bold,
                             WARN,
                         );
                     }
@@ -2836,21 +2827,14 @@ pub(crate) fn project(
         return;
     };
     let (camera, transform) = *camera;
-    let scale = ui_scale.0;
-    let safe = if game.phone {
-        insets().map(|n| f32::from(n) / (scale * window.scale_factor()))
-    } else {
-        [0.0; 4]
-    };
-    let origin = Vec2::new(safe[0], safe[1]);
-    let size =
-        Vec2::new(window.width(), window.height()) / scale - origin - Vec2::new(safe[2], safe[3]);
+    let viewport = floating::SafeViewport::new(&window, ui_scale.0);
+    let size = viewport.size;
     let project = |target, height| {
         let position = crate::world::adventure_position(terrain, a.target_position(target)?);
         camera
             .world_to_viewport(transform, position + Vec3::Y * height)
             .ok()
-            .map(|point| point / scale - origin)
+            .map(|point| viewport.point(point))
     };
     if let Ok((mut node, mut visible)) = player.single_mut() {
         let here = Vec2::from_array(island.position);
@@ -2868,7 +2852,7 @@ pub(crate) fn project(
             });
         let point = crate::world::adventure_position(terrain, here) + Vec3::Y * 2.17;
         if obscured && let Ok(pixel) = camera.world_to_viewport(transform, point) {
-            let pos = pixel / scale - origin;
+            let pos = viewport.point(pixel);
             node.left = Val::Px(pos.x - 15.0);
             node.top = Val::Px(pos.y - 22.0);
             *visible = Visibility::Inherited;
@@ -2882,13 +2866,16 @@ pub(crate) fn project(
             Target::Plot(_) => 1.1,
             _ => 2.1,
         };
-        if let Some(point) = project(tip.0, height).filter(|point| {
-            point.x > 0.0 && point.x < size.x && point.y > 74.0 && point.y < size.y - 75.0
-        }) {
-            node.left = Val::Px(
-                (point.x - computed.size().x * computed.inverse_scale_factor() * 0.5).max(10.0),
-            );
-            node.top = Val::Px((point.y - 20.0).max(12.0));
+        let limits = Rect {
+            min: Vec2::new(8.0, 56.0),
+            max: size - Vec2::new(8.0, 76.0),
+        };
+        let extent = computed.size() * computed.inverse_scale_factor();
+        if let Some(rect) = project(tip.0, height)
+            .filter(|&point| point.cmpge(Vec2::ZERO).all() && point.cmple(size).all())
+            .and_then(|point| floating::above(limits, point, extent, 3.0))
+        {
+            floating::place_box(&mut node, rect);
             *vis = Visibility::Inherited;
         } else {
             *vis = Visibility::Hidden;

@@ -5,7 +5,7 @@ use crate::{
     world::{StreetCamera, lot_position, route_position},
 };
 
-use super::*;
+use super::{floating::place_box, *};
 
 #[derive(Component)]
 pub(crate) enum Piece {
@@ -272,17 +272,6 @@ pub(super) fn spawn(p: &mut ChildSpawnerCommands, hud: &Hud, lesson: Lesson, tow
                 });
             });
     });
-}
-
-pub(super) fn place_box(node: &mut Node, rect: Rect) {
-    let [left, top, width, height] =
-        [rect.min.x, rect.min.y, rect.width(), rect.height()].map(Val::Px);
-    if (node.left, node.top, node.width, node.height) != (left, top, width, height) {
-        node.left = left;
-        node.top = top;
-        node.width = width;
-        node.height = height;
-    }
 }
 
 fn note_at(spot: Rect, note: Vec2, screen: Vec2) -> Vec2 {

@@ -1,5 +1,13 @@
 # Spielreview und Abnahme
 
+## Lesbare Anzeigen 3.3.1
+
+- Vorratsanzeigen wachsen anhand des tatsächlich gerenderten Textes. Die
+  Prüfung umfasst alle 24 Angebote, längere Mengenangaben wie „18/22
+  Portionen Meze“ und die Hinweise der Gäste auf Handy und Tablet.
+- Anzeigen über Gebäuden, Sammelstellen und Zielen bleiben an allen vier
+  Bildschirmrändern sichtbar.
+
 ## Baustellen und Lieferungen 3.3.0
 
 - Beim Antippen von **Weg anzeigen** auf dem Tablet erschien die Entfernung

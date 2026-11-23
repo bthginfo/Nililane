@@ -106,8 +106,8 @@ pub fn run() {
                     world::animate_people,
                     world::animate_work,
                     world::animate_bells,
-                    ui::update_reactions,
                     ui::update_prompts,
+                    ui::update_reactions,
                     ui::update_lessons,
                     world::animate_construction,
                 )
