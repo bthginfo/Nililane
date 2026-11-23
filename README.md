@@ -9,7 +9,7 @@ Siedlungen.
 
 ## Android-Downloads
 
-**[Handy-APK für ARM64-Smartphones](https://github.com/bthginfo/Nililane/releases/download/v3.1.1-phone/Nililane-3.1.1-Handy.apk)** · [SHA-256](https://github.com/bthginfo/Nililane/releases/download/v3.1.1-phone/Nililane-3.1.1-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.1.1-phone)
+**[Handy-APK für ARM64-Smartphones](https://media.githubusercontent.com/media/bthginfo/Nililane/9b816bb0d2b55e0ec98a59398df9764cbba694be/Nililane-3.1.1-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/9b816bb0d2b55e0ec98a59398df9764cbba694be/Nililane-3.1.1-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.1.1-phone)
 
 **[Android-APK für ARM64-Tablets](https://media.githubusercontent.com/media/bthginfo/Nililane/20830f458d0e0f4b5ef68180a67d3578a62346fa/Nililane-3.0.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/20830f458d0e0f4b5ef68180a67d3578a62346fa/Nililane-3.0.0-x86_64.apk) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v3.0.0)
 
