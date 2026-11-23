@@ -2,8 +2,9 @@
 
 ## Lebendige Siedlungen und Küstenhandel 3.5.0
 
-- Die Spielprüfung umfasst alle 120 Häfen und alle 60 Abenteuerinseln.
-  In den fünf Abenteuerfinalen wurden Handelswaren hergestellt, zum
+- Alle 67 automatisierten Tests sind bestanden. In der Kampagnenprüfung
+  wurden alle 120 Häfen mit drei Sternen und alle 60 Abenteuerinseln
+  abgeschlossen. In den fünf Abenteuerfinalen wurden Handelswaren hergestellt, zum
   Anleger getragen und verschifft. Aus dem Erlös kamen die Baupläne und
   die Baustoffe für die Gebäude auf Stufe zwei.
 - In jedem Gebiet wurden die Begegnungen nach dem Start der Partie
