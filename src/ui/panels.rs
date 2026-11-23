@@ -46,20 +46,85 @@ pub(super) fn modal(
     content: impl FnOnce(&mut ChildSpawnerCommands),
 ) {
     dark_scrim(p).with_children(|overlay| {
-        let mut node = frame_node(Val::Percent(93.0), 14.0, 24.0);
+        let mut node = frame_node(
+            Val::Percent(93.0),
+            if hud.phone { 8.0 } else { 14.0 },
+            if hud.phone { 16.0 } else { 24.0 },
+        );
         node.max_width = Val::Px(width);
+        if hud.phone {
+            node.max_height = Val::Percent(95.0);
+        }
         card(overlay, node, INK).with_children(|page| {
-            page.spawn(row(12.0)).with_children(|head| {
-                icon(head, hud, image, 54.0);
-                head.spawn(column(1.0)).with_children(|words| {
+            page.spawn(Node {
+                flex_shrink: if hud.phone { 0.0 } else { 1.0 },
+                ..row(12.0)
+            })
+            .with_children(|head| {
+                icon(head, hud, image, if hud.phone { 44.0 } else { 54.0 });
+                head.spawn(if hud.phone {
+                    Node {
+                        flex_grow: 1.0,
+                        min_width: Val::Px(0.0),
+                        ..column(1.0)
+                    }
+                } else {
+                    column(1.0)
+                })
+                .with_children(|words| {
                     if !heading.is_empty() {
                         label(words, hud, heading, 15.0, Face::Bold, GOLD);
                     }
-                    label(words, hud, title, 40.0, Face::Serif, SAND);
+                    label(
+                        words,
+                        hud,
+                        title,
+                        if hud.phone { 33.0 } else { 40.0 },
+                        Face::Serif,
+                        SAND,
+                    );
                 });
+                if hud.phone
+                    && let Some(action) = hud.close_modal
+                {
+                    button(
+                        head,
+                        hud,
+                        action,
+                        "",
+                        "phone_close",
+                        "",
+                        Style::Quiet,
+                        false,
+                    );
+                }
             });
             line(page, LINE);
-            content(page);
+            if hud.phone {
+                page.spawn((
+                    touch::ScrollPage,
+                    ScrollPosition {
+                        offset_y: hud.scroll_y,
+                        ..default()
+                    },
+                    Node {
+                        min_height: Val::Px(0.0),
+                        overflow: Overflow::scroll_y(),
+                        ..default()
+                    },
+                ))
+                .with_children(|viewport| {
+                    viewport
+                        .spawn(Node {
+                            flex_shrink: 0.0,
+                            width: Val::Percent(100.0),
+                            ..column(9.0)
+                        })
+                        .with_children(content);
+                });
+            } else {
+                content(page);
+            }
         });
     });
 }
@@ -3144,6 +3209,11 @@ fn hint(p: &mut ChildSpawnerCommands, hud: &Hud, content: &str, image: &str) {
 }
 
 pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
+    if hud.phone {
+        return modal(p, hud, 690.0, "", "Spielhilfe", "guide", |page| {
+            phone::help(page, hud, Action::Back);
+        });
+    }
     const PAGES: [&str; 8] = [
         "Steuerung",
         "Dein Tag",

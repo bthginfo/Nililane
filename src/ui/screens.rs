@@ -41,14 +41,21 @@ pub fn title(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign) {
         width: Val::Percent(38.0),
         max_width: Val::Px(495.0),
         justify_content: JustifyContent::Center,
-        ..column(19.0)
+        ..column(if hud.phone { 11.0 } else { 19.0 })
     })
     .with_children(|stack| {
         stack.spawn(row(8.0)).with_children(|brand| {
             icon(brand, hud, "ferry", 35.0);
             label(brand, hud, "NILIS HAFENREISEN", 14.0, Face::Bold, GOLD);
         });
-        label(stack, hud, "Nililane", 94.0, Face::Serif, SAND);
+        label(
+            stack,
+            hud,
+            "Nililane",
+            if hud.phone { 76.0 } else { 94.0 },
+            Face::Serif,
+            SAND,
+        );
         label(
             stack,
             hud,
@@ -440,6 +447,9 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
 }
 
 pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, tutorial: bool) {
+    if hud.phone {
+        return phone::harbor(p, hud, game, town);
+    }
     let ch = &CHAPTERS[town.chapter];
     let weather = town.sky(ch);
     let manual = match &town.phase {

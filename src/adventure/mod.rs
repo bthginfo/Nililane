@@ -46,6 +46,7 @@ pub enum Command {
     Inspect(Target),
     SetRoute(Target),
     ClearRoute,
+    CameraView,
     Use(Target),
     Build(Build),
     Demolish,
@@ -517,6 +518,8 @@ fn close(game: &mut Game, adventure: &mut Adventure, screen: Screen) {
     adventure.moved = false;
     adventure.pointer = None;
     game.walk_axis = Vec2::ZERO;
+    game.quick_menu = false;
+    game.scroll_y = 0.0;
     adventure.group = 0;
     adventure.page = 0;
     game.focus = None;
@@ -603,6 +606,11 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
                 adventure.waypoint = Some(target);
                 close(game, adventure, Screen::Walk);
             }
+        }
+        Command::CameraView => {
+            adventure.map_zoom = if adventure.map_zoom > 0.1 { 0.0 } else { 0.38 };
+            game.quick_menu = false;
+            game.dirty = true;
         }
         Command::ClearRoute => {
             adventure.waypoint = None;
@@ -951,6 +959,10 @@ pub fn step(
         }
         return;
     }
+    if controls.got(controls::B) && game.quick_menu {
+        crate::game::apply(Action::QuickMenu, game, save);
+        return;
+    }
     if controls.got(controls::START) || controls.got(controls::B) {
         act(Command::Pause, adventure, game, save);
         return;
@@ -973,6 +985,7 @@ pub fn step(
         adventure.map_zoom = 0.0;
     }
     let touch = ui::walk_input(pad, window, touches, mouse, &mut adventure.pointer);
+    game.phone_walk(touch);
     let axis = (controls.walk + touch).clamp_length_max(1.0);
     game.walk_axis = axis;
     let delta = Vec2::new(axis.x + axis.y * 0.115, axis.y - axis.x * 0.115) * 5.4 * dt;

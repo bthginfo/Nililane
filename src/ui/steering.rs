@@ -10,19 +10,28 @@ const THUMB_SIZE: f32 = 61.0;
 const THUMB_TRAVEL: f32 = 36.0;
 
 #[derive(Component)]
-pub struct SteeringPad;
+pub struct SteeringPad {
+    floating: bool,
+}
 
 #[derive(Component)]
 pub struct SteeringThumb;
 
 #[derive(Clone, Copy)]
 pub enum WalkPointer {
-    Touch(u64),
-    Mouse,
+    Touch(u64, Vec2),
+    Mouse(Vec2),
 }
 
-pub type WalkPad<'w, 's> =
-    Query<'w, 's, (&'static ComputedNode, &'static GlobalTransform), With<SteeringPad>>;
+pub type WalkPad<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static SteeringPad,
+        &'static ComputedNode,
+        &'static GlobalTransform,
+    ),
+>;
 
 pub fn walk_input(
     pad: &WalkPad,
@@ -31,7 +40,7 @@ pub fn walk_input(
     mouse: &ButtonInput<MouseButton>,
     pointer: &mut Option<WalkPointer>,
 ) -> Vec2 {
-    let Ok((node, transform)) = pad.single() else {
+    let Ok((pad, node, transform)) = pad.single() else {
         return Vec2::ZERO;
     };
     let center = transform.translation().truncate();
@@ -40,14 +49,20 @@ pub fn walk_input(
         return Vec2::ZERO;
     }
     let physical = |at: Vec2| at * window.scale_factor();
-    let within = |at: Vec2| (at - center).length_squared() <= radius * radius;
+    let zone = if pad.floating { radius * 1.12 } else { radius };
+    let within = |at: Vec2| (at - center).length_squared() <= zone * zone;
+    let origin = |point| if pad.floating { point } else { center };
     let read = |pointer: WalkPointer| match pointer {
-        WalkPointer::Touch(id) => touches
+        WalkPointer::Touch(id, start) => touches
             .get_pressed(id)
-            .map(|touch| physical(touch.position())),
-        WalkPointer::Mouse => mouse
+            .map(|touch| physical(touch.position()) - origin(start)),
+        WalkPointer::Mouse(start) => mouse
             .pressed(MouseButton::Left)
-            .then(|| window.physical_cursor_position())
+            .then(|| {
+                window
+                    .physical_cursor_position()
+                    .map(|point| point - origin(start))
+            })
             .flatten(),
     };
     if pointer.is_some_and(|held| read(held).is_none()) {
@@ -56,19 +71,29 @@ pub fn walk_input(
     if pointer.is_none() {
         *pointer = touches
             .iter_just_pressed()
-            .find(|touch| within(physical(touch.position())))
-            .map(|touch| WalkPointer::Touch(touch.id()));
+            .map(|touch| {
+                let start = if pad.floating {
+                    touch.start_position()
+                } else {
+                    touch.position()
+                };
+                (touch.id(), physical(start))
+            })
+            .find(|&(_, point)| within(point))
+            .map(|(id, point)| WalkPointer::Touch(id, origin(point)));
         if pointer.is_none()
             && mouse.just_pressed(MouseButton::Left)
-            && window.physical_cursor_position().is_some_and(within)
+            && let Some(point) = window
+                .physical_cursor_position()
+                .filter(|&point| within(point))
         {
-            *pointer = Some(WalkPointer::Mouse);
+            *pointer = Some(WalkPointer::Mouse(origin(point)));
         }
     }
-    let Some(point) = pointer.and_then(read) else {
+    let Some(movement) = pointer.and_then(read) else {
         return Vec2::ZERO;
     };
-    let delta = (point - center) / (radius * 0.58);
+    let delta = movement / (radius * 0.58);
     if delta.length_squared() < 0.04 {
         return Vec2::ZERO;
     }
@@ -88,14 +113,21 @@ pub fn animate_walk_pad(game: Res<Game>, mut thumb: Query<&mut Node, With<Steeri
 
 pub(super) fn pad(p: &mut ChildSpawnerCommands, hud: &Hud) {
     p.spawn((
-        SteeringPad,
+        SteeringPad {
+            floating: hud.phone,
+        },
         Node {
             width: Val::Px(PAD_SIZE),
             height: Val::Px(PAD_SIZE),
             border: UiRect::all(Val::Px(2.0)),
             ..default()
         },
-        BackgroundColor(Color::srgba(0.048, 0.164, 0.176, 0.86)),
+        BackgroundColor(Color::srgba(
+            0.048,
+            0.164,
+            0.176,
+            if hud.phone { 0.43 } else { 0.86 },
+        )),
         BorderColor(MUTED),
         BorderRadius::MAX,
         FocusPolicy::Block,
@@ -120,7 +152,6 @@ pub(super) fn pad(p: &mut ChildSpawnerCommands, hud: &Hud) {
 }
 
 pub(super) fn free(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town) {
-    use crate::game::Nearby;
     p.spawn(Node {
         position_type: PositionType::Absolute,
         left: Val::Px(23.0),
@@ -131,56 +162,62 @@ pub(super) fn free(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &
     })
     .with_children(|foot| {
         pad(foot, hud);
-        card(foot, frame_node(Val::Auto, 5.0, 10.0), INK).with_children(|near| match game.nearby {
-            Some(Nearby::Building(lot)) => {
-                let b = town.lots[lot].unwrap();
-                let action = game.nearby_action(town, lot);
-                let (label, art) = match action {
-                    Action::RingBell(_) => ("Glocke läuten", "temple_bell"),
-                    Action::AidAt(_) => ("Hilfe starten", "nili"),
-                    _ if b.kind == Kind::Boatyard => ("Seehandel", "sea_trade"),
-                    _ => (b.kind.name(), kind_icon(b.kind)),
-                };
-                if matches!(action, Action::RingBell(_)) {
-                    near.spawn(row(6.0)).with_children(|choices| {
-                        button(choices, hud, action, label, art, "A", Style::Primary, false);
-                        button(
-                            choices,
-                            hud,
-                            Action::LookAtLot(lot),
-                            "Tempel ansehen",
-                            "temple",
-                            "",
-                            Style::Quiet,
-                            false,
-                        );
-                    });
-                } else {
-                    button(near, hud, action, label, art, "A", Style::Primary, false);
-                }
-            }
-            Some(Nearby::Activity(slot, activity)) => {
-                button(
-                    near,
-                    hud,
-                    Action::StreetHelp(slot),
-                    activity.action(),
-                    activity.icon(),
-                    "A",
-                    Style::Primary,
-                    false,
-                );
-            }
-            None => {
-                panels::metric(near, hud, "pad_dpad", "Linker Stick oder ziehen");
-                if let Some(building) = game.destination.and_then(|lot| town.lots[lot]) {
-                    panels::metric(near, hud, kind_icon(building.kind), building.kind.name());
-                } else {
-                    label(near, hud, "Geh zu einem Gebäude.", 15.0, Face::Body, MUTED);
-                }
-            }
-        });
+        card(foot, frame_node(Val::Auto, 5.0, 10.0), INK)
+            .with_children(|near| nearby(near, hud, game, town));
     });
+}
+
+pub(super) fn nearby(near: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town) {
+    use crate::game::Nearby;
+    match game.nearby {
+        Some(Nearby::Building(lot)) => {
+            let b = town.lots[lot].unwrap();
+            let action = game.nearby_action(town, lot);
+            let (label, art) = match action {
+                Action::RingBell(_) => ("Glocke läuten", "temple_bell"),
+                Action::AidAt(_) => ("Hilfe starten", "nili"),
+                _ if b.kind == Kind::Boatyard => ("Seehandel", "sea_trade"),
+                _ => (b.kind.name(), kind_icon(b.kind)),
+            };
+            if matches!(action, Action::RingBell(_)) {
+                near.spawn(row(6.0)).with_children(|choices| {
+                    button(choices, hud, action, label, art, "A", Style::Primary, false);
+                    button(
+                        choices,
+                        hud,
+                        Action::LookAtLot(lot),
+                        "Tempel ansehen",
+                        "temple",
+                        "",
+                        Style::Quiet,
+                        false,
+                    );
+                });
+            } else {
+                button(near, hud, action, label, art, "A", Style::Primary, false);
+            }
+        }
+        Some(Nearby::Activity(slot, activity)) => {
+            button(
+                near,
+                hud,
+                Action::StreetHelp(slot),
+                activity.action(),
+                activity.icon(),
+                "A",
+                Style::Primary,
+                false,
+            );
+        }
+        None => {
+            panels::metric(near, hud, "pad_dpad", "Linker Stick oder ziehen");
+            if let Some(building) = game.destination.and_then(|lot| town.lots[lot]) {
+                panels::metric(near, hud, kind_icon(building.kind), building.kind.name());
+            } else {
+                label(near, hud, "Geh zu einem Gebäude.", 15.0, Face::Body, MUTED);
+            }
+        }
+    }
 }
 
 pub(super) fn draw(

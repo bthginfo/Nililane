@@ -18,9 +18,29 @@ tools="$sdk/build-tools/36.0.0"
 platform="$sdk/platforms/android-36/android.jar"
 out="$PWD/build/android"
 manifest=packaging/AndroidManifest.xml
-version=$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' "$manifest")
-apk="$out/Nililane-$version.apk"
+variant=${NILILANE_VARIANT:-tablet}
+base="$out"
 read -r -a architectures <<< "${NILILANE_ABIS:-arm64-v8a x86_64}"
+case "$variant" in
+    tablet)
+        version=$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' "$manifest")
+        apk="$base/Nililane-$version.apk"
+        ;;
+    phone)
+        version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml)
+        out="$base/phone"
+        mkdir -p "$out"
+        sed -e 's/package="game.nililane"/package="game.nililane.phone"/' \
+            -e 's/android:versionCode="[0-9]*"/android:versionCode="1"/' \
+            -e "s/android:versionName=\"[^\"]*\"/android:versionName=\"$version\"/" \
+            -e 's/android:label="Nililane"/android:label="Nililane Handy"/' \
+            -e 's/android:name=".GameActivity"/android:name="game.nililane.GameActivity"/' \
+            "$manifest" > "$out/AndroidManifest.xml"
+        manifest="$out/AndroidManifest.xml"
+        apk="$base/Nililane-$version-Handy.apk"
+        ;;
+    *) printf 'Unbekannte Android-Variante %s\n' "$variant" >&2; exit 1 ;;
+esac
 mkdir -p "$out/classes" "$out/native"
 if [[ ! -x "$tools/aapt2" || ! -f "$platform" || ! -x "$llvm/llvm-strip" ]]; then
     printf 'SDK Platform 36, Build Tools 36.0.0 und NDK r28c werden benötigt.\n' >&2

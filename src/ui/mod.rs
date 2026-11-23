@@ -3,13 +3,16 @@ mod bubbles;
 mod guests;
 mod lessons;
 mod panels;
+mod phone;
 mod prompts;
 mod screens;
 mod steering;
+mod touch;
 mod wardrobe;
 
 pub(crate) use adventure::project as project_adventure;
 pub use steering::{WalkPad, WalkPointer, animate_walk_pad, walk_input};
+pub(crate) use touch::PanelTouch;
 
 use std::collections::HashMap;
 
@@ -43,6 +46,9 @@ pub struct Hud {
     fonts: [Handle<Font>; 3],
     pictures: HashMap<String, Handle<Image>>,
     adventure_map: Option<(usize, Handle<Image>)>,
+    phone: bool,
+    close_modal: Option<Action>,
+    scroll_y: f32,
 }
 
 #[derive(Component, Clone, Copy)]
@@ -96,7 +102,7 @@ pub fn setup(mut hud: ResMut<Hud>, assets: Res<AssetServer>) {
         assets.load("embedded://fonts/DMSans-Bold.ttf"),
         assets.load("embedded://fonts/DMSerifText-Regular.ttf"),
     ];
-    let icons = "house well bakery grove potter stoa taverna inn bread olive meze bed coin star sun water wind ferry fire chart book guide hammer lock check nili title_fade storehouse press shrine aqueduct baths forum villa mood cloud rain storm guest_book guest_down guest_empty guest_happy guest_mixed guest_steps guest_wait pad_dpad pad_view sunset pause budget age_child age_adult age_senior cat dog leaves scraps herb_garden machiya temple temple_bell rice_paddy rice_kitchen rice_bowl tea_garden tea_house tea_cup paper_workshop lampion longhouse fishery smokehouse woodlot boatyard sea_trade weaver feast_hall smoked_fish woven_cloth hearth_bowl moon apiary dyer ferry_office mill scribe garden_court market_garden ceramic_studio silk_shop sheepfold cooperage signal_tower oasis_home cistern date_garden spice_bazaar caravanserai qanat glassworks perfumer moon_garden carpet_hall caravan adventure adventure_wood adventure_stone adventure_clay adventure_ore adventure_food adventure_boards adventure_bricks adventure_tools adventure_blueprint adventure_labor adventure_hill adventure_craft adventure_cloth adventure_meals adventure_sawmill adventure_brickyard adventure_forge";
+    let icons = "house well bakery grove potter stoa taverna inn bread olive meze bed coin star sun water wind ferry fire chart book guide hammer lock check nili title_fade storehouse press shrine aqueduct baths forum villa mood cloud rain storm guest_book guest_down guest_empty guest_happy guest_mixed guest_steps guest_wait pad_dpad pad_view sunset pause budget age_child age_adult age_senior cat dog leaves scraps herb_garden machiya temple temple_bell rice_paddy rice_kitchen rice_bowl tea_garden tea_house tea_cup paper_workshop lampion longhouse fishery smokehouse woodlot boatyard sea_trade weaver feast_hall smoked_fish woven_cloth hearth_bowl moon apiary dyer ferry_office mill scribe garden_court market_garden ceramic_studio silk_shop sheepfold cooperage signal_tower oasis_home cistern date_garden spice_bazaar caravanserai qanat glassworks perfumer moon_garden carpet_hall caravan adventure adventure_wood adventure_stone adventure_clay adventure_ore adventure_food adventure_boards adventure_bricks adventure_tools adventure_blueprint adventure_labor adventure_hill adventure_craft adventure_cloth adventure_meals adventure_sawmill adventure_brickyard adventure_forge phone_menu phone_close phone_camera";
     for key in icons
         .split_whitespace()
         .map(str::to_owned)
@@ -121,6 +127,15 @@ pub fn draw(
         return;
     }
     game.dirty = false;
+    hud.phone = game.phone;
+    hud.scroll_y = game.scroll_y;
+    hud.close_modal = Some(
+        if game.view == View::Adventure && game.panel == Panel::None {
+            Action::Adventure(crate::adventure::Command::Close)
+        } else {
+            Action::Back
+        },
+    );
     if game.view == View::Adventure
         && expedition.screen == crate::adventure::Screen::Map
         && let Some(terrain) = expedition.terrain.as_ref()
@@ -153,68 +168,84 @@ pub fn draw(
             },
             FocusPolicy::Pass,
         ))
-        .with_children(|base| {
-            match (game.view, game.panel) {
-                (_, Panel::Guide) => panels::guide(base, &hud, &game),
-                (_, Panel::Options) => panels::options(base, &hud, &save),
-                (_, Panel::Wardrobe) => wardrobe::draw(base, &hud, &save, &game),
-                (View::Title, _) => screens::title(base, &hud, &save),
-                (View::Adventure, _) => adventure::draw(base, &hud, &expedition),
-                (View::Chart, _) => screens::chart(base, &hud, &game, &save),
-                (View::Street, panel) => {
-                    let Some(town) = save.active_town() else {
-                        return;
-                    };
-                    if panel == Panel::None {
-                        if matches!(town.phase, Phase::Open(_)) {
-                            bubbles::spawn(base, &hud);
-                        }
-                        prompts::spawn(base, &hud);
-                        screens::street(base, &hud, &game, town, save.in_tutorial());
-                        if let Some(lesson) = game.lesson {
-                            lessons::spawn(base, &hud, lesson, town);
-                        }
-                    } else {
-                        panels::street_panel(base, &hud, &game, town, save.in_tutorial());
-                        if matches!(town.phase, Phase::Open(_))
-                            && !matches!(
-                                panel,
-                                Panel::Details | Panel::Forecast | Panel::Goals | Panel::Nili
-                            )
-                        {
-                            prompts::pause_chip(base, &hud);
+        .with_children(|outer| {
+            let contents = |base: &mut ChildSpawnerCommands| {
+                match (game.view, game.panel) {
+                    (_, Panel::Guide) => panels::guide(base, &hud, &game),
+                    (_, Panel::Options) => panels::options(base, &hud, &save),
+                    (_, Panel::Wardrobe) => wardrobe::draw(base, &hud, &save, &game),
+                    (View::Title, _) => screens::title(base, &hud, &save),
+                    (View::Adventure, _) => adventure::draw(base, &hud, &game, &expedition),
+                    (View::Chart, _) => screens::chart(base, &hud, &game, &save),
+                    (View::Street, panel) => {
+                        let Some(town) = save.active_town() else {
+                            return;
+                        };
+                        if panel == Panel::None {
+                            if matches!(town.phase, Phase::Open(_)) {
+                                bubbles::spawn(base, &hud);
+                            }
+                            prompts::spawn(base, &hud);
+                            screens::street(base, &hud, &game, town, save.in_tutorial());
+                            if let Some(lesson) = game.lesson {
+                                lessons::spawn(base, &hud, lesson, town);
+                            }
+                        } else {
+                            panels::street_panel(base, &hud, &game, town, save.in_tutorial());
+                            if matches!(town.phase, Phase::Open(_))
+                                && !matches!(
+                                    panel,
+                                    Panel::Details | Panel::Forecast | Panel::Goals | Panel::Nili
+                                )
+                            {
+                                prompts::pause_chip(base, &hud);
+                            }
                         }
                     }
                 }
-            }
-            base.spawn((
-                ToastBox,
-                Visibility::Hidden,
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: Val::Percent(38.0),
-                    top: Val::Px(28.0),
-                    max_width: Val::Percent(34.0),
-                    padding: UiRect::axes(Val::Px(18.0), Val::Px(10.0)),
-                    ..default()
-                },
-                BackgroundColor(GOLD),
-                BorderRadius::all(Val::Px(12.0)),
-                ZIndex(20),
-                FocusPolicy::Pass,
-            ))
-            .with_children(|toast| {
-                toast.spawn((
-                    Dynamic::Toast,
-                    Text::new(""),
-                    TextFont {
-                        font: hud.fonts[1].clone(),
-                        font_size: 19.0,
+                base.spawn((
+                    ToastBox,
+                    Visibility::Hidden,
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Percent(38.0),
+                        top: Val::Px(if game.phone { 12.0 } else { 28.0 }),
+                        max_width: Val::Percent(34.0),
+                        padding: UiRect::axes(Val::Px(18.0), Val::Px(10.0)),
                         ..default()
                     },
-                    TextColor(INK),
-                ));
-            });
+                    BackgroundColor(GOLD),
+                    BorderRadius::all(Val::Px(12.0)),
+                    ZIndex(20),
+                    FocusPolicy::Pass,
+                ))
+                .with_children(|toast| {
+                    toast.spawn((
+                        Dynamic::Toast,
+                        Text::new(""),
+                        TextFont {
+                            font: hud.fonts[1].clone(),
+                            font_size: 19.0,
+                            ..default()
+                        },
+                        TextColor(INK),
+                    ));
+                });
+            };
+            if hud.phone {
+                outer
+                    .spawn((
+                        Node {
+                            width: Val::Percent(100.0),
+                            height: Val::Percent(100.0),
+                            ..default()
+                        },
+                        FocusPolicy::Pass,
+                    ))
+                    .with_children(contents);
+            } else {
+                contents(outer);
+            }
         })
         .id();
     hud.root = Some(root);
@@ -366,9 +397,10 @@ pub fn refresh(
     mut badges: Query<(&GoalBadge, &mut ImageNode)>,
 ) {
     let factor = if save.large_ui { 1.105 } else { 1.0 };
+    let reference_height = if hud.phone { 650.0 } else { 720.0 };
     let actual = (window.width() / 1280.0)
-        .min(window.height() / 720.0)
-        .clamp(0.49, 2.5)
+        .min(window.height() / reference_height)
+        .clamp(if hud.phone { 0.25 } else { 0.49 }, 2.5)
         * factor;
     if (scale.0 - actual).abs() > 0.001 {
         scale.0 = actual;
@@ -656,6 +688,9 @@ fn card<'p>(p: &'p mut ChildSpawnerCommands, node: Node, color: Color) -> Entity
 }
 
 fn key(p: &mut ChildSpawnerCommands, hud: &Hud, name: &str, bright: bool) {
+    if hud.phone {
+        return;
+    }
     if name == "View" {
         icon(p, hud, "pad_view", 31.0);
         return;
@@ -702,7 +737,24 @@ fn button(
         style,
         disabled,
         Node {
-            min_height: Val::Px(51.0),
+            min_height: Val::Px(if hud.phone {
+                if matches!(
+                    action,
+                    Action::QuickMenu
+                        | Action::Open
+                        | Action::Plot
+                        | Action::DoErrand
+                        | Action::Adventure(crate::adventure::Command::Use(_))
+                ) {
+                    72.0
+                } else {
+                    60.0
+                }
+            } else {
+                51.0
+            }),
+            min_width: if hud.phone { Val::Px(64.0) } else { Val::Auto },
+            flex_shrink: if hud.phone { 0.0 } else { 1.0 },
             justify_content: JustifyContent::Center,
             padding: UiRect::axes(Val::Px(13.0), Val::Px(7.0)),
             ..row(9.0)
@@ -719,7 +771,7 @@ fn button(
             item,
             hud,
             title,
-            18.0,
+            if hud.phone { 20.0 } else { 18.0 },
             Face::Bold,
             if primary {
                 INK

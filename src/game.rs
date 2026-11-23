@@ -79,6 +79,8 @@ pub enum Action {
     Music,
     Sounds,
     LargeUi,
+    QuickMenu,
+    CameraView,
     Plot,
     Coach(Step),
     Lesson(bool),
@@ -185,6 +187,10 @@ pub struct Game {
     pub note: String,
     pub note_left: f32,
     pub speed: u8,
+    pub phone: bool,
+    pub quick_menu: bool,
+    pub phone_walked: bool,
+    pub scroll_y: f32,
     pub zoom: f32,
     pub pan: Vec2,
     pub clock: f32,
@@ -316,6 +322,11 @@ impl Default for Game {
             note: String::new(),
             note_left: 0.0,
             speed: 1,
+            phone: !cfg!(target_os = "android")
+                && std::env::var_os("NILILANE_PHONE_PREVIEW").is_some(),
+            quick_menu: false,
+            phone_walked: false,
+            scroll_y: 0.0,
             zoom: 0.0,
             pan: Vec2::ZERO,
             clock: 0.0,
@@ -401,9 +412,18 @@ impl Game {
             self.return_to_guests = false;
         }
         self.panel = panel;
+        self.quick_menu = false;
+        self.scroll_y = 0.0;
         self.lesson = None;
         self.focus = None;
         self.dirty = true;
+    }
+
+    pub(crate) fn phone_walk(&mut self, touch: Vec2) {
+        if self.phone && !self.phone_walked && touch.length_squared() > 0.045 {
+            self.phone_walked = true;
+            self.dirty = true;
+        }
     }
 
     pub fn delivery(&self) -> Option<Delivery> {
@@ -503,7 +523,12 @@ pub fn frame(
     buttons: ui::FocusButtons,
     walk_pad: ui::WalkPad,
     mut adventure: ResMut<Adventure>,
+    mut panel_touch: ui::PanelTouch,
 ) {
+    if !game.phone && controls::phone_edition() {
+        game.phone = true;
+        game.dirty = true;
+    }
     let dt = time.delta_secs();
     let real_dt = real.delta_secs();
     game.clock += dt;
@@ -524,6 +549,18 @@ pub fn frame(
     let pressed = changed.iter().find_map(|(state, action)| {
         (*state == Interaction::Pressed && !action.disabled).then_some(action.action)
     });
+    let pressed = panel_touch.update(&mut game, &window, &touches, pressed);
+    let walking_view = game.panel == Panel::None
+        && game.lesson.is_none()
+        && (game.view == View::Street
+            || (game.view == View::Adventure
+                && adventure.screen == crate::adventure::Screen::Walk));
+    let pressed =
+        if game.phone && walking_view && touches.iter().count() > 1 && touches.any_just_pressed() {
+            panel_touch.second_thumb(&window, &touches)
+        } else {
+            pressed
+        };
     if game.view == View::Adventure {
         crate::adventure::step(
             &mut adventure,
@@ -645,6 +682,7 @@ pub fn frame(
             .is_some_and(|town| matches!(town.phase, Phase::Open(_)));
     if can_walk {
         let touch = ui::walk_input(&walk_pad, &window, &touches, &mouse, &mut game.walk_pointer);
+        game.phone_walk(touch);
         let axis = (touch + controls.walk).clamp_length_max(1.0);
         if save.active_town().and_then(active_route).is_some() {
             if controls.got(controls::B) || pressed == Some(Action::CancelErrand) {
@@ -1273,6 +1311,11 @@ pub(crate) fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
         }
         Action::Back => {
             game.cue = Some(Cue::Back);
+            if game.quick_menu {
+                game.quick_menu = false;
+                game.dirty = true;
+                return;
+            }
             if game.panel == Panel::None && game.job.take().is_some() {
                 game.show(Panel::Nili);
                 return;
@@ -1349,6 +1392,16 @@ pub(crate) fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
         Action::GuideTab(page) => {
             game.guide = page;
             game.focus = Some(action);
+            game.dirty = true;
+        }
+        Action::QuickMenu => {
+            game.quick_menu = !game.quick_menu;
+            game.dirty = true;
+        }
+        Action::CameraView => {
+            game.zoom = if game.zoom > 0.1 { 0.0 } else { 0.44 };
+            game.pan = Vec2::ZERO;
+            game.quick_menu = false;
             game.dirty = true;
         }
         Action::Music | Action::Sounds | Action::LargeUi => {

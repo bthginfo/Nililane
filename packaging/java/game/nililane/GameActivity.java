@@ -17,12 +17,16 @@ public final class GameActivity extends NativeActivity
 
     private static native void resetController(int device);
     private static native void publishInsets(int left, int top, int right, int bottom);
+    private static native void publishPhoneEdition(boolean phone);
 
     private InputManager input;
+    private boolean phone;
 
     @Override
     protected void onCreate(android.os.Bundle state) {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        phone = getPackageName().equals("game.nililane.phone");
+        if (phone) publishPhoneEdition(true);
         super.onCreate(state);
         setVolumeControlStream(AudioManager.STREAM_MUSIC);
         input = (InputManager) getSystemService(Context.INPUT_SERVICE);
@@ -65,13 +69,19 @@ public final class GameActivity extends NativeActivity
     @Override
     public WindowInsets onApplyWindowInsets(View view, WindowInsets insets) {
         DisplayCutout cutout = Build.VERSION.SDK_INT >= 28 ? insets.getDisplayCutout() : null;
+        int left = cutout == null ? 0 : cutout.getSafeInsetLeft();
+        int top = cutout == null ? 0 : cutout.getSafeInsetTop();
+        int right = cutout == null ? 0 : cutout.getSafeInsetRight();
         int bottom = cutout == null ? 0 : cutout.getSafeInsetBottom();
         if (Build.VERSION.SDK_INT >= 29) {
-            bottom = Math.max(bottom, insets.getMandatorySystemGestureInsets().bottom);
+            android.graphics.Insets gestures = insets.getMandatorySystemGestureInsets();
+            if (phone) {
+                left = Math.max(left, gestures.left);
+                right = Math.max(right, gestures.right);
+            }
+            bottom = Math.max(bottom, gestures.bottom);
         }
-        publishInsets(cutout == null ? 0 : cutout.getSafeInsetLeft(),
-                cutout == null ? 0 : cutout.getSafeInsetTop(),
-                cutout == null ? 0 : cutout.getSafeInsetRight(), bottom);
+        publishInsets(left, top, right, bottom);
         return view.onApplyWindowInsets(insets);
     }
 

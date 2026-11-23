@@ -12,7 +12,7 @@ const MARKERS: usize = 4;
 const WIDTH: f32 = 145.0;
 const HEIGHT: f32 = 44.0;
 
-fn step_words(step: Step) -> (&'static str, &'static str) {
+pub(super) fn step_words(step: Step) -> (&'static str, &'static str) {
     match step {
         Step::Build(_, Kind::Bakery) => ("Backstube bauen", "bakery"),
         Step::Build(_, Kind::Potter) => ("Töpferei bauen", "potter"),
@@ -32,7 +32,7 @@ fn step_words(step: Step) -> (&'static str, &'static str) {
     }
 }
 
-fn step_action(step: Step) -> Action {
+pub(super) fn step_action(step: Step) -> Action {
     match step {
         Step::Aid(lot, _) => Action::AidAt(lot),
         _ => Action::Coach(step),
@@ -70,7 +70,7 @@ pub(super) fn strip(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: 
             icon(r, hud, art, 43.0);
             if !shortcut.is_empty() {
                 key(r, hud, shortcut, active);
-            } else if step.lot().is_some() {
+            } else if step.lot().is_some() && !hud.phone {
                 icon(r, hud, "pad_dpad", 27.0);
             }
             label(

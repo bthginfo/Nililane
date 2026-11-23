@@ -11,7 +11,7 @@ use crate::{
 const GREEN: Color = Color::srgb(0.63, 0.87, 0.67);
 const WARN: Color = Color::srgb(1.0, 0.69, 0.56);
 
-pub(super) fn draw(root: &mut ChildSpawnerCommands, hud: &Hud, a: &Adventure) {
+pub(super) fn draw(root: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, a: &Adventure) {
     if a.screen == Screen::Atlas {
         atlas(root, hud, a);
         return;
@@ -84,7 +84,7 @@ pub(super) fn draw(root: &mut ChildSpawnerCommands, hud: &Hud, a: &Adventure) {
             );
         }
 
-        Screen::Walk => walk(root, hud, a, island, level),
+        Screen::Walk => walk(root, hud, game, a, island, level),
         Screen::Lot(lot) => {
             if let Some(property) = island.lots[lot] {
                 property_panel(root, hud, island, level, lot, property);
@@ -227,6 +227,15 @@ pub(super) fn draw(root: &mut ChildSpawnerCommands, hud: &Hud, a: &Adventure) {
                 );
             });
         }
+        Screen::Help if hud.phone => panels::modal(
+            root,
+            hud,
+            660.0,
+            level.name,
+            "Spielhilfe",
+            "guide",
+            |page| phone::help(page, hud, Action::Adventure(Command::Close)),
+        ),
         Screen::Help => {
             panels::modal(
                 root,
@@ -450,62 +459,76 @@ fn atlas(root: &mut ChildSpawnerCommands, hud: &Hud, a: &Adventure) {
     });
 }
 
-fn walk(root: &mut ChildSpawnerCommands, hud: &Hud, a: &Adventure, island: &Island, level: Level) {
-    let mut status = frame_node(Val::Auto, 5.0, 10.0);
-    status.position_type = PositionType::Absolute;
-    status.left = Val::Px(16.0);
-    status.top = Val::Px(14.0);
-    card(root, status, INK).with_children(|p| {
-        p.spawn(row(10.0)).with_children(|r| {
-            icon(r, hud, level.region.icon(), 30.0);
-            label(r, hud, level.name, 25.0, Face::Serif, SAND);
-            let light = if island.phase < 0.18 || island.phase > 0.82 {
-                "moon"
-            } else {
-                "sun"
-            };
-            icon(r, hud, light, 24.0);
-            panels::metric(r, hud, "adventure_labor", free_staff(island));
-        });
-        p.spawn(row(11.0)).with_children(|r| {
-            for good in [Good::Wood, Good::Stone, Good::Food, Good::Boards] {
-                stock(r, hud, good, island.amount(good), level.region);
-            }
-            if level.stage >= 1 {
-                for good in [Good::Clay, Good::Water, Good::Bricks] {
+fn walk(
+    root: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    game: &Game,
+    a: &Adventure,
+    island: &Island,
+    level: Level,
+) {
+    if hud.phone {
+        phone::expedition(root, hud, game, a, island, level);
+    } else {
+        let mut status = frame_node(Val::Auto, 5.0, 10.0);
+        status.position_type = PositionType::Absolute;
+        status.left = Val::Px(16.0);
+        status.top = Val::Px(14.0);
+        card(root, status, INK).with_children(|p| {
+            p.spawn(row(10.0)).with_children(|r| {
+                icon(r, hud, level.region.icon(), 30.0);
+                label(r, hud, level.name, 25.0, Face::Serif, SAND);
+                let light = if island.phase < 0.18 || island.phase > 0.82 {
+                    "moon"
+                } else {
+                    "sun"
+                };
+                icon(r, hud, light, 24.0);
+                panels::metric(r, hud, "adventure_labor", free_staff(island));
+            });
+            p.spawn(row(11.0)).with_children(|r| {
+                for good in [Good::Wood, Good::Stone, Good::Food, Good::Boards] {
                     stock(r, hud, good, island.amount(good), level.region);
                 }
-            }
+                if level.stage >= 1 {
+                    for good in [Good::Clay, Good::Water, Good::Bricks] {
+                        stock(r, hud, good, island.amount(good), level.region);
+                    }
+                }
+            });
         });
-    });
-    let mut tasks = frame_node(Val::Px(296.0), 6.0, 10.0);
-    tasks.position_type = PositionType::Absolute;
-    tasks.right = Val::Px(16.0);
-    tasks.top = Val::Px(14.0);
-    card(root, tasks, INK).with_children(|c| {
-        action(
-            c,
-            hud,
-            Command::Inspect(Target::Hall),
-            "Aufträge",
-            "book",
-            "RB",
-            Style::Quiet,
-            false,
-        );
-        objectives(c, hud, level, island);
-    });
+        let mut tasks = frame_node(Val::Px(296.0), 6.0, 10.0);
+        tasks.position_type = PositionType::Absolute;
+        tasks.right = Val::Px(16.0);
+        tasks.top = Val::Px(14.0);
+        card(root, tasks, INK).with_children(|c| {
+            action(
+                c,
+                hud,
+                Command::Inspect(Target::Hall),
+                "Aufträge",
+                "book",
+                "RB",
+                Style::Quiet,
+                false,
+            );
+            objectives(c, hud, level, island);
+        });
+    }
     if let Some((art, hint, target)) = a.tutorial() {
-        let mut tip = frame_node(Val::Px(404.0), 5.0, 10.0);
+        let mut tip = frame_node(Val::Px(if hud.phone { 352.0 } else { 404.0 }), 5.0, 10.0);
         tip.position_type = PositionType::Absolute;
         tip.left = Val::Px(16.0);
-        tip.top = Val::Px(116.0);
+        tip.top = Val::Px(if hud.phone { 73.0 } else { 116.0 });
         card(root, tip, INK).with_children(|c| {
             c.spawn(row(9.0)).with_children(|r| {
                 icon(r, hud, art, 38.0);
                 r.spawn(column(1.0)).with_children(|c| {
                     label(c, hud, hint, 18.0, Face::Bold, SAND);
-                    if island.lots.iter().all(Option::is_none) && island.amount(Good::Wood) == 0 {
+                    if !hud.phone
+                        && island.lots.iter().all(Option::is_none)
+                        && island.amount(Good::Wood) == 0
+                    {
                         label(
                             c,
                             hud,
@@ -538,7 +561,7 @@ fn walk(root: &mut ChildSpawnerCommands, hud: &Hud, a: &Adventure, island: &Isla
         let mut marker = frame_node(Val::Auto, 0.0, 8.0);
         marker.position_type = PositionType::Absolute;
         marker.left = Val::Px(16.0);
-        marker.top = Val::Px(116.0);
+        marker.top = Val::Px(if hud.phone { 73.0 } else { 116.0 });
         card(root, marker, INK).with_children(|c| {
             c.spawn(row(7.0)).with_children(|r| {
                 icon(r, hud, "adventure_hill", 23.0);
@@ -566,16 +589,20 @@ fn walk(root: &mut ChildSpawnerCommands, hud: &Hud, a: &Adventure, island: &Isla
             });
         });
     }
-    root.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(16.0),
-            bottom: Val::Px(14.0),
-            ..default()
-        },
-        FocusPolicy::Pass,
-    ))
-    .with_children(|foot| steering::pad(foot, hud));
+    if hud.phone {
+        phone::pad(root, hud, !game.phone_walked);
+    } else {
+        root.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(16.0),
+                bottom: Val::Px(14.0),
+                ..default()
+            },
+            FocusPolicy::Pass,
+        ))
+        .with_children(|foot| steering::pad(foot, hud));
+    }
     root.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -635,38 +662,40 @@ fn walk(root: &mut ChildSpawnerCommands, hud: &Hud, a: &Adventure, island: &Isla
                 );
             });
         }
-        corner.spawn(row(7.0)).with_children(|r| {
-            action(
-                r,
-                hud,
-                Command::Map,
-                "Karte",
-                "chart",
-                "X",
-                Style::Quiet,
-                false,
-            );
-            action(
-                r,
-                hud,
-                Command::Labor,
-                "Bürger",
-                "adventure_labor",
-                "Y",
-                Style::Quiet,
-                false,
-            );
-            action(
-                r,
-                hud,
-                Command::Pause,
-                "Pause",
-                "pause",
-                "",
-                Style::Quiet,
-                false,
-            );
-        });
+        if !hud.phone {
+            corner.spawn(row(7.0)).with_children(|r| {
+                action(
+                    r,
+                    hud,
+                    Command::Map,
+                    "Karte",
+                    "chart",
+                    "X",
+                    Style::Quiet,
+                    false,
+                );
+                action(
+                    r,
+                    hud,
+                    Command::Labor,
+                    "Bürger",
+                    "adventure_labor",
+                    "Y",
+                    Style::Quiet,
+                    false,
+                );
+                action(
+                    r,
+                    hud,
+                    Command::Pause,
+                    "Pause",
+                    "pause",
+                    "",
+                    Style::Quiet,
+                    false,
+                );
+            });
+        }
     });
     if let Some(target) = a.target {
         let mut node = frame_node(Val::Auto, 0.0, 8.0);
@@ -1813,6 +1842,7 @@ pub(crate) struct RouteDistance;
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn project(
     a: Res<Adventure>,
+    game: Res<Game>,
     ui_scale: Res<UiScale>,
     window: Single<&Window, With<PrimaryWindow>>,
     camera: Single<(&Camera, &GlobalTransform), With<StreetCamera>>,
@@ -1833,13 +1863,20 @@ pub(crate) fn project(
     };
     let (camera, transform) = *camera;
     let scale = ui_scale.0;
-    let size = Vec2::new(window.width(), window.height()) / scale;
+    let safe = if game.phone {
+        insets().map(|n| f32::from(n) / (scale * window.scale_factor()))
+    } else {
+        [0.0; 4]
+    };
+    let origin = Vec2::new(safe[0], safe[1]);
+    let size =
+        Vec2::new(window.width(), window.height()) / scale - origin - Vec2::new(safe[2], safe[3]);
     let project = |target, height| {
         let position = crate::world::adventure_position(terrain, a.target_position(target)?);
         camera
             .world_to_viewport(transform, position + Vec3::Y * height)
             .ok()
-            .map(|point| point / scale)
+            .map(|point| point / scale - origin)
     };
     if let Ok((mut node, mut visible)) = player.single_mut() {
         let here = Vec2::from_array(island.position);
@@ -1857,7 +1894,7 @@ pub(crate) fn project(
             });
         let point = crate::world::adventure_position(terrain, here) + Vec3::Y * 2.17;
         if obscured && let Ok(pixel) = camera.world_to_viewport(transform, point) {
-            let pos = pixel / scale;
+            let pos = pixel / scale - origin;
             node.left = Val::Px(pos.x - 15.0);
             node.top = Val::Px(pos.y - 22.0);
             *visible = Visibility::Inherited;
@@ -1886,9 +1923,15 @@ pub(crate) fn project(
     if let Some(target) = a.waypoint.or_else(|| a.tutorial().map(|t| t.2))
         && let Some(point) = project(target, 0.8)
     {
-        let min = Vec2::new(55.0, 284.0);
+        let min = Vec2::new(55.0, if game.phone { 184.0 } else { 284.0 });
         let max = Vec2::new(
-            (size.x - 321.0).max(min.x + 5.0),
+            (size.x
+                - if game.phone && !game.quick_menu {
+                    84.0
+                } else {
+                    321.0
+                })
+            .max(min.x + 5.0),
             (size.y - 136.0).max(min.y + 5.0),
         );
         let edge = point.clamp(min, max);

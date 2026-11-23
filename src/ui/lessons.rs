@@ -229,7 +229,21 @@ pub(super) fn spawn(p: &mut ChildSpawnerCommands, hud: &Hud, lesson: Lesson, tow
                     icon(title, hud, copy.icon, 44.0);
                     title.spawn(column(2.0)).with_children(|words| {
                         label(words, hud, copy.title, 25.0, Face::Serif, SAND);
-                        label(words, hud, copy.hint, 16.0, Face::Body, MUTED);
+                        let hint = if hud.phone
+                            && matches!(lesson.prompt, Prompt::Action(Step::Aid(..)))
+                        {
+                            "Zieh den Stick unten links. Am Ziel tippst du auf die goldene Aktion."
+                        } else {
+                            copy.hint
+                        };
+                        label(
+                            words,
+                            hud,
+                            hint,
+                            if hud.phone { 18.0 } else { 16.0 },
+                            Face::Body,
+                            MUTED,
+                        );
                     });
                 });
                 note.spawn(row(7.0)).with_children(|actions| {

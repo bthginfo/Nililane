@@ -1,4 +1,4 @@
-# Nililane 3.0.0
+# Nililane
 
 Nililane ist ein 3D-Straßenmanagementspiel in Rust und Bevy. Mit Nili
 reist du durch Griechenland, Rom, Japan, die nordischen Häfen und die
@@ -6,6 +6,10 @@ Oasenreiche. In der Planung baust du die Gasse und legst Angebote fest.
 Während der Schicht steuerst du Nili und versorgst Nachbarn und Reisende.
 In der Abenteuerkampagne erkundest du größere Inseln und baust dort eigene
 Siedlungen.
+
+## Android-Downloads
+
+**[Handy-APK für ARM64-Smartphones](https://media.githubusercontent.com/media/bthginfo/Nililane/18f6f988203af27d0d5afc1a87e579f4c30f91dd/Nililane-3.1.0-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/18f6f988203af27d0d5afc1a87e579f4c30f91dd/Nililane-3.1.0-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.1.0-phone)
 
 **[Android-APK für ARM64-Tablets](https://media.githubusercontent.com/media/bthginfo/Nililane/20830f458d0e0f4b5ef68180a67d3578a62346fa/Nililane-3.0.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/20830f458d0e0f4b5ef68180a67d3578a62346fa/Nililane-3.0.0-x86_64.apk) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v3.0.0)
 
@@ -18,6 +22,24 @@ Siedlungen.
 ![Nili mit Bewohnern und dem ausgebauten Wohnhof in Naxos](docs/bilder/naxos.jpg)
 
 ![Tempeldächer, Reisfelder und Holzfähren in Japan](docs/bilder/japan.jpg)
+
+## Auf dem Handy spielen
+
+Die APK installiert **Nililane Handy** als eigene App für ARM64-Smartphones
+wie das Samsung Galaxy S24 Ultra. Beide Kampagnen lassen sich im Querformat
+spielen. Du kannst die Handy- und Tablet-App nebeneinander installieren.
+Jede App führt ihren eigenen Spielstand.
+
+Setz den Daumen auf den Stick unten links und zieh in die gewünschte
+Richtung. Wenn du loslässt, bleibt Nili stehen. Unten rechts erscheint
+die passende Aktion, etwa **Sammeln**, **Bauen** oder **Hilfe starten**.
+Die Aktion lässt sich mit dem zweiten Daumen bedienen.
+
+Über **Menü** erreichst du Aufträge und die Kamera. Je nach Kampagne
+findest du dort den Tagesplan und das Gästebuch oder die Inselkarte,
+das Lager und die Bürgeraufträge. In langen Fenstern kannst du wischen.
+
+![Nililane im Handy-Querformat mit Bewegungsstick und Sammeln-Aktion](docs/bilder/handy-abenteuer.jpg)
 
 ## Auf dem Tablet spielen
 
@@ -310,12 +332,14 @@ Zum Paketieren sind JDK 17 oder neuer, Python 3, SDK Platform 36, Build Tools
 ```sh
 rustup target add aarch64-linux-android x86_64-linux-android
 tools/build-android.sh
+NILILANE_VARIANT=phone NILILANE_ABIS=arm64-v8a tools/build-android.sh
 ```
 
-Die APK liegt in `build/android/`. Der Standardbuild erzeugt eine lokal
-signierte Test-APK. Für ein Paket mit eigenem Veröffentlichungszertifikat
+Die APKs liegen in `build/android/`. Der erste Aufruf baut die Tablet-App,
+der zweite die Handy-App. Ohne Signaturparameter sind beide APKs lokal
+signiert. Für ein Paket mit eigenem Veröffentlichungszertifikat
 verwende `NILILANE_KEYSTORE` und `NILILANE_KEY_PASSWORD_FILE` sowie bei
-Bedarf `NILILANE_KEY_ALIAS`. Ein Update von `game.nililane` braucht
+Bedarf `NILILANE_KEY_ALIAS`. Updates brauchen die jeweilige Paket-ID und
 denselben Signaturschlüssel.
 
 [Asset-Herkunft](assets/QUELLEN.md) · [Tests und Spielreview](docs/Abnahme.md)

@@ -166,7 +166,20 @@ def guest_book(a):
 
 def make_icon(name):
     a = Art()
-    if name == "house":
+    if name == "phone_menu":
+        for y in (25, 43, 61):
+            a.box((17, y, 79, y + 8), CREAM, 4)
+            a.oval((17, y, 26, y + 8), GOLD)
+    elif name == "phone_close":
+        a.line([(28, 28), (68, 68)], CREAM, 9)
+        a.line([(68, 28), (28, 68)], CREAM, 9)
+    elif name == "phone_camera":
+        a.box((13, 29, 83, 74), BLUE, 7)
+        a.box((27, 21, 47, 33), GOLD, 4)
+        a.oval((31, 35, 65, 69), CREAM)
+        a.oval((38, 42, 58, 62), SEA)
+        a.oval((43, 46, 51, 53), CREAM)
+    elif name == "house":
         house(a)
     elif name == "inn":
         house(a, BLUE, GOLD)
@@ -434,7 +447,7 @@ def island_card(index):
 
 
 if __name__ == "__main__":
-    for item in ICONS:
+    for item in [*ICONS, "phone_menu", "phone_close", "phone_camera"]:
         make_icon(item)
     for i in range(48):
         island_card(i)

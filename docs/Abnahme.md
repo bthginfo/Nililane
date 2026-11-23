@@ -1,5 +1,23 @@
 # Spielreview und Abnahme
 
+## Handy-Ausgabe 3.1.0
+
+- **Oberfläche.** Das Handy-Layout wurde im Querformat 1300 × 600 geprüft.
+  In Naxos wurden Tagesplan, Gästebuch und Backstuben-Ausbau geöffnet.
+  Auf Kleions Ufer blieb die Insel beim Gehen sichtbar und die Ortsaktion
+  wechselte in Reichweite des Holzes zu „Sammeln“.
+- **Steuerung.** Der erste Kontakt am Rand des Sticks hielt Nili an Ort
+  und Stelle. Das Ziehen bewegte Nili und beim Loslassen blieb sie stehen.
+  Rust-Tests prüfen die Auswahl mit dem zweiten Finger und das Wischen
+  über einer Schaltfläche ohne versehentliche Auswahl.
+- **Installation.** Der x86_64-Testbuild öffnete das Handy-Startmenü im
+  Android-Emulator neben der Tablet-Ausgabe. Der Tablet-Spielstand war
+  nach der Installation bytegleich. Das ARM64-Paket wurde auf Paket-ID,
+  Architektur, Signatur und Ausrichtung geprüft. Der Praxistest auf einem
+  physischen Galaxy S24 Ultra steht aus.
+
+[Handy-Oberfläche auf Kleions Ufer](bilder/handy-abenteuer.jpg)
+
 ## Abenteuerkampagne 3.0.0
 
 - **Einstieg.** Auf Kleions Ufer wurden Rohstoffe gesammelt, ein Wohnhof

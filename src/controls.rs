@@ -188,6 +188,13 @@ fn stick_direction(stick: Vec2) -> Option<Direction> {
     }
 }
 
+pub fn phone_edition() -> bool {
+    #[cfg(target_os = "android")]
+    return android::phone_edition();
+    #[cfg(not(target_os = "android"))]
+    false
+}
+
 pub fn insets() -> [u16; 4] {
     #[cfg(target_os = "android")]
     return android::insets();
@@ -197,7 +204,13 @@ pub fn insets() -> [u16; 4] {
 
 #[cfg(target_os = "android")]
 mod android {
-    use std::{ffi::c_void, sync::Mutex};
+    use std::{
+        ffi::c_void,
+        sync::{
+            Mutex,
+            atomic::{AtomicBool, Ordering},
+        },
+    };
 
     use ndk_sys::*;
 
@@ -227,6 +240,20 @@ mod android {
 
     static PAD: Mutex<NativePad> = Mutex::new(NativePad::EMPTY);
     static INSETS: Mutex<[u16; 4]> = Mutex::new([0; 4]);
+    static PHONE_EDITION: AtomicBool = AtomicBool::new(false);
+
+    pub fn phone_edition() -> bool {
+        PHONE_EDITION.load(Ordering::Relaxed)
+    }
+
+    #[unsafe(no_mangle)]
+    extern "system" fn Java_game_nililane_GameActivity_publishPhoneEdition(
+        _env: *mut c_void,
+        _class: *mut c_void,
+        phone: u8,
+    ) {
+        PHONE_EDITION.store(phone != 0, Ordering::Relaxed);
+    }
 
     pub fn poll() -> Pad {
         let mut pad = PAD.lock().unwrap_or_else(|error| error.into_inner());
