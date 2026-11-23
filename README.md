@@ -11,9 +11,9 @@ Siedlungen.
 
 **[Handy-APK für ARM64-Smartphones](https://media.githubusercontent.com/media/bthginfo/Nililane/7e4d1baa8a669d145f468ad64afb234938b7a3b3/Nililane-3.2.0-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/7e4d1baa8a669d145f468ad64afb234938b7a3b3/Nililane-3.2.0-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.2.0-phone)
 
-**[Android-APK für ARM64-Tablets](https://media.githubusercontent.com/media/bthginfo/Nililane/20830f458d0e0f4b5ef68180a67d3578a62346fa/Nililane-3.0.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/20830f458d0e0f4b5ef68180a67d3578a62346fa/Nililane-3.0.0-x86_64.apk) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v3.0.0)
+**[Tablet-APK 3.2.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/211b9ac2a8eb34921ab431cc653804ac3340d6ce/Nililane-3.2.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/211b9ac2a8eb34921ab431cc653804ac3340d6ce/Nililane-3.2.0-x86_64.apk) · [Tablet-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.2.0)
 
-[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/20830f458d0e0f4b5ef68180a67d3578a62346fa/Nililane-3.0.0.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/20830f458d0e0f4b5ef68180a67d3578a62346fa/Nililane-3.0.0-x86_64.apk.sha256)
+[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/211b9ac2a8eb34921ab431cc653804ac3340d6ce/Nililane-3.2.0.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/211b9ac2a8eb34921ab431cc653804ac3340d6ce/Nililane-3.2.0-x86_64.apk.sha256)
 
 ![Siedlung auf der griechischen Torinsel mit Werkstätten und Bürgern](docs/bilder/abenteuer-siedlung.jpg)
 
@@ -49,8 +49,10 @@ dem passenden Abholort und Ziel auf **Starten** und steuere Nili los.
 ## Auf dem Tablet spielen
 
 Die signierten Pakete benötigen Android 8 oder neuer und Vulkan 1.1.
-Wähle das Paket für deinen Prozessor und öffne es auf dem Tablet. Installiere das Update über deine bisherige Version, um deine laufende
-Gasse und die Sternrekorde mitzunehmen. Nililane läuft offline und öffnet sich im Querformat.
+Lade die passende APK auf dein Tablet und öffne die Datei. Installiere sie
+als Update über deine bisherige Version, um deine Hafenreise, deine
+Abenteuerinseln und deine Sterne mitzunehmen. Nililane läuft offline und
+öffnet sich im Querformat.
 
 Kopple den Xbox-Controller über die Android-Bluetooth-Einstellungen oder
 schließe ihn per USB an. Unter **Erste Reise** beginnt der bebilderte

@@ -22,6 +22,12 @@
   Abenteuerkampagne reagierten auf Touch. Der Tablet-Spielstand im
   Emulator blieb bytegleich. Auf einem physischen S24 Ultra steht der
   Durchlauf noch aus.
+- **Tablet-Ausgabe.** Im Android-Emulator im Format 800 × 600 ließ sich
+  3.2.0 über 3.0.0 installieren. Der Hafen- und der Abenteuer-Spielstand
+  waren unmittelbar nach dem Update bytegleich. Der virtuelle
+  Xbox-Controller öffnete die Abenteuerkarte und setzte Kleions Ufer
+  mit zehn bereits eingelagerten Einheiten Holz fort. Für die ARM64-APK
+  wurden Paketkennung, Signatur und 16-KiB-Ausrichtung geprüft.
 
 Alle 48 Rust-Tests und Clippy mit `-D warnings` sind erfolgreich.
 [Abbauen und Abladen auf Kleions Ufer](bilder/handy-abenteuer.jpg)
