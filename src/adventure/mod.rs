@@ -20,13 +20,14 @@ use crate::{
 
 pub(crate) use construction::{BuildingSite, MAX_BUILD_CREW};
 pub(crate) use levels::{LEVELS, Level};
-pub(crate) use logistics::{NILI_CAPACITY, RESOURCE_REACH};
+pub(crate) use logistics::{DroppedLoad, NILI_CAPACITY, RESOURCE_REACH};
 pub(crate) use simulation::{Build, Good, HALL_STORAGE, Island, Property, Quest, Task};
 pub(crate) use terrain::Terrain;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
     Deposit(usize),
+    Dropped(usize),
     Plot(usize),
     Hall,
     Shrine,
@@ -60,6 +61,7 @@ pub enum Command {
     SendCourier,
     ReturnOrder,
     ClearStock(Good),
+    StoreOverflow(Good),
     Build(Build),
     TakeMaterial(usize),
     BuildCrew(usize, i8),
@@ -312,6 +314,10 @@ impl Adventure {
                         .is_some_and(|island| island.remaining(terrain, id) > 0)
                 })
                 .map(|d| d.at),
+            Target::Dropped(id) => self
+                .active()?
+                .dropped_load(id)
+                .map(|pile| Vec2::from_array(pile.position)),
             Target::Plot(id) => terrain.plots.get(id).copied(),
             Target::Hall => Some(Vec2::ZERO),
             Target::Shrine => Some(terrain.shrine),
@@ -413,6 +419,7 @@ impl Adventure {
                     Target::Hall => 3.05,
                     Target::Shrine | Target::Outpost => 2.9,
                     Target::Relic => 1.15,
+                    Target::Dropped(_) => 0.55,
                     Target::Deposit(id) => {
                         if terrain.deposits[id].kind == Good::Wood {
                             1.8
@@ -601,6 +608,13 @@ impl Adventure {
 fn targets(terrain: &Terrain, island: &Island) -> impl Iterator<Item = Target> {
     (0..terrain.deposits.len())
         .map(Target::Deposit)
+        .chain(
+            island
+                .dropped
+                .iter()
+                .enumerate()
+                .filter_map(|(i, pile)| pile.as_ref().map(|_| Target::Dropped(i))),
+        )
         .chain((0..terrain.plots.len()).map(Target::Plot))
         .chain([Target::Hall])
         .chain(
@@ -616,6 +630,7 @@ fn reach(target: Target) -> f32 {
         Target::Plot(_) | Target::Shrine | Target::Outpost => 2.9,
         Target::Hall => 3.75,
         Target::Deposit(_) => RESOURCE_REACH,
+        Target::Dropped(_) => 1.55,
         _ => 2.4,
     }
 }
@@ -723,7 +738,24 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
                 let count = island.discard_stock(good);
                 if count > 0 {
                     game.adventure_notice(
-                        format!("{count} {} aus dem Lager genommen", good.name(level.region)),
+                        format!("{count} {} aussortiert", good.name(level.region)),
+                        true,
+                    );
+                    game.dirty = true;
+                    adventure.save(game);
+                }
+            }
+        }
+        Command::StoreOverflow(good) => {
+            if adventure.screen == Screen::Storage
+                && adventure.close_enough(Target::Hall)
+                && let Some(island) = adventure.active_mut()
+            {
+                let count = island.store_overflow(good);
+                if count > 0 {
+                    let region = Level::at(island.index).region;
+                    game.adventure_notice(
+                        format!("{count} {} eingelagert", good.name(region)),
                         true,
                     );
                     game.dirty = true;
@@ -777,6 +809,7 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
                     }
                 }
                 Target::Deposit(id) => close(game, adventure, Screen::Resource(id)),
+                Target::Dropped(_) => act(Command::Use(target), adventure, game, save),
                 Target::Hall | Target::Shrine | Target::Relic | Target::Outpost => {
                     adventure.target = Some(target);
                     close(game, adventure, Screen::Mission);
@@ -870,6 +903,23 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
                 return;
             };
             match target {
+                Target::Dropped(id) => {
+                    let Some(load) = island.pick_up_load(id) else {
+                        game.adventure_notice("Lade zuerst deine Fracht ab.", false);
+                        return;
+                    };
+                    adventure.target = None;
+                    adventure.waypoint = Some(Target::Hall);
+                    close(game, adventure, Screen::Walk);
+                    game.adventure_notice(
+                        format!(
+                            "{} {} aufgenommen",
+                            load.units,
+                            load.kind.name(level.region)
+                        ),
+                        true,
+                    );
+                }
                 Target::Hall if island.cargo.is_some() => {
                     let Some(load) = island.unload() else {
                         game.adventure_notice(
@@ -1118,7 +1168,14 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
                     island.unassign(task)
                 };
                 if done {
-                    game.adventure_notice("Bürgerauftrag geändert", true);
+                    game.adventure_notice(
+                        if assign {
+                            "Auftrag vergeben"
+                        } else {
+                            "Auftrag beendet"
+                        },
+                        true,
+                    );
                     adventure.save(game);
                 }
             }
@@ -1305,6 +1362,21 @@ pub fn step(
             Action::Adventure(command) => act(command, adventure, game, save),
             _ => crate::game::apply(action, game, save),
         }
+        return;
+    }
+    if controls.got(controls::L3)
+        && game.panel == Panel::None
+        && !matches!(
+            adventure.screen,
+            Screen::Atlas | Screen::Brief | Screen::Finish
+        )
+    {
+        let command = if adventure.screen == Screen::Storage {
+            Command::Close
+        } else {
+            Command::Storage
+        };
+        act(command, adventure, game, save);
         return;
     }
     if game.panel != Panel::None || adventure.screen != Screen::Walk {
@@ -1520,7 +1592,9 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
             game.adventure_notice("Diese Rohstoffstelle ist erschöpft.", false);
         }
     }
+    let outside_before = island.overflow_total();
     game.dirty |= island.tick_hauling(terrain, dt);
+    let overflowed = island.overflow_total() > outside_before;
     game.dirty |= island.tick_production(terrain, dt);
     let delivered_before = island.orders_delivered;
     let courier_changed = island.tick_courier(terrain, dt);
@@ -1555,11 +1629,21 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
         }
         game.adventure_built(island.lots[last].unwrap().kind.name(terrain.level.region));
     }
+    if overflowed {
+        game.adventure_notice(
+            "Lager voll · Restfracht liegt vor dem Rathaus. Sammelauftrag beendet.",
+            false,
+        );
+    }
     if before != island.stores || delivered || !completed.is_empty() {
         game.dirty = true;
         check_victory(adventure, game, save);
     }
-    if harvested.is_some() || courier_changed || construction_changed || adventure.save_clock >= 8.0
+    if overflowed
+        || harvested.is_some()
+        || courier_changed
+        || construction_changed
+        || adventure.save_clock >= 8.0
     {
         adventure.save(game);
     }

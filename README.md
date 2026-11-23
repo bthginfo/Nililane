@@ -9,11 +9,11 @@ Siedlungen.
 
 ## Android-Downloads
 
-**[Handy-APK 3.3.1 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/21f3bfa2b4682d1961b68b0d2235e636fe1fc690/Nililane-3.3.1-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/21f3bfa2b4682d1961b68b0d2235e636fe1fc690/Nililane-3.3.1-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.3.1-phone)
+**[Handy-APK 3.4.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/ab3ad47dbcec8f238b9a404ad92c72e01b0578ab/Nililane-3.4.0-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/ab3ad47dbcec8f238b9a404ad92c72e01b0578ab/Nililane-3.4.0-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.4.0-phone)
 
-**[Tablet-APK 3.3.1 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/21f3bfa2b4682d1961b68b0d2235e636fe1fc690/Nililane-3.3.1.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/21f3bfa2b4682d1961b68b0d2235e636fe1fc690/Nililane-3.3.1-x86_64.apk) · [Tablet-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.3.1)
+**[Tablet-APK 3.4.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/ab3ad47dbcec8f238b9a404ad92c72e01b0578ab/Nililane-3.4.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/ab3ad47dbcec8f238b9a404ad92c72e01b0578ab/Nililane-3.4.0-x86_64.apk) · [Tablet-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.4.0)
 
-[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/21f3bfa2b4682d1961b68b0d2235e636fe1fc690/Nililane-3.3.1.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/21f3bfa2b4682d1961b68b0d2235e636fe1fc690/Nililane-3.3.1-x86_64.apk.sha256)
+[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/ab3ad47dbcec8f238b9a404ad92c72e01b0578ab/Nililane-3.4.0.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/ab3ad47dbcec8f238b9a404ad92c72e01b0578ab/Nililane-3.4.0-x86_64.apk.sha256)
 
 ![Siedlung auf der griechischen Torinsel mit Werkstätten und Bürgern](docs/bilder/abenteuer-siedlung.jpg)
 
@@ -73,6 +73,7 @@ sowie Musik und Spielklänge separat schalten.
 | RB | Tagesplan mit Gästezahlen, Wetter und Notizen öffnen |
 | View (Taste mit zwei Rechtecken) | Gästebuch direkt öffnen |
 | Rechten Stick drücken (R3) | Ab Amorgos Nilis Touren öffnen |
+| Linken Stick drücken (L3) | In der Abenteuerkampagne das Rohstofflager öffnen |
 | Rechter Stick, LT und RT | Kamera schwenken und zoomen |
 | LB | Kamera zurücksetzen |
 | Start | Pausenmenü öffnen |
@@ -111,9 +112,10 @@ Du führst Nili selbst entlang der Spur.
 - 60 Inseln in fünf Gebieten mit 10 bis 34 Bauplätzen. Nach den zwölf
   Inseln eines Gebiets öffnet sich das nächste.
 - Das Rathaus fasst 72 Einheiten Rohstoffe. Ein Speicher bringt
-  zunächst 36 weitere Plätze, jeder Ausbau 24. Bei vollem Lager bleibt
-  die Restfracht beim Träger. Unter **Rohstofflager** siehst du den
-  Bestand und kannst einzelne Vorräte aussortieren.
+  zunächst 36 weitere Plätze, jeder Ausbau 24. Ist das Lager voll, legen
+  Sammler ihre Restfracht vor dem Rathaus ab und sind wieder frei.
+  **L3** am Controller oder **L** auf der Tastatur öffnet das Rohstofflager.
+  Dort kannst du Vorräte aussortieren und am Rathaus abgelegte Fracht einlagern.
 - Du kannst Gebäude und Ausbauten bei leerem Lager planen. Freie Bürger holen
   Baumaterial am Rathaus und legen es auf der Baustelle ab. Nili kann passende
   Fracht direkt aus der Hand ablegen, auch bei vollem Lager. Sobald alle Stapel
@@ -121,7 +123,8 @@ Du führst Nili selbst entlang der Spur.
   schneller. Höhere Ausbaustufen dauern länger.
 - Baue einen Wohnhof und weise Bürger zum Sammeln oder zur Arbeit in
   einer Werkstatt zu. Sammler laufen selbst zum Abbaugebiet und bringen
-  ihre Ladung zurück. Werkstätten zeigen die Zutaten und den Fortschritt
+  ihre Ladung zurück. Mit **Stopp** beendest du einen Auftrag sofort.
+  Mitgeführte Fracht bleibt am Abbruchort liegen. Werkstätten zeigen die Zutaten und den Fortschritt
   des Arbeitsgangs. Ziegel, Werkzeuge und Gewebe brauchen länger als Bretter.
 - Ab der zweiten Insel kannst du eine fertige **Fracht packen**, sobald Nili
   am Rathaus steht. Alternativ wählst du unter **Lieferungen** die Aktion

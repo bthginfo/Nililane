@@ -6,7 +6,10 @@ use bevy::{
 };
 
 use crate::{
-    adventure::{Adventure, Build, Good, Quest, Screen, Target, Task, Terrain, terrain::unit},
+    adventure::{
+        Adventure, Build, DroppedLoad, Good, Quest, Screen, Target, Task, Terrain,
+        terrain::{HALL_DOOR, unit},
+    },
     campaign::Region,
     game::{Game, Panel, View},
     model::Kind,
@@ -87,6 +90,9 @@ pub(crate) struct Scene {
     buildings: Vec<Option<crate::adventure::Property>>,
     staff: usize,
     staging: Vec<Option<[u16; Good::ALL.len()]>>,
+    overflow: [u16; Good::ALL.len()],
+    dropped: Vec<Option<DroppedLoad>>,
+    ground_loads: Option<Entity>,
     workshops: Vec<(Region, Build, u8, Handle<Mesh>)>,
     cargo: Option<Handle<Mesh>>,
 }
@@ -128,6 +134,11 @@ pub(crate) fn sync(
         scene.buildings.clear();
         scene.staff = 0;
         scene.staging.clear();
+        if let Some(pile) = scene.ground_loads.take() {
+            commands.entity(pile).despawn();
+        }
+        scene.overflow.fill(0);
+        scene.dropped.clear();
         if let Some(terrain) = terrain {
             let earth = palette(terrain.level.region);
             let mesh = landscape(terrain, earth);
@@ -409,6 +420,54 @@ pub(crate) fn sync(
         }
         return;
     };
+    if scene.overflow != island.overflow || scene.dropped != island.dropped {
+        if let Some(pile) = scene.ground_loads.take() {
+            commands.entity(pile).despawn();
+        }
+        scene.overflow = island.overflow;
+        scene.dropped.clone_from(&island.dropped);
+        let mut batch = Batch::default();
+        for (index, kind) in Good::ALL
+            .into_iter()
+            .filter(|&kind| island.overflow[kind as usize] > 0)
+            .enumerate()
+        {
+            let at = HALL_DOOR
+                + Vec2::new(
+                    1.82 + (index % 4) as f32 * 0.74,
+                    0.52 + (index / 4) as f32 * 0.86,
+                );
+            let origin = v(at.x, terrain.height(at), at.y);
+            batch.slab(
+                origin + Vec3::Y * 0.075,
+                v(0.64, 0.10, 0.77),
+                [172, 125, 78],
+            );
+            let count = island.overflow[kind as usize].div_ceil(2).min(5);
+            material_bundles(&mut batch, origin + v(-0.06, 0.09, 0.0), kind, count);
+        }
+        for pile in island.dropped.iter().flatten() {
+            let at = Vec2::from_array(pile.position);
+            let origin = v(at.x, terrain.height(at), at.y);
+            material_bundles(
+                &mut batch,
+                origin,
+                pile.cargo.kind,
+                pile.cargo.units.div_ceil(2).min(5),
+            );
+        }
+        if batch.vertices() > 0 {
+            scene.ground_loads = Some(
+                commands
+                    .spawn((
+                        Mesh3d(meshes.add(batch.mesh())),
+                        MeshMaterial3d(art.matte.clone()),
+                        Transform::from_translation(ORIGIN),
+                    ))
+                    .id(),
+            );
+        }
+    }
     let stages = island
         .construction
         .iter()
@@ -682,67 +741,71 @@ fn build_site(batch: &mut Batch, terrain: &Terrain, at: Vec2, materials: &[u16; 
             -1.31 + (pile % 5) as f32 * 0.66,
             2.04 + (pile / 5) as f32 * 0.66,
         );
-        for bundle in 0..count {
-            let p = p + v(
-                f32::from(bundle % 2) * 0.20,
-                f32::from(bundle / 2) * 0.14,
-                f32::from(bundle) * 0.045,
-            );
-            match kind {
-                Good::Wood | Good::Boards => {
-                    let tint = if kind == Good::Wood {
-                        [144, 93, 57]
-                    } else {
-                        [202, 157, 96]
-                    };
-                    batch.slab(p + Vec3::Y * 0.12, v(0.23, 0.13, 0.77), tint);
-                    batch.slab(p + v(0.0, 0.197, 0.21), v(0.26, 0.025, 0.08), [98, 75, 52]);
-                }
-                Good::Stone | Good::Ore | Good::Clay => {
-                    let tint = match kind {
-                        Good::Stone => [183, 174, 161],
-                        Good::Ore => [104, 122, 123],
-                        _ => [182, 108, 82],
-                    };
-                    batch.gem(
-                        p + Vec3::Y * 0.16,
-                        0.26,
-                        0.16,
-                        0.23,
-                        f32::from(bundle) * 0.39,
-                        tint,
-                    );
-                }
-                Good::Bricks => {
-                    batch.slab(p + Vec3::Y * 0.09, v(0.34, 0.15, 0.23), [185, 99, 69]);
-                    batch.slab(p + v(0.04, 0.20, 0.04), v(0.28, 0.09, 0.21), [210, 122, 88]);
-                }
-                Good::Water | Good::Oil | Good::Perfume => {
-                    amphora(batch, p + v(0.0, 0.06, 0.05), 0.48, [205, 149, 95]);
-                }
-                Good::Fiber | Good::Cloth | Good::Paper => {
-                    batch.beam(
-                        p + v(0.0, 0.17, -0.23),
-                        p + v(0.0, 0.17, 0.31),
-                        0.19,
-                        [199, 176, 120],
-                    );
-                    batch.slab(p + v(0.0, 0.245, 0.02), v(0.22, 0.04, 0.09), [65, 120, 119]);
-                }
-                _ => {
-                    crate_box(
-                        batch,
-                        p + Vec3::Y * 0.13,
-                        v(0.27, 0.21, 0.32),
-                        [165, 111, 67],
-                    );
-                    let tint = if matches!(kind, Good::Tools | Good::Craft) {
-                        [160, 184, 187]
-                    } else {
-                        [231, 186, 111]
-                    };
-                    batch.slab(p + Vec3::Y * 0.255, v(0.19, 0.051, 0.12), tint);
-                }
+        material_bundles(batch, p, kind, count);
+    }
+}
+
+fn material_bundles(batch: &mut Batch, p: Vec3, kind: Good, count: u16) {
+    for bundle in 0..count {
+        let p = p + v(
+            f32::from(bundle % 2) * 0.20,
+            f32::from(bundle / 2) * 0.14,
+            f32::from(bundle) * 0.045,
+        );
+        match kind {
+            Good::Wood | Good::Boards => {
+                let tint = if kind == Good::Wood {
+                    [144, 93, 57]
+                } else {
+                    [202, 157, 96]
+                };
+                batch.slab(p + Vec3::Y * 0.12, v(0.23, 0.13, 0.77), tint);
+                batch.slab(p + v(0.0, 0.197, 0.21), v(0.26, 0.025, 0.08), [98, 75, 52]);
+            }
+            Good::Stone | Good::Ore | Good::Clay => {
+                let tint = match kind {
+                    Good::Stone => [183, 174, 161],
+                    Good::Ore => [104, 122, 123],
+                    _ => [182, 108, 82],
+                };
+                batch.gem(
+                    p + Vec3::Y * 0.16,
+                    0.26,
+                    0.16,
+                    0.23,
+                    f32::from(bundle) * 0.39,
+                    tint,
+                );
+            }
+            Good::Bricks => {
+                batch.slab(p + Vec3::Y * 0.09, v(0.34, 0.15, 0.23), [185, 99, 69]);
+                batch.slab(p + v(0.04, 0.20, 0.04), v(0.28, 0.09, 0.21), [210, 122, 88]);
+            }
+            Good::Water | Good::Oil | Good::Perfume => {
+                amphora(batch, p + v(0.0, 0.06, 0.05), 0.48, [205, 149, 95]);
+            }
+            Good::Fiber | Good::Cloth | Good::Paper => {
+                batch.beam(
+                    p + v(0.0, 0.17, -0.23),
+                    p + v(0.0, 0.17, 0.31),
+                    0.19,
+                    [199, 176, 120],
+                );
+                batch.slab(p + v(0.0, 0.245, 0.02), v(0.22, 0.04, 0.09), [65, 120, 119]);
+            }
+            _ => {
+                crate_box(
+                    batch,
+                    p + Vec3::Y * 0.13,
+                    v(0.27, 0.21, 0.32),
+                    [165, 111, 67],
+                );
+                let tint = if matches!(kind, Good::Tools | Good::Craft) {
+                    [160, 184, 187]
+                } else {
+                    [231, 186, 111]
+                };
+                batch.slab(p + Vec3::Y * 0.255, v(0.19, 0.051, 0.12), tint);
             }
         }
     }

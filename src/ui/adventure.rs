@@ -523,7 +523,24 @@ fn walk(
             } else {
                 (Command::Inspect(Target::Hall), "Aufträge", "book")
             };
-            action(c, hud, command, label, art, "RB", Style::Quiet, false);
+            c.spawn(Node {
+                flex_wrap: FlexWrap::Wrap,
+                row_gap: Val::Px(5.0),
+                ..row(6.0)
+            })
+            .with_children(|links| {
+                action(links, hud, command, label, art, "RB", Style::Quiet, false);
+                action(
+                    links,
+                    hud,
+                    Command::Storage,
+                    "Lager",
+                    "storehouse",
+                    "L3",
+                    Style::Quiet,
+                    false,
+                );
+            });
             if !island.completed {
                 objectives(c, hud, level, island);
             }
@@ -681,7 +698,7 @@ fn walk(
                         Command::Storage,
                         "Lager",
                         "storehouse",
-                        "",
+                        if hud.phone { "" } else { "L3" },
                         Style::Quiet,
                         false,
                     );
@@ -701,6 +718,14 @@ fn walk(
                         let kind = terrain.deposits[id].kind;
                         disabled = island.remaining(terrain, id) == 0 || island.room_for(kind) == 0;
                         (kind.gather_action(), kind.icon(level.region))
+                    }
+                    Target::Dropped(id) => {
+                        if let Some(pile) = island.dropped_load(id) {
+                            disabled = island.room_for(pile.cargo.kind) == 0;
+                            ("Fracht aufnehmen", pile.cargo.kind.icon(level.region))
+                        } else {
+                            ("Fracht aufnehmen", "adventure_craft")
+                        }
                     }
                     Target::Plot(lot) if island.site(lot).is_some() => {
                         let site = island.site(lot).unwrap();
@@ -797,7 +822,12 @@ fn walk(
                     if let Target::Deposit(id) = target {
                         let remaining = island.remaining(a.terrain.as_ref().unwrap(), id);
                         badge_label(r, hud, remaining.to_string(), 17.0, GOLD);
+                    } else if let Target::Dropped(id) = target
+                        && let Some(pile) = island.dropped_load(id)
+                    {
+                        badge_label(r, hud, pile.cargo.units.to_string(), 17.0, GOLD);
                     } else if target == Target::Hall {
+                        let outside = island.overflow_total();
                         badge_label(
                             r,
                             hud,
@@ -809,6 +839,9 @@ fn walk(
                                 GOLD
                             },
                         );
+                        if outside > 0 {
+                            badge_label(r, hud, format!("· {outside} davor"), 16.0, GOLD);
+                        }
                     } else if let Target::Plot(lot) = target
                         && let Some(site) = island.site(lot)
                     {
@@ -1791,6 +1824,12 @@ fn map(
                             pins.push((Target::Deposit(id), terrain.deposits[id].at));
                         }
                     }
+                    pins.extend(island.dropped.iter().enumerate().filter_map(|(id, pile)| {
+                        Some((
+                            Target::Dropped(id),
+                            Vec2::from_array(pile.as_ref()?.position),
+                        ))
+                    }));
                     if level.order_count() > 0 {
                         pins.push((Target::Outpost, terrain.outpost));
                     }
@@ -2009,10 +2048,35 @@ fn storage(
                     WARN,
                 );
             }
+            let outside = island.overflow_total();
+            let near = a.close_enough(Target::Hall);
+            if outside > 0 {
+                p.spawn(row(8.0)).with_children(|r| {
+                    panels::metric(
+                        r,
+                        hud,
+                        "adventure_craft",
+                        format!("{outside} vor dem Rathaus"),
+                    );
+                    if !near {
+                        action(
+                            r,
+                            hud,
+                            Command::SetRoute(Target::Hall),
+                            "Weg zum Rathaus",
+                            "chart",
+                            "",
+                            Style::Quiet,
+                            false,
+                        );
+                    }
+                });
+            }
             for kind in Good::ALL.into_iter().filter(|&kind| {
                 kind.uses_storage() && (kind != Good::Fish || level.region == Region::Nordic)
             }) {
                 let count = island.amount(kind);
+                let rest = island.overflow[kind as usize];
                 p.spawn(Node {
                     justify_content: JustifyContent::SpaceBetween,
                     ..row(8.0)
@@ -2021,19 +2085,42 @@ fn storage(
                     r.spawn(row(7.0)).with_children(|line| {
                         stock(line, hud, kind, count, level.region);
                         label(line, hud, kind.name(level.region), 18.0, Face::Bold, SAND);
+                        if rest > 0 {
+                            badge_label(line, hud, format!("+{rest} davor"), 16.0, GOLD);
+                        }
                     });
-                    if count > 0 {
-                        action(
-                            r,
-                            hud,
-                            Command::ClearStock(kind),
-                            &format!("{} aussortieren", count.min(5)),
-                            "",
-                            "",
-                            Style::Quiet,
-                            false,
-                        );
-                    }
+                    r.spawn(row(5.0)).with_children(|actions| {
+                        if rest > 0 && near {
+                            let space = island.free_storage();
+                            let caption = if space == 0 {
+                                "Einlagern".to_owned()
+                            } else {
+                                format!("{} einlagern", rest.min(space))
+                            };
+                            action(
+                                actions,
+                                hud,
+                                Command::StoreOverflow(kind),
+                                &caption,
+                                "storehouse",
+                                "",
+                                Style::Quiet,
+                                space == 0,
+                            );
+                        }
+                        if count > 0 {
+                            action(
+                                actions,
+                                hud,
+                                Command::ClearStock(kind),
+                                &format!("{} aussortieren", count.min(5)),
+                                "",
+                                "",
+                                Style::Quiet,
+                                false,
+                            );
+                        }
+                    });
                 });
             }
             back(p, hud, "Zur Insel");
@@ -2813,7 +2900,7 @@ fn assignment(p: &mut ChildSpawnerCommands, hud: &Hud, island: &Island, task: Ta
         p,
         hud,
         Command::Assign(task, false),
-        "−",
+        "Stopp",
         "",
         "",
         Style::Quiet,
@@ -2879,6 +2966,7 @@ fn target_icon(target: Target, a: &Adventure) -> &'static str {
     let terrain = a.terrain.as_ref().unwrap();
     match target {
         Target::Deposit(id) => terrain.deposits[id].kind.icon(terrain.level.region),
+        Target::Dropped(_) => "adventure_craft",
         Target::Plot(id) if a.active().unwrap().site(id).is_some() => "hammer",
         Target::Plot(id) if terrain.level.coastal(id) => "fishery",
         Target::Plot(id) => {
@@ -2895,6 +2983,12 @@ fn target_name(target: Target, a: &Adventure) -> &'static str {
     let terrain = a.terrain.as_ref().unwrap();
     match target {
         Target::Deposit(id) => terrain.deposits[id].kind.name(terrain.level.region),
+        Target::Dropped(id) => a
+            .active()
+            .and_then(|island| island.dropped_load(id))
+            .map_or("Abgelegte Fracht", |pile| {
+                pile.cargo.kind.name(terrain.level.region)
+            }),
         Target::Plot(id) if a.active().unwrap().site(id).is_some() => a
             .active()
             .unwrap()
@@ -3059,6 +3153,7 @@ pub(crate) fn project(
         let height = match tip.0 {
             Target::Plot(lot) if island.lots[lot].is_some() => 2.6,
             Target::Plot(_) => 1.1,
+            Target::Dropped(_) => 0.65,
             _ => 2.1,
         };
         let limits = Rect {

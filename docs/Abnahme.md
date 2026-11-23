@@ -1,5 +1,26 @@
 # Spielreview und Abnahme
 
+## Handelsaufträge und Handwerk 3.4.0
+
+- Die Kampagnenprüfung hat alle 120 Häfen mit drei Sternen beendet. Dafür
+  wurden Gebäude errichtet, Angebote angepasst und Nilis Aufgaben zu Fuß
+  erledigt. Bei den Umbauaufträgen zählt die neue Ausbaustufe auf dem
+  vorgesehenen Grundstück.
+- Die Prüfung aller 60 Abenteuerinseln hat die neuen Grundwaren und
+  Meisterstücke in Werkstätten hergestellt, die Ausbauten mit Baumaterial
+  beliefert und die Fracht zum Außenposten gebracht. Eine Probe mit einem
+  älteren Spielstand erhält die Vorräte und die laufende Baustelle.
+- In Capua war „18/22 Portionen Meze“ vollständig zu sehen. Die Aufträge
+  konnten im Tablet-Layout nebeneinander und im Handy-Layout untereinander
+  gelesen werden. Im Laden ist das aktuelle Auftragsangebot markiert.
+- Getestet wurden Lieferungen bei vollem und fast vollem Lager. Der
+  Sammler hört sofort auf, und die Restfracht bleibt vor dem Rathaus.
+  Auch der Abbruch mitten im Abbau und mit einer Ladung unterwegs wurde
+  geprüft. **L3** öffnet und schließt das Lager, auch während eines Ausflugs.
+- Alle 62 Rust-Tests, die Formatprüfung und Clippy mit `-D warnings`
+  waren erfolgreich. Die beiden ARM64-Pakete verwenden die bestehenden
+  Paketkennungen und das bisherige Veröffentlichungszertifikat.
+
 ## Lesbare Anzeigen 3.3.1
 
 - Vorratsanzeigen wachsen anhand des tatsächlich gerenderten Textes. Die

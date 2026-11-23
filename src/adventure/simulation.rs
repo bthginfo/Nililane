@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::construction::{Builder, BuildingSite};
 use super::levels::{Level, Requirement};
-use super::logistics::{Cargo, Courier, Haul};
+use super::logistics::{Cargo, Courier, DroppedLoad, Haul};
 use crate::{
     campaign::{CHAPTERS, REGION_SIZE, Region},
     model::Kind,
@@ -498,6 +498,10 @@ pub struct Island {
     pub lots: Vec<Option<Property>>,
     #[serde(deserialize_with = "load_goods")]
     pub stores: [u16; Good::ALL.len()],
+    #[serde(default, deserialize_with = "load_goods")]
+    pub overflow: [u16; Good::ALL.len()],
+    #[serde(default)]
+    pub dropped: Vec<Option<DroppedLoad>>,
     pub workers: Vec<Task>,
     pub position: [f32; 2],
     pub phase: f32,
@@ -548,6 +552,8 @@ impl Island {
             index: level.index,
             lots: vec![None; level.plots()],
             stores: [0; Good::ALL.len()],
+            overflow: [0; Good::ALL.len()],
+            dropped: Vec::new(),
             workers: Vec::new(),
             position: [0.0, 3.2],
             phase: 0.36,
@@ -598,6 +604,16 @@ impl Island {
 
     pub fn free_storage(&self) -> u16 {
         self.storage_capacity().saturating_sub(self.raw_stock())
+    }
+
+    pub fn overflow_total(&self) -> u32 {
+        self.overflow.iter().copied().map(u32::from).sum()
+    }
+
+    pub fn store_overflow(&mut self, good: Good) -> u16 {
+        let units = self.add(good, self.overflow[good as usize]);
+        self.overflow[good as usize] -= units;
+        units
     }
 
     pub fn discard_stock(&mut self, good: Good) -> u16 {
@@ -766,24 +782,10 @@ impl Island {
     }
 
     pub fn unassign(&mut self, task: Task) -> bool {
-        let Some(index) = self
-            .workers
-            .iter()
-            .enumerate()
-            .rfind(|&(i, &job)| job == task && !self.hauls.get(i).is_some_and(|haul| haul.retiring))
-            .map(|(i, _)| i)
-        else {
+        let Some(index) = self.workers.iter().rposition(|&job| job == task) else {
             return false;
         };
-        if let Some(haul) = self
-            .hauls
-            .get_mut(index)
-            .filter(|haul| haul.cargo.is_some())
-        {
-            haul.retiring = true;
-        } else {
-            self.remove_worker(index);
-        }
+        self.remove_worker(index);
         true
     }
 
@@ -804,14 +806,22 @@ impl Island {
         }
         let available =
             maximum.saturating_sub(usize::from(self.courier.is_some()) + self.builders.len());
-        self.workers.truncate(available);
+        while self.workers.len() > available {
+            self.remove_worker(self.workers.len() - 1);
+        }
         self.hauls.truncate(available);
     }
 
     fn remove_worker(&mut self, index: usize) {
         self.workers.remove(index);
         if index < self.hauls.len() {
-            self.hauls.remove(index);
+            let haul = self.hauls.remove(index);
+            if let Some(cargo) = haul.cargo {
+                self.drop_load(DroppedLoad {
+                    cargo,
+                    position: haul.position,
+                });
+            }
         }
     }
 

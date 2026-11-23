@@ -13,6 +13,7 @@ pub const LB: u16 = 1 << 9;
 pub const RB: u16 = 1 << 10;
 pub const R3: u16 = 1 << 11;
 pub const VIEW: u16 = 1 << 12;
+pub const L3: u16 = 1 << 13;
 
 #[derive(Default)]
 pub struct Pad {
@@ -81,6 +82,7 @@ pub fn poll(
         (KeyCode::KeyE, RB),
         (KeyCode::KeyN, R3),
         (KeyCode::KeyF, VIEW),
+        (KeyCode::KeyL, L3),
         (KeyCode::KeyW, UP),
         (KeyCode::KeyS, DOWN),
         (KeyCode::KeyA, LEFT),
@@ -106,6 +108,7 @@ pub fn poll(
             (GamepadButton::LeftTrigger, LB),
             (GamepadButton::RightTrigger, RB),
             (GamepadButton::RightThumb, R3),
+            (GamepadButton::LeftThumb, L3),
             (GamepadButton::Select, VIEW),
             (GamepadButton::DPadUp, UP),
             (GamepadButton::DPadDown, DOWN),
@@ -284,6 +287,7 @@ mod android {
             AKEYCODE_BUTTON_L1 => LB,
             AKEYCODE_BUTTON_R1 => RB,
             AKEYCODE_BUTTON_THUMBR => R3,
+            AKEYCODE_BUTTON_THUMBL => L3,
             AKEYCODE_BUTTON_SELECT => VIEW,
             _ => return None,
         })

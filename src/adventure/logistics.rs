@@ -13,6 +13,12 @@ pub struct Cargo {
     pub units: u16,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DroppedLoad {
+    pub cargo: Cargo,
+    pub position: [f32; 2],
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Courier {
     pub walk: Haul,
@@ -118,6 +124,11 @@ impl Island {
             }
             if !haul.work.is_finite() || haul.site.is_some_and(|site| site >= map.deposits.len()) {
                 haul.reset_site(None);
+            }
+        }
+        for pile in self.dropped.iter_mut().flatten() {
+            if !map.accessible(Vec2::from_array(pile.position)) {
+                pile.position = HALL_DOOR.to_array();
             }
         }
         if let Some(courier) = self.courier.as_mut()
@@ -240,6 +251,37 @@ impl Island {
         }
     }
 
+    pub(super) fn drop_load(&mut self, pile: DroppedLoad) {
+        if let Some(slot) = self.dropped.iter_mut().find(|slot| slot.is_none()) {
+            *slot = Some(pile);
+        } else {
+            self.dropped.push(Some(pile));
+        }
+    }
+
+    pub fn dropped_load(&self, id: usize) -> Option<DroppedLoad> {
+        self.dropped.get(id).copied().flatten()
+    }
+
+    pub fn pick_up_load(&mut self, id: usize) -> Option<Cargo> {
+        let mut pile = self.dropped_load(id)?;
+        let units = self.room_for(pile.cargo.kind).min(pile.cargo.units);
+        if units == 0 {
+            return None;
+        }
+        pile.cargo.units -= units;
+        self.dropped[id] = (pile.cargo.units > 0).then_some(pile);
+        let load = Cargo {
+            units,
+            ..pile.cargo
+        };
+        self.cargo = Some(Cargo {
+            units: self.cargo.map_or(0, |current| current.units) + units,
+            ..load
+        });
+        Some(load)
+    }
+
     pub fn carry_resource(&mut self, map: &Terrain, site: usize) -> Option<Cargo> {
         let kind = map.deposits.get(site)?.kind;
         let load = self.extract(map, site, self.room_for(kind))?;
@@ -289,19 +331,15 @@ impl Island {
             if let Some(load) = haul.cargo {
                 if Vec2::from_array(haul.position).distance(hall) <= 0.55 {
                     let stored = self.add(load.kind, load.units);
-                    updated |= stored > 0;
-                    if stored == load.units {
-                        haul.cargo = None;
-                        haul.reset_site(None);
-                        if haul.retiring {
-                            retired.push(index);
-                        }
-                    } else {
-                        haul.cargo = Some(Cargo {
-                            units: load.units - stored,
-                            ..load
-                        });
+                    let outside = load.units - stored;
+                    self.overflow[load.kind as usize] =
+                        self.overflow[load.kind as usize].saturating_add(outside);
+                    if outside > 0 || haul.retiring {
+                        retired.push(index);
                     }
+                    haul.cargo = None;
+                    haul.reset_site(None);
+                    updated = true;
                 } else {
                     haul.go(self, map, hall, 0.51, dt);
                 }

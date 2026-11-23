@@ -14,7 +14,7 @@ fn pre_masterwork_saves_keep_their_stock_and_in_progress_sites() {
             .unwrap()
             .pop();
     }
-    for field in ["masterwork_lots", "base_crafted"] {
+    for field in ["masterwork_lots", "base_crafted", "overflow", "dropped"] {
         snapshot.as_object_mut().unwrap().remove(field);
     }
     let restored: Island = serde_json::from_value(snapshot).unwrap();
@@ -25,6 +25,8 @@ fn pre_masterwork_saves_keep_their_stock_and_in_progress_sites() {
         island.site(0).unwrap().needed
     );
     assert_eq!(restored.base_crafted, 0);
+    assert_eq!(restored.overflow_total(), 0);
+    assert!(restored.dropped.is_empty());
 }
 
 #[test]
@@ -631,22 +633,155 @@ fn a_citizen_walks_extracts_and_returns_with_saved_cargo() {
     let load = haul.cargo.unwrap();
     assert_eq!(run.island.amount(Good::Stone), before);
     assert!(Vec2::from_array(haul.position).distance(terrain::HALL_DOOR) > 2.0);
-    assert!(run.island.unassign(task));
     let snapshot = serde_json::to_string(&run.island).unwrap();
     let mut restored: Island = serde_json::from_str(&snapshot).unwrap();
     restored.prepare_logistics(&run.terrain);
     for _ in 0..1200 {
         restored.tick_hauling(&run.terrain, 0.10);
-        if restored.workers.is_empty() {
+        if restored.amount(Good::Stone) > before {
             break;
         }
     }
-    assert!(restored.workers.is_empty());
+    assert_eq!(restored.assignment(task), 1);
+    assert!(restored.hauls[0].cargo.is_none());
     assert_eq!(restored.amount(Good::Stone), before + load.units);
     assert_eq!(
         restored.remaining(&run.terrain, site),
         run.island.remaining(&run.terrain, site)
     );
+}
+
+#[test]
+fn an_overflowing_haul_stops_and_preserves_its_remainder_at_the_hall() {
+    for space in [0, 2] {
+        let mut run = Expedition::start(0);
+        let kind = Good::Wood;
+        let region = run.terrain.level;
+        run.build(Build::Harbor(region.home()), None);
+        let task = Task::Gather(0);
+        assert_eq!(run.terrain.deposits[0].kind, kind);
+        let staff = run.island.available_staff();
+        assert!(run.island.assign(task, &run.terrain));
+        for _ in 0..1600 {
+            run.island.tick_hauling(&run.terrain, 0.10);
+            if run.island.hauls[0].cargo.is_some() {
+                break;
+            }
+        }
+        let load = run.island.hauls[0].cargo.unwrap();
+        let count = run.island.amount(kind);
+        let fill = run.island.free_storage() - space;
+        assert_eq!(run.island.add(Good::Stone, fill), fill);
+        for _ in 0..1600 {
+            run.island.tick_hauling(&run.terrain, 0.10);
+            if run.island.workers.is_empty() {
+                break;
+            }
+        }
+        assert_eq!(run.island.available_staff(), staff);
+        assert!(run.island.hauls.is_empty());
+        assert_eq!(run.island.amount(kind), count + space);
+        let outside = load.units - space;
+        assert_eq!(run.island.overflow_total(), u32::from(outside));
+        assert_eq!(run.island.store_overflow(kind), 0);
+        let mut restored: Island =
+            serde_json::from_slice(&serde_json::to_vec(&run.island).unwrap()).unwrap();
+        let space = restored.discard_stock(Good::Stone);
+        assert_eq!(restored.store_overflow(kind), space.min(outside));
+        assert_eq!(
+            restored.overflow_total(),
+            u32::from(outside.saturating_sub(space))
+        );
+        assert!(restored.workers.is_empty());
+    }
+}
+
+#[test]
+fn stopping_a_gatherer_is_immediate_during_work_and_while_carrying() {
+    let mut run = Expedition::start(0);
+    let region = run.terrain.level;
+    run.build(Build::Harbor(region.home()), None);
+    let task = Task::Gather(0);
+    let before = run.island.remaining(&run.terrain, 0);
+    assert!(run.island.assign(task, &run.terrain));
+    for _ in 0..1600 {
+        run.island.tick_hauling(&run.terrain, 0.10);
+        if run.island.hauls[0].work > 0.0 {
+            break;
+        }
+    }
+    assert!(run.island.hauls[0].work > 0.0 && run.island.hauls[0].cargo.is_none());
+    assert!(run.island.unassign(task));
+    assert_eq!(run.island.assignment(task), 0);
+    assert_eq!(run.island.remaining(&run.terrain, 0), before);
+    assert!(run.island.dropped.is_empty());
+
+    assert!(run.island.assign(task, &run.terrain));
+    for _ in 0..1600 {
+        run.island.tick_hauling(&run.terrain, 0.10);
+        if run.island.hauls[0].cargo.is_some() {
+            break;
+        }
+    }
+    let load = run.island.hauls[0].cargo.unwrap();
+    let position = run.island.hauls[0].position;
+    let warehouse = run.island.amount(load.kind);
+    assert!(run.island.unassign(task));
+    assert!(run.island.hauls.is_empty());
+    assert!(run.island.workers.is_empty());
+    let mut restored: Island =
+        serde_json::from_slice(&serde_json::to_vec(&run.island).unwrap()).unwrap();
+    assert_eq!(
+        restored.dropped_load(0),
+        Some(DroppedLoad {
+            cargo: load,
+            position
+        })
+    );
+    assert_eq!(restored.amount(load.kind), warehouse);
+    assert_eq!(restored.pick_up_load(0), Some(load));
+    assert_eq!(restored.cargo, Some(load));
+    assert!(restored.pick_up_load(0).is_none());
+}
+
+#[test]
+fn the_left_stick_press_toggles_storage_and_allows_sorting() {
+    use bevy::ecs::system::SystemState;
+    let mut world = World::new();
+    let mut state = SystemState::<(ui::FocusButtons, ui::WalkPad)>::new(&mut world);
+    let (buttons, pad) = state.get(&world);
+    let mut a = Adventure::default();
+    a.open(0, true);
+    a.screen = Screen::Walk;
+    let mut game = Game::default();
+    let mut save = Campaign::default();
+    let mut controls = Controls::default();
+    controls.pressed = controls::L3;
+    let window = Window {
+        focused: true,
+        ..default()
+    };
+    let hud = Hud::default();
+    let mouse = ButtonInput::default();
+    let touches = Touches::default();
+    a.active_mut().unwrap().add(Good::Stone, 10);
+    step(
+        &mut a, &mut game, &mut save, &controls, &buttons, None, &hud, &window, None, &mouse,
+        &touches, &pad, 0.0,
+    );
+    assert_eq!(a.screen, Screen::Storage);
+    act(
+        Command::ClearStock(Good::Stone),
+        &mut a,
+        &mut game,
+        &mut save,
+    );
+    assert_eq!(a.active().unwrap().amount(Good::Stone), 5);
+    step(
+        &mut a, &mut game, &mut save, &controls, &buttons, None, &hud, &window, None, &mouse,
+        &touches, &pad, 0.0,
+    );
+    assert_eq!(a.screen, Screen::Walk);
 }
 
 #[test]
