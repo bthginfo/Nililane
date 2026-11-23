@@ -8,3 +8,6 @@ Nililane-3.2.0.apk filter=lfs diff=lfs merge=lfs -text
 Nililane-3.3.0.apk filter=lfs diff=lfs merge=lfs -text
 Nililane-3.3.0-x86_64.apk filter=lfs diff=lfs merge=lfs -text
 Nililane-3.3.0-Handy.apk filter=lfs diff=lfs merge=lfs -text
+Nililane-3.3.1-x86_64.apk filter=lfs diff=lfs merge=lfs -text
+Nililane-3.3.1-Handy.apk filter=lfs diff=lfs merge=lfs -text
+Nililane-3.3.1.apk filter=lfs diff=lfs merge=lfs -text
