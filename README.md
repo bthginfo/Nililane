@@ -9,7 +9,7 @@ Siedlungen.
 
 ## Android-Downloads
 
-**[Handy-APK für ARM64-Smartphones](https://media.githubusercontent.com/media/bthginfo/Nililane/18f6f988203af27d0d5afc1a87e579f4c30f91dd/Nililane-3.1.0-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/18f6f988203af27d0d5afc1a87e579f4c30f91dd/Nililane-3.1.0-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.1.0-phone)
+**[Handy-APK für ARM64-Smartphones](https://github.com/bthginfo/Nililane/releases/download/v3.1.1-phone/Nililane-3.1.1-Handy.apk)** · [SHA-256](https://github.com/bthginfo/Nililane/releases/download/v3.1.1-phone/Nililane-3.1.1-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.1.1-phone)
 
 **[Android-APK für ARM64-Tablets](https://media.githubusercontent.com/media/bthginfo/Nililane/20830f458d0e0f4b5ef68180a67d3578a62346fa/Nililane-3.0.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/20830f458d0e0f4b5ef68180a67d3578a62346fa/Nililane-3.0.0-x86_64.apk) · [Veröffentlichung](https://github.com/bthginfo/Nililane/releases/tag/v3.0.0)
 
@@ -38,6 +38,11 @@ Die Aktion lässt sich mit dem zweiten Daumen bedienen.
 Über **Menü** erreichst du Aufträge und die Kamera. Je nach Kampagne
 findest du dort den Tagesplan und das Gästebuch oder die Inselkarte,
 das Lager und die Bürgeraufträge. In langen Fenstern kannst du wischen.
+
+Im Hafen öffnet **Touren** neben **Menü** Nilis Aufträge. Sobald auf
+Naxos eine Bitte vom Kai ansteht, kannst du dort auf **Hilfe starten**
+tippen. Ab Amorgos wählst du zusätzlich eigene Touren. Tippe neben
+dem passenden Abholort und Ziel auf **Starten** und steuere Nili los.
 
 ![Nililane im Handy-Querformat mit Bewegungsstick und Sammeln-Aktion](docs/bilder/handy-abenteuer.jpg)
 

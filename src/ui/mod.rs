@@ -289,6 +289,16 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
         (View::Street, Panel::Nili) => {
             let town = save.active_town()?;
             let chapter = &CHAPTERS[town.chapter];
+            if game.phone
+                && let Some(job) = game.job
+            {
+                return Some(
+                    std::iter::once(game.selected)
+                        .chain(job.targets(town, chapter))
+                        .find(|&lot| job.plan(town, chapter, lot).is_ok())
+                        .map_or(Action::Back, Action::DispatchTo),
+                );
+            }
             let guide = crate::coach::next(town, chapter, game.selected, game.saw_prices);
             if let Some(job) = guide.and_then(crate::coach::Step::tour) {
                 return Some(Action::ChooseJob(job));
@@ -743,6 +753,7 @@ fn button(
                     Action::QuickMenu
                         | Action::Open
                         | Action::Plot
+                        | Action::DispatchTo(_)
                         | Action::DoErrand
                         | Action::Adventure(crate::adventure::Command::Use(_))
                 ) {

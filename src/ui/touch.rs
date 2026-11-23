@@ -21,6 +21,18 @@ struct Swipe {
     moved: bool,
 }
 
+type TouchTargets<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static ComputedNode,
+        &'static GlobalTransform,
+        &'static ButtonAction,
+        &'static InheritedVisibility,
+        Option<&'static CalculatedClip>,
+    ),
+>;
+
 #[derive(SystemParam)]
 #[allow(clippy::type_complexity)]
 pub(crate) struct PanelTouch<'w, 's> {
@@ -35,38 +47,17 @@ pub(crate) struct PanelTouch<'w, 's> {
         ),
         With<ScrollPage>,
     >,
-    targets: Query<
-        'w,
-        's,
-        (
-            &'static ComputedNode,
-            &'static GlobalTransform,
-            &'static ButtonAction,
-            &'static InheritedVisibility,
-            Option<&'static CalculatedClip>,
-        ),
-    >,
+    targets: TouchTargets<'w, 's>,
     wheel: EventReader<'w, 's, MouseWheel>,
 }
 
 impl PanelTouch<'_, '_> {
     pub fn second_thumb(&self, window: &Window, touches: &Touches) -> Option<Action> {
         touches.iter_just_pressed().find_map(|touch| {
-            let point = touch.start_position() * window.scale_factor();
-            self.targets
-                .iter()
-                .filter(|(node, transform, button, visible, clip)| {
-                    !node.is_empty()
-                        && !button.disabled
-                        && visible.get()
-                        && clip.is_none_or(|clip| clip.clip.contains(point))
-                        && (point - transform.translation().truncate())
-                            .abs()
-                            .cmple(node.size() * 0.5)
-                            .all()
-                })
-                .max_by_key(|(node, ..)| node.stack_index())
-                .map(|(_, _, button, _, _)| button.action)
+            action_at(
+                &self.targets,
+                touch.start_position() * window.scale_factor(),
+            )
         })
     }
 
@@ -118,7 +109,7 @@ impl PanelTouch<'_, '_> {
                 id: touch.id(),
                 start,
                 last: start,
-                button: pressed,
+                button: action_at(&self.targets, start * to_physical),
                 moved: false,
             });
         }
@@ -151,6 +142,22 @@ impl PanelTouch<'_, '_> {
     }
 }
 
+fn action_at(targets: &TouchTargets, point: Vec2) -> Option<Action> {
+    targets
+        .iter()
+        .filter(|(node, transform, _, visible, clip)| {
+            !node.is_empty()
+                && visible.get()
+                && clip.is_none_or(|clip| clip.clip.contains(point))
+                && (point - transform.translation().truncate())
+                    .abs()
+                    .cmple(node.size() * 0.5)
+                    .all()
+        })
+        .max_by_key(|(node, ..)| node.stack_index())
+        .and_then(|(_, _, button, _, _)| (!button.disabled).then_some(button.action))
+}
+
 #[cfg(test)]
 mod tests {
     use bevy::input::touch::{TouchInput, TouchPhase, touch_screen_input_system};
@@ -160,7 +167,6 @@ mod tests {
 
     #[derive(Resource, Default)]
     struct InputProbe {
-        pressed: Option<Action>,
         accepted: Option<Action>,
         secondary: Option<Action>,
     }
@@ -182,8 +188,7 @@ mod tests {
                  mut probe: ResMut<InputProbe>,
                  fingers: Res<Touches>| {
                     let window = Window::default();
-                    probe.accepted =
-                        touch.update(&mut game, &window, &fingers, probe.pressed.take());
+                    probe.accepted = touch.update(&mut game, &window, &fingers, None);
                     probe.secondary = touch.second_thumb(&window, &fingers);
                 },
             );
@@ -215,19 +220,30 @@ mod tests {
             },
             GlobalTransform::from_xyz(250.0, 250.0, 0.0),
         ));
-        app.world_mut().resource_mut::<InputProbe>().pressed = Some(Action::Plot);
+        app.world_mut().spawn((
+            ComputedNode {
+                size: Vec2::new(80.0, 280.0),
+                ..default()
+            },
+            GlobalTransform::from_xyz(250.0, 250.0, 0.0),
+            InheritedVisibility::VISIBLE,
+            ButtonAction {
+                action: Action::DispatchTo(7),
+                disabled: false,
+                style: Style::Primary,
+            },
+        ));
         finger(&mut app, 0, TouchPhase::Started, 250.0, 360.0);
         finger(&mut app, 0, TouchPhase::Moved, 250.0, 200.0);
         finger(&mut app, 0, TouchPhase::Ended, 250.0, 200.0);
         assert_eq!(app.world().resource::<Game>().scroll_y, 160.0);
         assert_eq!(app.world().resource::<InputProbe>().accepted, None);
 
-        app.world_mut().resource_mut::<InputProbe>().pressed = Some(Action::Plot);
         finger(&mut app, 0, TouchPhase::Started, 250.0, 200.0);
         finger(&mut app, 0, TouchPhase::Ended, 251.0, 202.0);
         assert_eq!(
             app.world().resource::<InputProbe>().accepted,
-            Some(Action::Plot)
+            Some(Action::DispatchTo(7))
         );
     }
 

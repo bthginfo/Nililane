@@ -126,24 +126,7 @@ pub fn next(town: &Town, chapter: &Chapter, selected: usize, saw_prices: bool) -
             if let Some(step) = suggested_tour(town, chapter) {
                 return Some(step);
             }
-            if town.favor_plan(chapter, selected).is_some() {
-                return Some(Step::Aid(selected, day.favor));
-            }
-            if let Some(lot) = chapter
-                .layout
-                .lots()
-                .filter(|&lot| town.favor_plan(chapter, lot).is_some())
-                .min_by_key(|&lot| {
-                    (
-                        if day.favor == Favor::Cargo {
-                            day.stock[lot]
-                        } else {
-                            0
-                        },
-                        distance(selected, lot),
-                    )
-                })
-            {
+            if let Some(lot) = harbor_favor(town, chapter, selected) {
                 return Some(Step::Aid(lot, day.favor));
             }
             (town.chapter == 0 && town.day <= 2).then_some(if day.seconds < 8.0 {
@@ -154,6 +137,27 @@ pub fn next(town: &Town, chapter: &Chapter, selected: usize, saw_prices: bool) -
         }
         _ => None,
     }
+}
+
+pub(crate) fn harbor_favor(town: &Town, chapter: &Chapter, selected: usize) -> Option<usize> {
+    let Phase::Open(day) = &town.phase else {
+        return None;
+    };
+    if town.favor_plan(chapter, selected).is_some() {
+        return Some(selected);
+    }
+    chapter
+        .layout
+        .lots()
+        .filter(|&lot| town.favor_plan(chapter, lot).is_some())
+        .min_by_key(|&lot| {
+            let stock = if day.favor == Favor::Cargo {
+                day.stock[lot]
+            } else {
+                0
+            };
+            (stock, distance(selected, lot))
+        })
 }
 
 fn delos_upgrade(town: &Town, chapter: &Chapter, lot: usize) -> Option<Step> {

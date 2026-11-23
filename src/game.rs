@@ -112,6 +112,7 @@ pub enum Action {
     Nili,
     ChooseJob(Job),
     Dispatch,
+    DispatchTo(usize),
     DoErrand,
     CancelErrand,
     Speed,
@@ -604,6 +605,10 @@ pub fn frame(
         let incident_before = save
             .active_town()
             .and_then(|town| town.incident(&CHAPTERS[town.chapter]));
+        let phone_tour_list = game.phone && game.panel == Panel::Nili;
+        let available_favor =
+            |town: &Town| coach::harbor_favor(town, &CHAPTERS[town.chapter], game.selected);
+        let favor_before = phone_tour_list.then(|| save.active_town().and_then(available_favor));
         let completed_day = save.active_town_mut().is_some_and(|town| {
             town.tick(
                 &CHAPTERS[town.chapter],
@@ -622,7 +627,10 @@ pub fn frame(
                 game.saw_prices,
             )
         });
-        if previous_step != step {
+        if previous_step != step
+            || favor_before
+                .is_some_and(|before| before != save.active_town().and_then(available_favor))
+        {
             game.dirty = true;
         }
         let after = save.active_town().and_then(day_feedback);
@@ -1320,6 +1328,10 @@ pub(crate) fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                 game.show(Panel::Nili);
                 return;
             }
+            if game.phone && game.panel == Panel::Nili && game.job.take().is_some() {
+                game.show(Panel::Nili);
+                return;
+            }
             match game.panel {
                 Panel::Options | Panel::Guide | Panel::Wardrobe => {
                     let invoking = match game.panel {
@@ -1599,22 +1611,32 @@ pub(crate) fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
             if let Some(lot) = target {
                 game.job = Some(job);
                 select(game, lot);
-                game.show(Panel::None);
+                game.show(if game.phone { Panel::Nili } else { Panel::None });
+            } else if game.phone {
+                game.dirty = true;
             }
         }
-        Action::Dispatch => {
+        Action::Dispatch | Action::DispatchTo(_) => {
             let (Some(town), Some(job)) = (save.active_town_mut(), game.job) else {
                 return;
             };
             let chapter = &CHAPTERS[town.chapter];
-            match town.dispatch(chapter, job, game.selected) {
+            let lot = match action {
+                Action::DispatchTo(lot) => lot,
+                _ => game.selected,
+            };
+            match town.dispatch(chapter, job, lot) {
                 Ok(_) => {
+                    select(game, lot);
                     game.job = None;
                     game.show(Panel::None);
                     take_control(town, game, false);
                     game.save(save);
                 }
-                Err(reason) => game.message(reason.label(job), Cue::Blocked),
+                Err(reason) => {
+                    game.dirty |= game.phone;
+                    game.message(reason.label(job), Cue::Blocked);
+                }
             }
         }
         Action::Goals => game.show(Panel::Goals),
@@ -1746,6 +1768,9 @@ pub(crate) fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                         game.message("Der Bauplatz ist wieder frei.", Cue::Back);
                     }
                     Action::Aid => {
+                        if game.phone {
+                            game.job = None;
+                        }
                         game.show(Panel::None);
                         take_control(town, game, false);
                     }

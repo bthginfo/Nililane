@@ -1,7 +1,9 @@
 use super::*;
 use crate::{
     adventure::{Adventure, Command, Island, Level, Target},
+    campaign::Chapter,
     coach::{self, Step},
+    errands::{Blocked, Job},
     model::Town,
 };
 
@@ -9,6 +11,7 @@ pub(super) fn pocket(
     p: &mut ChildSpawnerCommands,
     hud: &Hud,
     game: &Game,
+    harbor: bool,
     content: impl FnOnce(&mut ChildSpawnerCommands),
 ) {
     p.spawn((
@@ -23,28 +26,33 @@ pub(super) fn pocket(
         FocusPolicy::Pass,
     ))
     .with_children(|corner| {
-        button(
-            corner,
-            hud,
-            Action::QuickMenu,
-            if game.quick_menu {
-                "Schließen"
-            } else {
-                "Menü"
-            },
-            if game.quick_menu {
-                "phone_close"
-            } else {
-                "phone_menu"
-            },
-            "",
-            if game.quick_menu {
-                Style::Selected
-            } else {
-                Style::Quiet
-            },
-            false,
-        );
+        corner.spawn(row(7.0)).with_children(|buttons| {
+            if harbor {
+                choice(buttons, hud, Action::Nili, "Touren", "nili");
+            }
+            button(
+                buttons,
+                hud,
+                Action::QuickMenu,
+                if game.quick_menu {
+                    "Schließen"
+                } else {
+                    "Menü"
+                },
+                if game.quick_menu {
+                    "phone_close"
+                } else {
+                    "phone_menu"
+                },
+                "",
+                if game.quick_menu {
+                    Style::Selected
+                } else {
+                    Style::Quiet
+                },
+                false,
+            );
+        });
         if game.quick_menu {
             card(corner, frame_node(Val::Px(370.0), 7.0, 10.0), INK).with_children(content);
         }
@@ -133,7 +141,7 @@ pub(super) fn harbor(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town:
         errand(p, hud, town, day, route, nili, !game.phone_walked);
         return;
     }
-    pocket(p, hud, game, |menu| {
+    pocket(p, hud, game, true, |menu| {
         guests::summary(menu, hud, town);
         pair(
             menu,
@@ -143,18 +151,7 @@ pub(super) fn harbor(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town:
                 (Action::Forecast, "Tagesplan", "ferry"),
             ],
         );
-        if town.chapter > 0 {
-            pair(
-                menu,
-                hud,
-                [
-                    (Action::Feedback, "Gästebuch", "guest_book"),
-                    (Action::Nili, "Nilis Touren", "nili"),
-                ],
-            );
-        } else {
-            choice(menu, hud, Action::Feedback, "Gästebuch", "guest_book");
-        }
+        choice(menu, hud, Action::Feedback, "Gästebuch", "guest_book");
         if open.is_some() {
             let speed = format!("Tempo {}×", game.speed);
             pair(
@@ -249,6 +246,186 @@ pub(super) fn harbor(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town:
     });
 }
 
+pub(super) fn tours(
+    p: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    game: &Game,
+    town: &Town,
+    chapter: &Chapter,
+) {
+    if let Some(job) = game.job {
+        panels::modal(
+            p,
+            hud,
+            760.0,
+            "TOUR STARTEN",
+            job.name(),
+            job.icon(),
+            |page| {
+                let mut lots = job.targets(town, chapter);
+                lots.sort_by_key(|&lot| lot != game.selected);
+                let mut possible = false;
+                for lot in lots {
+                    let Ok(route) = job.plan(town, chapter, lot) else {
+                        continue;
+                    };
+                    possible = true;
+                    card(page, frame_node(Val::Percent(100.0), 4.0, 9.0), CARD).with_children(
+                        |card| {
+                            card.spawn(Node {
+                                justify_content: JustifyContent::SpaceBetween,
+                                ..row(12.0)
+                            })
+                            .with_children(|line| {
+                                line.spawn(row(9.0)).with_children(|stops| {
+                                    icon(stops, hud, job.icon(), 29.0);
+                                    label(
+                                        stops,
+                                        hud,
+                                        route.pickup.label(town),
+                                        19.0,
+                                        Face::Bold,
+                                        MUTED,
+                                    );
+                                    label(stops, hud, "→", 24.0, Face::Bold, GOLD);
+                                    label(
+                                        stops,
+                                        hud,
+                                        route.delivery.label(town),
+                                        21.0,
+                                        Face::Bold,
+                                        SAND,
+                                    );
+                                });
+                                button(
+                                    line,
+                                    hud,
+                                    Action::DispatchTo(lot),
+                                    "Starten",
+                                    "",
+                                    "",
+                                    Style::Primary,
+                                    false,
+                                );
+                            });
+                        },
+                    );
+                }
+                if !possible && let Err(reason) = job_preview(town, chapter, job) {
+                    panels::metric(page, hud, reason.symbol(), reason.label(job));
+                }
+                choice(page, hud, Action::Back, "Alle Touren", "");
+            },
+        );
+        return;
+    }
+
+    let day = if let Phase::Open(day) = &town.phase {
+        Some(day)
+    } else {
+        None
+    };
+    let heading = format!(
+        "{} / {} TOUREN HEUTE",
+        day.map_or(0, |day| day.tally.routes_today()),
+        Job::limit(town.chapter)
+    );
+    panels::modal(p, hud, 760.0, &heading, "Nilis Touren", "nili", |page| {
+        if let Some(day) = day
+            && let Some(lot) = coach::harbor_favor(town, chapter, game.selected)
+        {
+            let title = if day.favor.incident() {
+                day.favor.event_name()
+            } else {
+                "Bitte vom Kai"
+            };
+            tour_choice(
+                page,
+                hud,
+                Action::AidAt(lot),
+                day.favor.icon(),
+                title,
+                "Hilfe starten",
+                false,
+            );
+        }
+        if town.chapter == 0 {
+            let ready = coach::harbor_favor(town, chapter, game.selected).is_some();
+            if !ready {
+                let message = match day {
+                    Some(day) if day.favor_at.is_some() => "Die Bitte vom Kai ist erledigt.",
+                    Some(_) => "Hier erscheint die nächste Bitte vom Kai.",
+                    None => "Bitten vom Kai erscheinen nach Ankunft der Fähre.",
+                };
+                panels::metric(page, hud, "ferry", message);
+            }
+            label(
+                page,
+                hud,
+                "Eigene Touren gibt es ab Amorgos.",
+                18.0,
+                Face::Body,
+                MUTED,
+            );
+        }
+        for job in Job::ALL
+            .into_iter()
+            .filter(|job| job.unlocked(town.chapter))
+        {
+            let preview = day
+                .ok_or(Blocked::Morning)
+                .and_then(|_| job_preview(town, chapter, job));
+            tour_choice(
+                page,
+                hud,
+                Action::ChooseJob(job),
+                job.icon(),
+                job.name(),
+                preview.map_or_else(|reason| reason.label(job), |_| job.purpose()),
+                preview.is_err(),
+            );
+        }
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn tour_choice(
+    p: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    action: Action,
+    art: &str,
+    title: &str,
+    details: &str,
+    disabled: bool,
+) {
+    button_shell(
+        p,
+        action,
+        Style::Quiet,
+        disabled,
+        Node {
+            min_height: Val::Px(74.0),
+            padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
+            ..row(12.0)
+        },
+    )
+    .with_children(|tile| {
+        icon(tile, hud, art, 38.0);
+        tile.spawn(Node {
+            flex_grow: 1.0,
+            min_width: Val::Px(0.0),
+            ..column(2.0)
+        })
+        .with_children(|copy| {
+            label(copy, hud, title, 21.0, Face::Bold, SAND);
+            label(copy, hud, details, 17.0, Face::Body, MUTED);
+        });
+        if !disabled {
+            label(tile, hud, "›", 30.0, Face::Bold, GOLD);
+        }
+    });
+}
+
 fn errand(
     p: &mut ChildSpawnerCommands,
     hud: &Hud,
@@ -333,7 +510,7 @@ pub(super) fn expedition(
         );
         label(r, hud, level.name, 24.0, Face::Serif, SAND);
     });
-    pocket(p, hud, game, |menu| {
+    pocket(p, hud, game, false, |menu| {
         choice(
             menu,
             hud,

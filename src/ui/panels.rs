@@ -24,6 +24,7 @@ pub fn street_panel(
         Panel::Details => details(p, hud, game, town, chapter),
         Panel::Goals => goals(p, hud, town, chapter),
         Panel::Forecast => forecast(p, hud, game, town, chapter),
+        Panel::Nili if hud.phone => phone::tours(p, hud, game, town, chapter),
         Panel::Nili => nili(p, hud, town, chapter),
         Panel::Pause => pause(p, hud, tutorial),
         Panel::Demolish => demolish(p, hud, game, town),
