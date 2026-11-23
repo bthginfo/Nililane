@@ -1,5 +1,19 @@
 # Spielreview und Abnahme
 
+## Handelsfracht und Arbeitsaufträge 3.5.1
+
+- In allen fünf Gebieten wurden Importwaren am Anleger gekauft, mit Nili
+  getragen, gespeichert, geladen und am Rathaus abgeliefert. Die Prüfung
+  zählt die Fracht erst nach der Ablieferung zum Lagerbestand.
+- Die Werkstatt pausiert nach dem letzten Stopp. Ein gespeicherter
+  Arbeitsgang behält seine Zutaten und seinen Fortschritt. Die
+  Fischerhütte setzt den Fang mit einem neu zugeteilten Bürger fort.
+- Die offenen Menüs werden sofort aktualisiert, wenn eine Begegnung
+  beginnt oder das Handelsschiff zurückkommt.
+- Alle 69 Rust-Tests, die Formatprüfung und Clippy sind bestanden.
+  Die Kampagnenprüfung umfasst 120 Häfen mit drei Sternen und
+  alle 60 Abenteuerinseln.
+
 ## Lebendige Siedlungen und Küstenhandel 3.5.0
 
 - Alle 67 automatisierten Tests sind bestanden. In der Kampagnenprüfung

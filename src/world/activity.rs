@@ -300,6 +300,9 @@ fn harbor_activity(town: &Town, game: &Game, station: &Station, guests: &[bool; 
 }
 
 fn adventure_activity(island: &crate::adventure::Island, station: &Station) -> Active {
+    if island.site(station.lot).is_some() {
+        return Active::default();
+    }
     let staffed = island.staff() > 0;
     let public = match station.workshop.build {
         Build::Harbor(kind) => {
@@ -323,15 +326,14 @@ fn adventure_activity(island: &crate::adventure::Island, station: &Station) -> A
         Build::Monument => staffed,
         _ => false,
     };
-    let batch = island.site(station.lot).is_none()
-        && island
-            .batch(station.lot)
-            .is_some_and(|batch| batch.left > 0.0);
+    let batch = island
+        .batch(station.lot)
+        .is_some_and(|batch| batch.working());
     let dinner = station.profile.seating()
         && staffed
         && island.amount(Good::Meals) > 0
         && (0.31..0.76).contains(&island.phase);
-    let work = batch || (public && island.site(station.lot).is_none()) || dinner;
+    let work = batch || public || dinner;
     Active {
         work,
         seated: dinner,

@@ -1156,7 +1156,7 @@ pub(crate) fn animate(
                 .position(|&candidate| candidate == job)
                 == Some(worker.0)
                 && island.site(lot).is_none()
-                && island.batch(lot).is_some_and(|batch| batch.left > 0.0)
+                && island.batch(lot).is_some_and(|batch| batch.working())
                 && super::activity::adventure_spot(terrain, &island.lots, lot).is_some()
         });
         *visibility = if at_bench {
@@ -1651,7 +1651,7 @@ pub(crate) fn fishing_visuals(
         let home = terrain.fishing[vessel.0];
         let batch = island
             .batch(home.lot)
-            .filter(|batch| batch.fishing.is_some())
+            .filter(|batch| batch.fishing.is_some() && !batch.paused)
             .or_else(|| {
                 island
                     .lots
@@ -1661,7 +1661,7 @@ pub(crate) fn fishing_visuals(
                     .find_map(|(lot, _)| {
                         island
                             .batch(lot)
-                            .filter(|batch| batch.fishing == Some(vessel.0))
+                            .filter(|batch| batch.fishing == Some(vessel.0) && !batch.paused)
                     })
             });
         let Some(batch) = batch else {

@@ -1360,13 +1360,18 @@ fn trade_action(command: Command, adventure: &mut Adventure, game: &mut Game) {
         ),
         SellExport => (island.launch_export(level), "Das Handelsschiff legt ab."),
         BuyPlan => (island.buy_monument(level), "Sonderbauplan gekauft"),
-        BuyImports => (island.buy_imports(level), "Seltene Baustoffe gekauft"),
+        BuyImports => (
+            island.buy_imports(level),
+            "Baustoffe geladen. Trag sie zum Rathaus oder direkt zur Baustelle.",
+        ),
         _ => return,
     };
     if success {
         if matches!(command, PackExport(_)) {
             adventure.waypoint = Some(Target::TradeHarbor);
             close(game, adventure, Screen::Walk);
+        } else if command == BuyImports {
+            adventure.waypoint = Some(Target::Hall);
         } else if matches!(command, UnpackExport | SellExport) {
             adventure.waypoint = None;
             close(game, adventure, Screen::Walk);
@@ -1892,14 +1897,16 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
             true,
         );
     }
+    let market_or_encounters_changed = market_credit.is_some()
+        || !encounter_changes.offered.is_empty()
+        || !encounter_changes.finished.is_empty();
+    game.dirty |= market_or_encounters_changed;
     if before != island.stores || delivered || !completed.is_empty() {
         game.dirty = true;
         check_victory(adventure, game, save);
     }
-    if market_credit.is_some()
+    if market_or_encounters_changed
         || overflowed
-        || !encounter_changes.offered.is_empty()
-        || !encounter_changes.finished.is_empty()
         || harvested.is_some()
         || courier_changed
         || construction_changed

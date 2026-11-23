@@ -449,9 +449,15 @@ pub struct Production {
     pub duration: f32,
     pub left: f32,
     pub fishing: Option<usize>,
+    #[serde(default)]
+    pub paused: bool,
 }
 
 impl Production {
+    pub fn working(self) -> bool {
+        self.left > 0.0 && !self.paused
+    }
+
     pub fn progress(self) -> f32 {
         (1.0 - self.left / self.duration).clamp(0.0, 1.0)
     }
@@ -820,6 +826,11 @@ impl Island {
         self.hauls.resize_with(self.workers.len(), Haul::default);
         self.workers.push(task);
         self.hauls.push(Haul::default());
+        if let Task::Produce(lot) = task
+            && let Some(Some(batch)) = self.batches.get_mut(lot)
+        {
+            batch.paused = false;
+        }
         true
     }
 
@@ -855,7 +866,13 @@ impl Island {
     }
 
     fn remove_worker(&mut self, index: usize) {
-        self.workers.remove(index);
+        let task = self.workers.remove(index);
+        if let Task::Produce(lot) = task
+            && self.assignment(task) == 0
+            && let Some(Some(batch)) = self.batches.get_mut(lot)
+        {
+            batch.paused = batch.left > 0.0;
+        }
         if index < self.hauls.len() {
             let haul = self.hauls.remove(index);
             if let Some(cargo) = haul.cargo {
@@ -945,10 +962,17 @@ impl Island {
     }
 
     pub fn start_production(&mut self, map: &super::Terrain, lot: usize) -> bool {
+        if let Some(Some(batch)) = self.batches.get_mut(lot) {
+            let resume = batch.paused && batch.fishing.is_none();
+            if resume {
+                batch.paused = false;
+            }
+            return resume;
+        }
         let Some(mut recipe) = self.recipe_for(map.level, lot) else {
             return false;
         };
-        if self.batch(lot).is_some() || !self.ready(&recipe.need) {
+        if !self.ready(&recipe.need) {
             return false;
         }
         self.prepare_production(map);
@@ -986,6 +1010,7 @@ impl Island {
             duration,
             left: duration,
             fishing: school,
+            paused: false,
         });
         true
     }
@@ -1024,6 +1049,9 @@ impl Island {
         let order = map.level.work_order();
         for lot in 0..self.lots.len() {
             if let Some(mut batch) = self.batch(lot) {
+                if batch.paused {
+                    continue;
+                }
                 batch.left = (batch.left - dt).max(0.0);
                 if batch.left == 0.0 {
                     let stored = self.add(batch.output.kind, batch.output.units);

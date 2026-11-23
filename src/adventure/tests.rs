@@ -318,6 +318,8 @@ impl Expedition {
                 self.ensure_trade_marks(IMPORT_PRICE);
                 self.walk_to(self.terrain.trade_pier, reach(Target::TradeHarbor));
                 assert!(self.island.buy_imports(level));
+                self.walk_to(terrain::HALL_DOOR, 1.15);
+                assert_eq!(self.island.unload().unwrap().units, IMPORT_UNITS);
             }
             return;
         }
@@ -693,10 +695,69 @@ fn the_trade_harbor_respects_positions_and_a_crossing_pays_once_after_reload() {
         );
         assert_eq!(restored.tick_export(map.level, offer.seconds), None);
         assert_eq!(restored.market.marks, offer.marks);
-        assert!(restored.buy_imports(map.level));
-        assert_eq!(restored.amount(Good::Imports), IMPORT_UNITS);
-        assert!(!restored.buy_monument(map.level));
+        *a.active_mut().unwrap() = restored;
+        a.active_mut().unwrap().position = terrain::HALL_DOOR.to_array();
+        act(Command::BuyImports, &mut a, &mut game, &mut campaign);
+        assert_eq!(a.active().unwrap().market.marks, offer.marks);
+        assert!(a.active().unwrap().cargo.is_none());
+
+        a.active_mut().unwrap().position = map.trade_pier.to_array();
+        act(Command::BuyImports, &mut a, &mut game, &mut campaign);
+        assert_eq!(a.waypoint, Some(Target::Hall));
+        let island = a.active().unwrap();
+        assert_eq!(island.amount(Good::Imports), 0);
+        assert_eq!(island.market.marks, offer.marks - IMPORT_PRICE);
+        assert_eq!(island.cargo.unwrap().units, IMPORT_UNITS);
+        let parcel_save = serde_json::to_vec(island).unwrap();
+        *a.active_mut().unwrap() = serde_json::from_slice(&parcel_save).unwrap();
+        act(Command::Use(Target::Hall), &mut a, &mut game, &mut campaign);
+        assert_eq!(a.active().unwrap().amount(Good::Imports), 0);
+        a.active_mut().unwrap().position = terrain::HALL_DOOR.to_array();
+        act(Command::Use(Target::Hall), &mut a, &mut game, &mut campaign);
+        let island = a.active().unwrap();
+        assert_eq!(island.amount(Good::Imports), IMPORT_UNITS);
+        assert!(island.cargo.is_none());
+        assert!(!island.market.blueprint);
     }
+}
+
+#[test]
+fn open_menus_refresh_when_an_encounter_appears_or_a_ship_returns() {
+    let mut adventure = Adventure::default();
+    adventure.open(8, true);
+    adventure.screen = Screen::Mission;
+    let mut game = Game::default();
+    let mut campaign = Campaign::default();
+    let level = adventure.terrain.as_ref().unwrap().level;
+    let island = adventure.active_mut().unwrap();
+    island.lots[0] = Some(Property {
+        kind: Build::Harbor(level.home()),
+        tier: 1,
+    });
+    island.encounters.elapsed = 39.94;
+    let stock = island.stores;
+    adventure.group = 4;
+    game.dirty = false;
+    process_work(&mut adventure, &mut game, &mut campaign, 0.12);
+    assert!(game.dirty);
+    let island = adventure.active_mut().unwrap();
+    assert_eq!(island.stores, stock);
+    assert_eq!(island.encounters.visits[0].status, EncounterStatus::Offered);
+    let offer = level.export(Export::Regular).unwrap();
+    island.add(offer.good, offer.units);
+    assert!(island.pack_export(level, Export::Regular));
+    assert!(island.launch_export(level));
+    island.market.crossing.as_mut().unwrap().remaining = 0.05;
+
+    adventure.group = 5;
+    game.dirty = false;
+    process_work(&mut adventure, &mut game, &mut campaign, 0.12);
+    assert!(game.dirty);
+    assert_eq!(adventure.screen, Screen::Mission);
+    let island = adventure.active().unwrap();
+    assert_eq!(island.stores, stock);
+    assert_eq!(island.market.marks, offer.marks);
+    assert!(island.market.crossing.is_none());
 }
 
 #[test]
@@ -747,6 +808,75 @@ fn every_resource_and_landmark_is_on_land_and_outside_the_plots() {
             );
         }
     }
+}
+
+#[test]
+fn the_last_stop_pauses_a_workshop_without_consuming_inputs_again() {
+    let mut adventure = Adventure::default();
+    adventure.open(0, true);
+    adventure.screen = Screen::Lot(2);
+    let map = adventure.terrain.clone().unwrap();
+    let task = Task::Produce(2);
+    let island = adventure.active_mut().unwrap();
+    for lot in &mut island.lots[..2] {
+        *lot = Some(Property {
+            kind: Build::Harbor(map.level.home()),
+            tier: 1,
+        });
+    }
+    island.lots[2] = Some(Property {
+        kind: Build::Sawmill,
+        tier: 1,
+    });
+    island.position = (map.plots[2] + Vec2::Y * 2.4).to_array();
+    island.add(Good::Wood, 2);
+    island.add(Good::Food, 1);
+    assert!(island.assign(task, &map));
+    assert!(island.assign(task, &map));
+    assert!(island.start_production(&map, 2));
+    let mut game = Game::default();
+    let mut save = Campaign::default();
+    act(
+        Command::Assign(task, false),
+        &mut adventure,
+        &mut game,
+        &mut save,
+    );
+    let island = adventure.active_mut().unwrap();
+    assert!(island.batch(2).unwrap().working());
+    island.tick_production(&map, 1.0);
+    let left = island.batch(2).unwrap().left;
+    act(
+        Command::Assign(task, false),
+        &mut adventure,
+        &mut game,
+        &mut save,
+    );
+    let island = adventure.active().unwrap();
+    assert_eq!(island.assignment(task), 0);
+    let mut saved = serde_json::to_value(island).unwrap();
+    let mut loaded: Island = serde_json::from_value(saved.clone()).unwrap();
+    assert!(!loaded.batch(2).unwrap().working());
+    assert!(!loaded.tick_production(&map, left + 10.0));
+    assert_eq!(loaded.batch(2).unwrap().left, left);
+    assert_eq!(loaded.amount(Good::Boards), 0);
+    assert_eq!(loaded.amount(Good::Wood), 0);
+    assert_eq!(loaded.amount(Good::Food), 0);
+
+    // Old saves with a batch in progress had no pause state.
+    saved["batches"][2]
+        .as_object_mut()
+        .unwrap()
+        .remove("paused");
+    let old: Island = serde_json::from_value(saved).unwrap();
+    assert!(old.batch(2).unwrap().working());
+    *adventure.active_mut().unwrap() = loaded;
+    act(Command::Work(2), &mut adventure, &mut game, &mut save);
+    let island = adventure.active_mut().unwrap();
+    assert!(island.batch(2).unwrap().working());
+    assert!(island.tick_production(&map, left + 0.1));
+    assert_eq!(island.amount(Good::Boards), 4);
+    assert!(island.batch(2).is_none());
 }
 
 #[test]
@@ -1173,8 +1303,14 @@ fn nordic_fish_requires_a_coastal_hut_a_worker_and_a_completed_trip() {
     run.island
         .tick_production(&run.terrain, trip.duration * 0.45);
     assert_eq!(run.island.amount(Good::Fish), 0);
+    assert!(run.island.unassign(Task::Produce(lot)));
+    let left = run.island.batch(lot).unwrap().left;
+    assert!(!run.island.tick_production(&run.terrain, trip.duration));
+    assert_eq!(run.island.batch(lot).unwrap().left, left);
+    assert!(!run.island.start_production(&run.terrain, lot));
     let saved = serde_json::to_vec(&run.island).unwrap();
     let mut loaded: Island = serde_json::from_slice(&saved).unwrap();
+    assert!(loaded.assign(Task::Produce(lot), &run.terrain));
     loaded.tick_production(&run.terrain, trip.duration);
     assert_eq!(loaded.amount(Good::Fish), trip.output.units);
     assert_eq!(

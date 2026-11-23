@@ -9,11 +9,11 @@ Siedlungen.
 
 ## Android-Downloads
 
-**[Handy-APK 3.5.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/a6e814820ff3477b81135bcb6826da2a91567891/Nililane-3.5.0-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/a6e814820ff3477b81135bcb6826da2a91567891/Nililane-3.5.0-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.5.0-phone)
+**[Handy-APK 3.5.1 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/f71208911b62387aeff661f966a2804ca6948008/Nililane-3.5.1-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/f71208911b62387aeff661f966a2804ca6948008/Nililane-3.5.1-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.5.1-phone)
 
-**[Tablet-APK 3.5.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/a6e814820ff3477b81135bcb6826da2a91567891/Nililane-3.5.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/a6e814820ff3477b81135bcb6826da2a91567891/Nililane-3.5.0-x86_64.apk) · [Tablet-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.5.0)
+**[Tablet-APK 3.5.1 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/f71208911b62387aeff661f966a2804ca6948008/Nililane-3.5.1.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/f71208911b62387aeff661f966a2804ca6948008/Nililane-3.5.1-x86_64.apk) · [Tablet-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.5.1)
 
-[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/a6e814820ff3477b81135bcb6826da2a91567891/Nililane-3.5.0.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/a6e814820ff3477b81135bcb6826da2a91567891/Nililane-3.5.0-x86_64.apk.sha256)
+[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/f71208911b62387aeff661f966a2804ca6948008/Nililane-3.5.1.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/f71208911b62387aeff661f966a2804ca6948008/Nililane-3.5.1-x86_64.apk.sha256)
 
 ![Siedlung auf der griechischen Torinsel mit Werkstätten und Bürgern](docs/bilder/abenteuer-siedlung.jpg)
 
@@ -124,8 +124,10 @@ Du führst Nili selbst entlang der Spur.
 - Baue einen Wohnhof und weise Bürger zum Sammeln oder zur Arbeit in
   einer Werkstatt zu. Sammler laufen selbst zum Abbaugebiet und bringen
   ihre Ladung zurück. Mit **Stopp** beendest du einen Auftrag sofort.
-  Mitgeführte Fracht bleibt am Abbruchort liegen. Werkstätten zeigen die Zutaten und den Fortschritt
-  des Arbeitsgangs. Ziegel, Werkzeuge und Gewebe brauchen länger als Bretter.
+  Mitgeführte Fracht bleibt am Abbruchort liegen. Verlässt der letzte
+  Bürger eine Werkstatt, pausiert der Arbeitsgang. Nili oder ein neu
+  zugeteilter Bürger kann ihn fortsetzen. Ziegel, Werkzeuge und Gewebe
+  brauchen länger als Bretter.
 - Ab der zweiten Insel kannst du eine fertige **Fracht packen**, sobald Nili
   am Rathaus steht. Alternativ wählst du unter **Lieferungen** die Aktion
   **Bürger schicken**. Der Bürger holt die Waren am Rathaus, liefert sie am
@@ -145,6 +147,7 @@ Du führst Nili selbst entlang der Spur.
 - Ab der achten Insel jedes Gebiets kannst du mit Nachbarhäfen handeln.
   Packe die Ware am Rathaus und bring sie zum Handelsschiff. Für
   Handelsmarken gibt es seltene Baustoffe und einen regionalen Sonderbauplan.
+  Gekaufte Baustoffe trägt Nili zum Rathaus oder direkt zur Baustelle.
   Die Agora, das Amphitheater, der Pagodengarten, die Thinghalle und der
   Palast der Sterne haben jeweils sechs sichtbare Stufen.
 - Tageslicht, Laternen und Musik wechseln während des Spiels. Du kannst

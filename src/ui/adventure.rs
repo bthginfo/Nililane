@@ -1362,6 +1362,8 @@ fn property_panel(
                 }
                 let fishing = recipe.output.0 == Good::Fish;
                 let staffed = island.assignment(Task::Produce(lot));
+                let batch = island.batch(lot);
+                let paused = batch.is_some_and(|batch| batch.paused);
                 p.spawn(row(12.0)).with_children(|r| {
                     if recipe.need.is_empty() {
                         label(r, hud, "Ohne Verbrauch", 17.0, Face::Body, MUTED);
@@ -1379,13 +1381,15 @@ fn property_panel(
                         SAND,
                     );
                 });
-                if let Some(batch) = island.batch(lot) {
+                if let Some(batch) = batch {
                     panels::metric(
                         p,
                         hud,
                         if fishing { "fishery" } else { "guest_wait" },
                         if batch.left == 0.0 {
                             "Fertig · wartet auf Lagerplatz"
+                        } else if paused {
+                            "Arbeitsgang pausiert"
                         } else if fishing {
                             "Das Fischerboot ist unterwegs."
                         } else {
@@ -1472,14 +1476,19 @@ fn property_panel(
                         p,
                         hud,
                         Command::Work(lot),
-                        "Arbeitsgang starten",
+                        if paused {
+                            "Arbeitsgang fortsetzen"
+                        } else {
+                            "Arbeitsgang starten"
+                        },
                         "adventure_tools",
                         "",
                         Style::Quiet,
-                        island.batch(lot).is_some()
-                            || staffed > 0
-                            || !island.ready(&recipe.need)
-                            || !island.room_for_recipe(&recipe),
+                        staffed > 0
+                            || !paused
+                                && (batch.is_some()
+                                    || !island.ready(&recipe.need)
+                                    || !island.room_for_recipe(&recipe)),
                     );
                 }
             } else if property.kind == Build::Harbor(Kind::Storehouse) {
@@ -1753,13 +1762,29 @@ fn labor(
                                 label(entry, hud, "Sammeln und liefern", 15.0, Face::Body, MUTED);
                             }
                         }
-                        if let Task::Produce(lot) = task
-                            && let Some(recipe) = island.lots[lot].and_then(|property| {
-                                property.kind.recipe(property.tier, level.region)
-                            })
-                            && !island.ready(&recipe.need)
-                        {
-                            label(entry, hud, "Vorräte fehlen", 16.0, Face::Body, WARN);
+                        if let Task::Produce(lot) = task {
+                            match island.batch(lot) {
+                                Some(batch) if batch.paused => {
+                                    label(entry, hud, "Pausiert", 16.0, Face::Body, MUTED);
+                                }
+                                Some(batch) if batch.left == 0.0 => {
+                                    label(
+                                        entry,
+                                        hud,
+                                        "Wartet auf Lagerplatz",
+                                        16.0,
+                                        Face::Body,
+                                        WARN,
+                                    );
+                                }
+                                None if island
+                                    .recipe_for(level, lot)
+                                    .is_some_and(|recipe| !island.ready(&recipe.need)) =>
+                                {
+                                    label(entry, hud, "Vorräte fehlen", 16.0, Face::Body, WARN);
+                                }
+                                _ => {}
+                            }
                         }
                     });
                     let target = match task {
@@ -2447,6 +2472,10 @@ fn trade_panel(
     let at_hall = a.close_enough(Target::Hall);
     let at_pier = a.close_enough(Target::TradeHarbor);
     let market = &island.market;
+    let imports = island
+        .cargo
+        .filter(|load| load.kind == Good::Imports)
+        .map_or(0, |load| load.units);
     p.spawn(Node {
         flex_wrap: FlexWrap::Wrap,
         row_gap: Val::Px(6.0),
@@ -2585,16 +2614,25 @@ fn trade_panel(
             "coin",
             "",
             Style::Quiet,
-            !at_pier || market.marks < IMPORT_PRICE,
+            !at_pier
+                || market.marks < IMPORT_PRICE
+                || island.room_for(Good::Imports) < IMPORT_UNITS,
         );
     });
     panels::metric(
         p,
         hud,
         Good::Imports.icon(level.region),
-        format!("{} im Lager", island.amount(Good::Imports)),
+        if imports > 0 {
+            format!(
+                "{imports} bei Nili · {} im Lager",
+                island.amount(Good::Imports)
+            )
+        } else {
+            format!("{} im Lager", island.amount(Good::Imports))
+        },
     );
-    let to_hall = !at_hall && !island.has_cargo();
+    let to_hall = imports > 0 || !at_hall && !island.has_cargo();
     let to_store = !at_pier && market.packed.is_none() && market.marks >= IMPORT_PRICE;
     if to_hall || to_store {
         p.spawn(Node {
@@ -2608,7 +2646,11 @@ fn trade_panel(
                     routes,
                     hud,
                     Command::SetRoute(Target::Hall),
-                    "Weg zum Packplatz",
+                    if imports > 0 {
+                        "Zum Rathaus"
+                    } else {
+                        "Weg zum Packplatz"
+                    },
                     "chart",
                     "",
                     Style::Quiet,

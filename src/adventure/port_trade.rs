@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::campaign::Region;
 
+use super::logistics::Cargo;
 use super::{Good, Island, Level};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -175,12 +176,15 @@ impl Island {
     pub fn buy_imports(&mut self, level: Level) -> bool {
         if !level.has_trading()
             || self.market.marks < IMPORT_PRICE
-            || self.amount(Good::Imports) > u16::MAX - IMPORT_UNITS
+            || self.room_for(Good::Imports) < IMPORT_UNITS
         {
             return false;
         }
         self.market.marks -= IMPORT_PRICE;
-        self.add(Good::Imports, IMPORT_UNITS);
+        self.cargo = Some(Cargo {
+            kind: Good::Imports,
+            units: IMPORT_UNITS + self.cargo.map_or(0, |load| load.units),
+        });
         true
     }
 }
