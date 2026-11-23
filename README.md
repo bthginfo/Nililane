@@ -84,6 +84,19 @@ Mit der Tastatur bewegst du Nili mit WASD oder den Pfeiltasten. Enter
 entspricht A, Escape entspricht B. X, Y, P, Q und E entsprechen X, Y,
 Start, LB und RB. N öffnet Nilis Touren. F öffnet das Gästebuch.
 
+## Aufträge in den Häfen
+
+Die ersten beiden Häfen jedes Gebiets haben drei Ziele. Danach wechseln
+sich Inseln mit fünf, sechs oder sieben Aufgaben ab. Unter **Aufträge**
+siehst du den Fortschritt. Ein Stern markiert im Laden das Angebot, das
+gerade für den Handelsauftrag zählt.
+
+Verkaufe zuerst das Grundangebot. Baue den Laden aus und wähle das neue
+Produkt morgens aus. Auf späteren Inseln zählen bestimmte Verkäufe erst,
+wenn das Produkt das Lieblingsangebot des Gasts ist. Im **Gästebuch**
+siehst du die Zufriedenheit der Altersgruppen. Bei einem Umbau führt
+**Bauplatz öffnen** direkt zum vorgesehenen Grundstück.
+
 ## Abenteuerkampagne
 
 Im Hauptmenü erreichst du die **Abenteuerkampagne**. Auf jeder Insel wartet
@@ -113,8 +126,12 @@ Du führst Nili selbst entlang der Spur.
 - Ab der zweiten Insel kannst du eine fertige **Fracht packen**, sobald Nili
   am Rathaus steht. Alternativ wählst du unter **Lieferungen** die Aktion
   **Bürger schicken**. Der Bürger holt die Waren am Rathaus, liefert sie am
-  Außenposten ab und kommt zurück. Spätere Inseln haben bis zu drei Lieferungen
+  Außenposten ab und kommt zurück. Spätere Inseln haben bis zu vier Lieferungen
   und mehr Bau- und Ausbauziele.
+- Im Reiter **Handwerk** stehen die Meisteraufträge. Stelle zuerst
+  die Grundware in der geforderten Werkstatt her. Nach dem Ausbau kannst
+  du dort die neue Rezeptur auswählen. Sobald die Ware fertig ist, lässt
+  sie sich am Rathaus für den Außenposten packen.
 - Auf späteren Inseln schalten Fundstücke und Warenlieferungen Baupläne
   für neue Gebäude oder höhere Ausbaustufen frei.
 - Tageslicht, Laternen und Musik wechseln während des Spiels. Du kannst

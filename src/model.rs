@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     campaign::{Chapter, Goal, harbor_stage},
+    campaign_orders::{SalesProgress, TradeOrder, care_goal, trade_order},
     errands::{Blocked, JOB_TYPES, Job, ManualStage, NiliControl, Route, RouteStage, Stop},
     trade::Voyage,
 };
@@ -1170,6 +1171,18 @@ pub struct Tally {
     pub served: [u32; SERVICES],
     #[serde(deserialize_with = "read_service_counts")]
     pub missed: [u32; SERVICES],
+    #[serde(default, deserialize_with = "read_service_counts")]
+    pub produced: [u32; SERVICES],
+    #[serde(default)]
+    pub dogs: u32,
+    #[serde(default)]
+    pub cleaned: u32,
+    #[serde(default)]
+    pub guests_by_age: [GuestCount; 3],
+    #[serde(default)]
+    pub best_care: u32,
+    #[serde(default)]
+    pub best_favorite_menu: [u32; 3],
     #[serde(default)]
     pub gaps: [u32; 4],
     pub income: u32,
@@ -1216,6 +1229,19 @@ pub struct Tally {
 }
 
 impl Tally {
+    pub fn care(&self, age: Age, minimum: u32) -> u32 {
+        let count = self.guests_by_age[age as usize];
+        if count.served >= minimum {
+            satisfaction_percent(count.served, count.responses).unwrap_or(0)
+        } else {
+            0
+        }
+    }
+
+    pub fn favorite_variety(&self, age: Age) -> u32 {
+        self.guests_by_age[age as usize].favorites.count_ones()
+    }
+
     pub fn routes_today(&self) -> u32 {
         self.routes.iter().sum()
     }
@@ -1237,6 +1263,17 @@ impl Tally {
             let i = service as usize;
             self.served[i] += other.served[i];
             self.missed[i] += other.missed[i];
+            self.produced[i] += other.produced[i];
+        }
+        self.dogs += other.dogs;
+        self.cleaned += other.cleaned;
+        self.best_care = self.best_care.max(other.best_care);
+        for (best, current) in self
+            .best_favorite_menu
+            .iter_mut()
+            .zip(other.best_favorite_menu)
+        {
+            *best = (*best).max(current);
         }
         self.income += other.income;
         self.reputation += other.reputation;
@@ -1268,6 +1305,13 @@ impl Tally {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+pub struct GuestCount {
+    pub served: u32,
+    pub responses: u32,
+    favorites: u32,
+}
+
 pub fn satisfaction_percent(served: u32, total: u32) -> Option<u32> {
     let total = u64::from(total);
     (total > 0).then(|| ((u64::from(served) * 100 + total / 2) / total) as u32)
@@ -1297,6 +1341,8 @@ pub struct Day {
     pub supplied: Option<[u16; LOTS]>,
     pub visits: Vec<Visit>,
     pub tally: Tally,
+    #[serde(default)]
+    sales: SalesProgress,
     pub favor: Favor,
     pub favor_at: Option<u8>,
     #[serde(default)]
@@ -1470,6 +1516,8 @@ pub struct Town {
     #[serde(deserialize_with = "extend_plot_array")]
     pub lots: [Option<Building>; LOTS],
     pub totals: Tally,
+    #[serde(default)]
+    sales: SalesProgress,
     pub phase: Phase,
     #[serde(default)]
     pub harbor: HarborPlan,
@@ -1575,6 +1623,7 @@ impl Town {
             coins: rule.coins,
             lots,
             totals: Tally::default(),
+            sales: SalesProgress::default(),
             phase: Phase::Plan,
             harbor: HarborPlan::Regular,
             last_day: None,
@@ -2335,7 +2384,7 @@ impl Town {
                 ..building
             });
             let mut market = base.clone();
-            resolve_visits(&lots, &mut market, chapter, chapter.day_seconds());
+            resolve_visits(&lots, &mut market, chapter, chapter.day_seconds(), None);
             let served = market
                 .visits
                 .iter()
@@ -2380,6 +2429,12 @@ impl Town {
     }
 
     fn day_plan(&self, chapter: &Chapter, production: &Production) -> Day {
+        let mut tally = Tally::default();
+        for (lot, building) in self.lots.iter().enumerate() {
+            if let Some(service) = building.and_then(|building| building.kind.service()) {
+                tally.produced[service as usize] += u32::from(production.stock[lot]);
+            }
+        }
         Day {
             seconds: 0.0,
             water: production.water,
@@ -2387,7 +2442,8 @@ impl Town {
             stock: production.stock,
             supplied: Some(production.stock),
             visits: self.visit_plan(chapter),
-            tally: Tally::default(),
+            tally,
+            sales: self.sales,
             favor: self.next_favor(chapter),
             favor_at: None,
             nili_at: Stop::Quay,
@@ -2515,6 +2571,7 @@ impl Town {
 
     pub fn tick(&mut self, chapter: &Chapter, elapsed: f32) -> bool {
         let contract = self.daily_contract(chapter);
+        let order = trade_order(chapter, self.chapter);
         let Phase::Open(day) = &mut self.phase else {
             return false;
         };
@@ -2523,7 +2580,7 @@ impl Town {
             .route
             .filter(|route| day.nili.is_none() && route.finish <= until)
         {
-            resolve_visits(&self.lots, day, chapter, route.finish);
+            resolve_visits(&self.lots, day, chapter, route.finish, order);
             finish_route(
                 &self.lots,
                 day,
@@ -2533,7 +2590,7 @@ impl Town {
                 self.chapter,
             );
         }
-        resolve_visits(&self.lots, day, chapter, until);
+        resolve_visits(&self.lots, day, chapter, until, order);
         day.seconds = until;
         if day.seconds < chapter.day_seconds() {
             return false;
@@ -2550,6 +2607,11 @@ impl Town {
         if tally.responses() >= 12 {
             tally.best_mood = tally.satisfaction().unwrap_or(0);
         }
+        if let Some(Goal::GuestCare(age, minimum, _)) = care_goal(chapter, self.chapter) {
+            tally.best_care = tally.care(age, minimum);
+        }
+        tally.best_favorite_menu = Age::ALL.map(|age| tally.favorite_variety(age));
+        self.sales = day.sales;
         if self.weather(chapter) == Weather::Feast {
             tally.feast_peak = tally.served_total();
         }
@@ -2561,22 +2623,21 @@ impl Town {
         });
         let grant = 6 + u32::from(tally.served_total() == 0) * 3 + contract_bonus;
         self.coins += tally.income + grant;
-        let stars = if chapter
-            .goals
-            .iter()
-            .all(|&goal| self.goal(goal).0 >= goal.target())
-        {
-            1 + u8::from(self.day <= chapter.par)
-                + u8::from(self.totals.favors >= chapter.favor_goal)
-        } else {
-            0
-        };
         self.phase = Phase::Report(Box::new(Report {
             tally,
             grant,
-            stars,
+            stars: 0,
             contract_bonus,
         }));
+        if chapter
+            .objectives(self.chapter)
+            .all(|goal| self.goal(goal).0 >= goal.target())
+            && let Phase::Report(report) = &mut self.phase
+        {
+            report.stars = 1
+                + u8::from(self.day <= chapter.par)
+                + u8::from(self.totals.favors >= chapter.favor_goal);
+        }
         true
     }
 
@@ -2640,14 +2701,24 @@ impl Town {
             Goal::Caravans(_) => self.totals.caravans,
             Goal::CaravanIncome(_) => self.totals.caravan_income,
             Goal::SpiceRoutes(_) => self.totals.spice_routes,
-            Goal::Upgrade(kind, _) => self
-                .lots
-                .iter()
-                .flatten()
-                .filter(|b| b.kind == kind)
-                .map(|b| u32::from(b.level))
-                .max()
-                .unwrap_or(0),
+            Goal::Upgrade(kind, _) => self.building_level(kind),
+            Goal::Sale(_, false) => self.sale_progress().basic,
+            Goal::Sale(_, true) => self.sale_progress().special,
+            Goal::TradeUpgrade(order) => {
+                if self.sale_progress().basic >= order.basic {
+                    self.building_level(order.shop)
+                } else {
+                    0
+                }
+            }
+            Goal::Produce(service, _) => self.totals.produced[service as usize],
+            Goal::Dogs(_) => self.totals.dogs,
+            Goal::Clean(_) => self.totals.cleaned,
+            Goal::GuestCare(..) => self.totals.best_care,
+            Goal::FavoriteMenu(age, _) => self.totals.best_favorite_menu[age as usize],
+            Goal::Rebuild(order) => self.lots[order.lot]
+                .filter(|building| building.kind == order.new)
+                .map_or(0, |building| u32::from(building.level)),
             Goal::Pair(first, second, _) => self
                 .lots
                 .iter()
@@ -2658,6 +2729,23 @@ impl Town {
                 .count() as u32,
         };
         (value, goal.target())
+    }
+
+    fn sale_progress(&self) -> SalesProgress {
+        match &self.phase {
+            Phase::Open(day) => day.sales,
+            _ => self.sales,
+        }
+    }
+
+    fn building_level(&self, kind: Kind) -> u32 {
+        self.lots
+            .iter()
+            .flatten()
+            .filter(|building| building.kind == kind)
+            .map(|building| u32::from(building.level))
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -2684,7 +2772,13 @@ fn resident_age(kind: Kind, lot: usize, person: usize) -> Age {
     order[(person + lot % 3) % order.len()]
 }
 
-fn resolve_visits(lots: &[Option<Building>; LOTS], day: &mut Day, chapter: &Chapter, until: f32) {
+fn resolve_visits(
+    lots: &[Option<Building>; LOTS],
+    day: &mut Day,
+    chapter: &Chapter,
+    until: f32,
+    order: Option<TradeOrder>,
+) {
     let mut due: Vec<_> = day
         .visits
         .iter()
@@ -2700,18 +2794,25 @@ fn resolve_visits(lots: &[Option<Building>; LOTS], day: &mut Day, chapter: &Chap
         let service = visit.wants as usize;
         let result = target(lots, day, visit, chapter);
         let visit = &mut day.visits[index];
+        let age = visit.age(index);
+        let guests = &mut day.tally.guests_by_age[age as usize];
+        guests.responses += 1;
         visit.resolved = true;
         match result {
             Ok(shop) => {
                 let b = lots[shop].expect("a sale requires a building");
                 day.stock[shop] -= 1;
                 day.tally.served[service] += 1;
-                let age = visit.age(index);
+                guests.served += 1;
+                if let Some(order) = order {
+                    day.sales.sale(order, b, age);
+                }
                 let specialty = b.assortment.flavor() == Some(age);
                 if specialty {
                     visit.specialty_bonus = b.assortment.extra_coins();
                     day.tally.specialty_income += visit.specialty_bonus;
                     day.tally.specialties[age as usize] += 1;
+                    guests.favorites |= 1 << service;
                 }
                 day.tally.income += b.price.coins(visit.wants) + visit.specialty_bonus;
                 day.tally.reputation += 1
@@ -2989,15 +3090,7 @@ mod tests {
             let layout = reference_layout(i, chapter);
             for _ in 1..=chapter.par {
                 prepare_market(&mut town, chapter, &layout);
-                for goal in chapter.goals {
-                    if let Goal::Upgrade(kind, level) = goal
-                        && let Some(lot) = town.lots.iter().position(|b| {
-                            b.is_some_and(|b| b.kind == kind && u32::from(b.level) < level)
-                        })
-                    {
-                        town.upgrade(lot);
-                    }
-                }
+                improve_objectives(&mut town, chapter);
                 if i == 5
                     && town.day >= 3
                     && let Some(lot) = town
@@ -3028,7 +3121,10 @@ mod tests {
                 result.is_some(),
                 "{} fehlte am Richttag: {:?}, {} Bitten, {} Gäste. Gebäude: {:?}",
                 chapter.district,
-                chapter.goals.map(|goal| (goal.label(), town.goal(goal))),
+                chapter
+                    .objectives(i)
+                    .map(|goal| (goal.label(), town.goal(goal)))
+                    .collect::<Vec<_>>(),
                 town.totals.favors,
                 town.totals.served_total(),
                 town.lots,
@@ -3251,7 +3347,18 @@ mod tests {
         use crate::campaign::Goal::*;
         let near = |lot| distance(lot, chapter.layout.dock());
         let planned = |kind, lot| layout.iter().any(|&(i, k)| i == lot && k == kind);
-        for goal in chapter.goals {
+        for goal in chapter.objectives(town.chapter) {
+            if let Rebuild(order) = goal
+                && !town.lots[order.lot].is_some_and(|building| building.kind == order.new)
+            {
+                let refund = town.lots[order.lot].map_or(0, Building::refund);
+                if town.coins + refund >= order.new.cost() {
+                    town.remove(order.lot);
+                    assert!(town.build(chapter, order.lot, order.new));
+                }
+            }
+        }
+        for goal in chapter.objectives(town.chapter) {
             let Pair(first, second, need) = goal else {
                 continue;
             };
@@ -3307,11 +3414,12 @@ mod tests {
                 }
             }
         }
-        for goal in chapter.goals {
+        for goal in chapter.objectives(town.chapter) {
             let (kind, count) = match goal {
                 Build(kind, count) => (kind, count),
                 Upgrade(kind, _) => (kind, 1),
-                Serve(service, _) => {
+                TradeUpgrade(order) => (order.shop, 1),
+                Serve(service, _) | Produce(service, _) => {
                     if town
                         .lots
                         .iter()
@@ -3320,11 +3428,7 @@ mod tests {
                     {
                         continue;
                     }
-                    let Some(&kind) = chapter
-                        .allowed()
-                        .iter()
-                        .find(|k| k.service() == Some(service))
-                    else {
+                    let Some(kind) = crate::campaign_orders::shop_for(service, chapter) else {
                         continue;
                     };
                     (kind, 1)
@@ -3381,6 +3485,39 @@ mod tests {
             if town.lots[lot].is_none() && is_open(chapter, lot) && !town.build(chapter, lot, kind)
             {
                 break;
+            }
+        }
+    }
+
+    fn improve_objectives(town: &mut Town, chapter: &Chapter) {
+        for goal in chapter.objectives(town.chapter) {
+            if let Goal::Rebuild(order) = goal {
+                if town.goal(goal).0 < goal.target()
+                    && town.lots[order.lot].is_some_and(|building| building.kind == order.new)
+                {
+                    town.upgrade(order.lot);
+                }
+                continue;
+            }
+            let (kind, level) = match goal {
+                Goal::Upgrade(kind, level) => (kind, level),
+                Goal::TradeUpgrade(order)
+                    if town.goal(Goal::Sale(order, false)).0 >= order.basic =>
+                {
+                    (order.shop, goal.target())
+                }
+                _ => continue,
+            };
+            if town.goal(goal).0 >= level {
+                continue;
+            }
+            let lot = chapter
+                .layout
+                .lots()
+                .filter(|&lot| town.lots[lot].is_some_and(|b| b.kind == kind))
+                .max_by_key(|&lot| town.lots[lot].map(|b| b.level));
+            if let Some(lot) = lot {
+                town.upgrade(lot);
             }
         }
     }
@@ -3509,14 +3646,7 @@ mod tests {
                     (4, Potter),
                     (9, Stoa),
                 ],
-                6 => vec![
-                    (3, Grove),
-                    (9, Taverna),
-                    (6, Bakery),
-                    (11, Potter),
-                    (10, Stoa),
-                    (5, Inn),
-                ],
+                6 => vec![(3, Grove), (9, Taverna), (6, Potter), (10, Stoa), (2, Inn)],
                 7 => vec![
                     (9, Apiary),
                     (3, Grove),
@@ -3659,10 +3789,17 @@ mod tests {
         for i in 0..LOTS {
             town.set_price(i, tariff);
         }
-        if chapter
-            .goals
-            .iter()
-            .any(|goal| matches!(goal, Goal::Specials(_)))
+        let goal_age = chapter
+            .objectives(town.chapter)
+            .find_map(|goal| match goal {
+                Goal::FavoriteMenu(age, _) if town.goal(goal).0 < goal.target() => Some(age),
+                _ => None,
+            });
+        if goal_age.is_some()
+            || chapter
+                .goals
+                .iter()
+                .any(|goal| matches!(goal, Goal::Specials(_)))
         {
             let production = town.production(chapter);
             for lot in 0..LOTS {
@@ -3672,15 +3809,38 @@ mod tests {
                 let building = town.lots[lot].unwrap();
                 let choice = Assortment::ALL
                     .into_iter()
-                    .filter(|choice| choice.unlocked(building.level))
+                    .filter(|choice| {
+                        choice.unlocked(building.level)
+                            && choice
+                                .flavor()
+                                .is_none_or(|age| age.available(town.chapter))
+                    })
                     .max_by_key(|&choice| {
                         (
+                            goal_age.is_some_and(|age| choice.flavor() == Some(age)),
                             forecast.matches[choice as usize],
                             forecast.extra_coins[choice as usize],
                         )
                     })
                     .unwrap();
                 town.set_assortment(lot, choice);
+            }
+        }
+        if let Some(order) = trade_order(chapter, town.chapter)
+            && town.goal(Goal::Sale(order, true)).0 < order.special_sales
+        {
+            let basic = town.goal(Goal::Sale(order, false)).0 < order.basic;
+            for lot in chapter.layout.lots() {
+                if let Some(b) = town.lots[lot]
+                    && b.kind == order.shop
+                {
+                    if basic {
+                        assert!(town.set_assortment(lot, Assortment::Standard));
+                    } else if order.special.unlocked(b.level) {
+                        assert!(town.set_assortment(lot, order.special));
+                    }
+                    town.set_price(lot, Price::Fair);
+                }
             }
         }
         assert!(town.open(chapter));
@@ -3797,6 +3957,7 @@ mod tests {
             assert!(town.aid(chapter, lot));
             walk_errand(&mut town, chapter, route);
         }
+        help_on_street(&mut town, chapter);
         let distinct_required = chapter
             .goals
             .iter()
@@ -3848,6 +4009,42 @@ mod tests {
         town
     }
 
+    fn help_on_street(town: &mut Town, chapter: &Chapter) {
+        use crate::street::{Activity, help, spots};
+        let goal = chapter.objectives(town.chapter).find(|&goal| {
+            matches!(goal, Goal::Dogs(_) | Goal::Clean(_)) && town.goal(goal).0 < goal.target()
+        });
+        let Some(goal) = goal else { return };
+        let Phase::Open(day) = &town.phase else {
+            return;
+        };
+        let fraction = if matches!(goal, Goal::Dogs(_)) {
+            0.50
+        } else {
+            0.20
+        };
+        town.tick(
+            chapter,
+            (chapter.day_seconds() * fraction - day.seconds).max(0.0),
+        );
+        if let Some((i, spot)) = spots(town, chapter)
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, spot)| Some((i, spot?)))
+            .find(|(_, spot)| {
+                !spot.claimed
+                    && match goal {
+                        Goal::Dogs(_) => spot.activity == Activity::Dog,
+                        _ => !spot.activity.animal(),
+                    }
+            })
+        {
+            let [x, z] = spot.position;
+            walk_to(town, chapter, bevy::prelude::Vec3::new(x, 0.0, z));
+            help(town, chapter, i);
+        }
+    }
+
     #[test]
     fn all_120_harbors_can_earn_three_stars_and_unlock_the_next() {
         use crate::campaign::{JAPAN_START, NORDIC_START, REGION_SIZE};
@@ -3873,15 +4070,7 @@ mod tests {
             let mut result = None;
             for _ in 0..chapter.par {
                 prepare_market(&mut town, chapter, &layout);
-                for goal in chapter.goals {
-                    if let Goal::Upgrade(kind, level) = goal
-                        && let Some(lot) = town.lots.iter().position(|b| {
-                            b.is_some_and(|b| b.kind == kind && u32::from(b.level) < level)
-                        })
-                    {
-                        town.upgrade(lot);
-                    }
-                }
+                improve_objectives(&mut town, chapter);
                 for desired in [
                     DateGarden,
                     SpiceBazaar,
@@ -3947,9 +4136,8 @@ mod tests {
                     for tariff in Price::ALL {
                         let next = play_market(town.clone(), chapter, policy, tariff);
                         let progress: f64 = chapter
-                            .goals
-                            .iter()
-                            .map(|&g| {
+                            .objectives(i)
+                            .map(|g| {
                                 let (old, need) = town.goal(g);
                                 let (new, _) = next.goal(g);
                                 f64::from(new.min(need).saturating_sub(old.min(need)))
@@ -3991,7 +4179,10 @@ mod tests {
                 failures.push(format!(
                     "{}: {:?}, Hafenbitten {}/{}",
                     chapter.district,
-                    chapter.goals.map(|g| (g.label(), town.goal(g))),
+                    chapter
+                        .objectives(i)
+                        .map(|goal| (goal.label(), town.goal(goal)))
+                        .collect::<Vec<_>>(),
                     town.totals.favors,
                     chapter.favor_goal
                 ));

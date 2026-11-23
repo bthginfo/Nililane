@@ -70,6 +70,7 @@ pub enum Command {
     Page(u8),
     Assign(Task, bool),
     Work(usize),
+    Masterwork(usize, bool),
     Next,
 }
 
@@ -1043,7 +1044,11 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
             }
         }
         Command::Group(group) => {
-            adventure.group = group.min(2);
+            adventure.group = group.min(if adventure.screen == Screen::Mission {
+                3
+            } else {
+                2
+            });
             adventure.page = 0;
             game.scroll_y = 0.0;
             game.dirty = true;
@@ -1097,6 +1102,7 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
                 for (good, n) in refunds {
                     island.add(good, n / 2);
                 }
+                island.set_masterwork(Level::at(island.index), lot, false);
                 while island.unassign(Task::Produce(lot)) {}
                 adventure.save(game);
                 close(game, adventure, Screen::Walk);
@@ -1117,6 +1123,17 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
                 }
             }
             game.dirty = true;
+        }
+        Command::Masterwork(lot, enabled) => {
+            if adventure.close_enough(Target::Plot(lot))
+                && let Some(island) = adventure.active_mut()
+            {
+                let level = Level::at(island.index);
+                if island.set_masterwork(level, lot, enabled) {
+                    adventure.save(game);
+                    game.dirty = true;
+                }
+            }
         }
         Command::Work(lot) => {
             if adventure.close_enough(Target::Plot(lot))

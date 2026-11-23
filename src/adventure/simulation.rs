@@ -32,6 +32,7 @@ pub enum Good {
     Flour,
     Paper,
     Perfume,
+    Masterwork,
 }
 
 impl Good {
@@ -43,7 +44,7 @@ impl Good {
         Self::Food,
         Self::Local,
     ];
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::Wood,
         Self::Stone,
         Self::Clay,
@@ -63,6 +64,7 @@ impl Good {
         Self::Flour,
         Self::Paper,
         Self::Perfume,
+        Self::Masterwork,
     ];
 
     pub fn present_in(self, region: Region) -> bool {
@@ -163,6 +165,13 @@ impl Good {
             Self::Flour => "Mehl",
             Self::Paper => "Papier",
             Self::Perfume => "Duftöl",
+            Self::Masterwork => match region {
+                Region::Greece => "Bemalte Amphoren",
+                Region::Rome => "Reliefziegel",
+                Region::Japan => "Washi-Laternen",
+                Region::Nordic => "Bernsteinbänder",
+                Region::Oasis => "Safranduftöl",
+            },
         }
     }
 
@@ -193,6 +202,13 @@ impl Good {
             Self::Flour => "mill",
             Self::Paper => "paper_workshop",
             Self::Perfume => "perfumer",
+            Self::Masterwork => match region {
+                Region::Greece => "potter",
+                Region::Rome => "adventure_bricks",
+                Region::Japan => "paper_workshop",
+                Region::Nordic => "wear_amber_brooch",
+                Region::Oasis => "perfumer",
+            },
         }
     }
 }
@@ -480,7 +496,7 @@ pub enum Quest {
 pub struct Island {
     pub index: usize,
     pub lots: Vec<Option<Property>>,
-    #[serde(deserialize_with = "load_stores")]
+    #[serde(deserialize_with = "load_goods")]
     pub stores: [u16; Good::ALL.len()],
     pub workers: Vec<Task>,
     pub position: [f32; 2],
@@ -509,9 +525,13 @@ pub struct Island {
     pub batches: Vec<Option<Production>>,
     #[serde(default)]
     pub fish_left: Vec<u16>,
+    #[serde(default)]
+    pub base_crafted: u16,
+    #[serde(default)]
+    masterwork_lots: Vec<usize>,
 }
 
-fn load_stores<'de, D: serde::Deserializer<'de>>(
+pub(super) fn load_goods<'de, D: serde::Deserializer<'de>>(
     input: D,
 ) -> Result<[u16; Good::ALL.len()], D::Error> {
     let saved = Vec::<u16>::deserialize(input)?;
@@ -544,6 +564,8 @@ impl Island {
             building_load: None,
             batches: vec![None; level.plots()],
             fish_left: Vec::new(),
+            base_crafted: 0,
+            masterwork_lots: Vec::new(),
         }
     }
 
@@ -819,14 +841,59 @@ impl Island {
         self.fish_ground(map, lot).is_some()
     }
 
+    pub fn makes_masterwork(&self, lot: usize) -> bool {
+        self.masterwork_lots.contains(&lot)
+    }
+
+    pub fn masterwork_unlocked(&self, level: Level, lot: usize) -> bool {
+        let Some(order) = level.work_order() else {
+            return false;
+        };
+        self.base_crafted >= order.base_needed
+            && self
+                .lots
+                .get(lot)
+                .copied()
+                .flatten()
+                .is_some_and(|property| {
+                    property.kind == order.workshop && property.tier >= order.tier
+                })
+    }
+
+    pub fn set_masterwork(&mut self, level: Level, lot: usize, enabled: bool) -> bool {
+        if enabled == self.makes_masterwork(lot)
+            || (enabled && !self.masterwork_unlocked(level, lot))
+        {
+            return false;
+        }
+        if enabled {
+            self.masterwork_lots.push(lot);
+        } else {
+            self.masterwork_lots.retain(|&saved| saved != lot);
+        }
+        true
+    }
+
+    pub fn recipe_for(&self, level: Level, lot: usize) -> Option<Recipe> {
+        let property = self.lots.get(lot).copied().flatten()?;
+        if self.makes_masterwork(lot)
+            && self.masterwork_unlocked(level, lot)
+            && let Some(order) = level.work_order()
+        {
+            return Some(Recipe {
+                need: vec![
+                    (order.base, 2),
+                    (order.ingredient, u16::from(order.tier - 1)),
+                ],
+                output: (Good::Masterwork, 3),
+                seconds: 18.0 + f32::from(order.tier) * 3.0,
+            });
+        }
+        property.kind.recipe(property.tier, level.region)
+    }
+
     pub fn start_production(&mut self, map: &super::Terrain, lot: usize) -> bool {
-        let Some(mut recipe) = self
-            .lots
-            .get(lot)
-            .copied()
-            .flatten()
-            .and_then(|p| p.kind.recipe(p.tier, map.level.region))
-        else {
+        let Some(mut recipe) = self.recipe_for(map.level, lot) else {
             return false;
         };
         if self.batch(lot).is_some() || !self.ready(&recipe.need) {
@@ -888,12 +955,22 @@ impl Island {
 
     pub fn tick_production(&mut self, map: &super::Terrain, dt: f32) -> bool {
         let mut changed = false;
+        let order = map.level.work_order();
         for lot in 0..self.lots.len() {
             if let Some(mut batch) = self.batch(lot) {
                 batch.left = (batch.left - dt).max(0.0);
                 if batch.left == 0.0 {
                     let stored = self.add(batch.output.kind, batch.output.units);
                     batch.output.units -= stored;
+                    if let Some(order) = order
+                        && batch.output.kind == order.base
+                        && self.lots[lot].is_some_and(|property| property.kind == order.workshop)
+                    {
+                        self.base_crafted = self
+                            .base_crafted
+                            .saturating_add(stored)
+                            .min(order.base_needed);
+                    }
                     changed |= stored > 0;
                 }
                 self.batches[lot] = (batch.output.units > 0).then_some(batch);

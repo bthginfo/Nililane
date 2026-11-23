@@ -654,7 +654,17 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
         guests::summary(rail, hud, town);
         line(rail, LINE);
         label(rail, hud, ch.name, 27.0, Face::Serif, SAND);
-        for g in ch.goals {
+        let trade = crate::campaign_orders::trade_order(ch, town.chapter).and_then(|order| {
+            [
+                Goal::Sale(order, false),
+                Goal::TradeUpgrade(order),
+                Goal::Sale(order, true),
+            ]
+            .into_iter()
+            .find(|&step| super::shown_goal(town, step).0 < step.target())
+        });
+        let visible = if trade.is_some() { 2 } else { 3 };
+        for g in trade.into_iter().chain(ch.goals).take(visible) {
             goal(rail, hud, town, g);
         }
         line(rail, LINE);
@@ -935,7 +945,7 @@ pub fn stat(p: &mut ChildSpawnerCommands, hud: &Hud, pic: &str, amount: &str, un
 }
 
 pub fn goal(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, goal: Goal) {
-    let (have, need) = town.goal(goal);
+    let (have, need) = super::shown_goal(town, goal);
     let done = have >= need;
     p.spawn(column(4.0)).with_children(|quest| {
         quest
@@ -946,7 +956,12 @@ pub fn goal(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, goal: Goal) {
             .with_children(|row| {
                 let image = match goal {
                     Goal::Build(k, _) | Goal::Upgrade(k, _) | Goal::Pair(k, _, _) => kind_icon(k),
-                    Goal::Serve(s, _) => service_icon(s),
+                    Goal::Serve(s, _) | Goal::Produce(s, _) => service_icon(s),
+                    Goal::Sale(order, _) | Goal::TradeUpgrade(order) => kind_icon(order.shop),
+                    Goal::Dogs(_) => "dog",
+                    Goal::Clean(_) => "scraps",
+                    Goal::GuestCare(age, ..) | Goal::FavoriteMenu(age, _) => age.icon(),
+                    Goal::Rebuild(order) => kind_icon(order.new),
                     Goal::Renown(_) => "star",
                     Goal::Help(_) => "nili",
                     Goal::Earn(_) => "coin",

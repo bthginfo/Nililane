@@ -42,10 +42,10 @@ const HARBOR: &[Kind] = &[
     Mill,
     Aqueduct,
     Baths,
+    GardenCourt,
     Forum,
     Scribe,
     Villa,
-    GardenCourt,
 ];
 const INLAND_SEA: &[Kind] = &[
     Machiya,
@@ -78,13 +78,15 @@ const FJORD: &[Kind] = &[
 ];
 
 const GREEK_HIVES: [Kind; 10] = prefix(AEGEAN);
+const GREEK_TABLES: [Kind; 8] = prefix(AEGEAN);
+const GREEK_GUESTS: [Kind; 9] = prefix(AEGEAN);
 const GREEK_DYES: [Kind; 11] = prefix(AEGEAN);
 const GREEK_STORES: [Kind; 12] = prefix(AEGEAN);
 const GREEK_OIL: [Kind; 13] = prefix(AEGEAN);
 const GREEK_TEMPLES: [Kind; 14] = prefix(AEGEAN);
 const ROMAN_WATER: [Kind; 12] = prefix(HARBOR);
-const ROMAN_WRITING: [Kind; 14] = prefix(HARBOR);
-const ROMAN_VILLA: [Kind; 15] = prefix(HARBOR);
+const ROMAN_GARDENS: [Kind; 13] = prefix(HARBOR);
+const ROMAN_WRITING: [Kind; 15] = prefix(HARBOR);
 const MILLS: &[Kind] = &[
     House, Well, Bakery, Grove, Potter, Stoa, Taverna, Inn, HerbGarden, Storehouse, Mill,
 ];
@@ -101,18 +103,20 @@ pub(super) const fn revise(ch: Chapter, stage: usize) -> Chapter {
         Region::Rome => rome(ch, stage),
         Region::Japan => japan(ch, stage),
         Region::Nordic => nordic(ch, stage),
-        Region::Oasis => ch,
+        Region::Oasis => super::oasis::revise(ch, stage),
     }
 }
 
 const fn greece(mut ch: Chapter, stage: usize) -> Chapter {
     ch.building_set = match stage {
-        6..=9 => Some(&GREEK_HIVES),
-        10..=11 => Some(&GREEK_DYES),
-        12 => Some(&GREEK_STORES),
-        13..=14 => Some(&GREEK_OIL),
-        15..=17 => Some(&GREEK_TEMPLES),
-        18.. => Some(AEGEAN),
+        3 => Some(&GREEK_TABLES),
+        4 => Some(&GREEK_GUESTS),
+        5..=7 => Some(&GREEK_HIVES),
+        8..=9 => Some(&GREEK_DYES),
+        10..=11 => Some(&GREEK_STORES),
+        12..=13 => Some(&GREEK_OIL),
+        14..=16 => Some(&GREEK_TEMPLES),
+        17.. => Some(AEGEAN),
         _ => ch.building_set,
     };
     match stage {
@@ -123,7 +127,7 @@ const fn greece(mut ch: Chapter, stage: usize) -> Chapter {
             ch.greeting = "Mara deckt die Tische. Aus der Backstube nebenan soll das Brot zur Taverne kommen.";
             ch.goals = [Pair(Taverna, Bakery, 1), Serve(Meze, 28), Specials(6)];
             ch.locals = &[Bread, Meze, Pottery, Shade, Meze];
-            ch.guests = &[Meze, Bread, Meze, Bed, Pottery, Meze];
+            ch.guests = &[Meze, Bread, Meze, Bed, Pottery, Meze, Honey];
             ch.hint = "Eine Taverne braucht Brot und Oliven. Passe ihre Gerichte an die Gäste an.";
         }
         6 => {
@@ -144,6 +148,11 @@ const fn greece(mut ch: Chapter, stage: usize) -> Chapter {
             ch.locals = &[Bread, Meze, Honey, Shade, Honey];
             ch.guests = &[Meze, Honey, Bread, Meze, Pottery, Honey, Meze, Shade];
             ch.goals = [Serve(Honey, 31), MarketDay(53), Route(Job::Welcome, 3)];
+        }
+        8 => {
+            ch.guests = &[
+                DyedCloth, Pottery, Bread, Shade, Meze, Pottery, Bed, DyedCloth,
+            ];
         }
         9 => {
             ch.goals = [Residents(11), Pair(House, Grove, 2), GoodDay(80)];
@@ -214,10 +223,10 @@ const fn greece(mut ch: Chapter, stage: usize) -> Chapter {
 const fn rome(mut ch: Chapter, stage: usize) -> Chapter {
     ch.building_set = match stage {
         2 => Some(MILLS),
-        3..=7 => Some(&ROMAN_WATER),
-        8..=11 => Some(&ROMAN_WRITING),
-        12..=14 => Some(&ROMAN_VILLA),
-        15.. => Some(HARBOR),
+        3 => Some(&ROMAN_WATER),
+        4..=6 => Some(&ROMAN_GARDENS),
+        7..=8 => Some(&ROMAN_WRITING),
+        9.. => Some(HARBOR),
         _ => ch.building_set,
     };
     match stage {
@@ -295,9 +304,9 @@ const fn rome(mut ch: Chapter, stage: usize) -> Chapter {
 const fn japan(mut ch: Chapter, stage: usize) -> Chapter {
     ch.building_set = match stage {
         3 => Some(&JAPAN_GARDENS),
-        4..=7 => Some(&JAPAN_PAPER),
-        8..=13 => Some(&JAPAN_CLAY),
-        14.. => Some(INLAND_SEA),
+        4 => Some(&JAPAN_PAPER),
+        5..=8 => Some(&JAPAN_CLAY),
+        9.. => Some(INLAND_SEA),
         _ => ch.building_set,
     };
     match stage {
@@ -307,6 +316,11 @@ const fn japan(mut ch: Chapter, stage: usize) -> Chapter {
                 Pair(RiceKitchen, MarketGarden, 1),
                 Harvest(19),
                 Serve(Rice, 36),
+            ];
+        }
+        5 => {
+            ch.guests = &[
+                Rice, Tea, Lantern, Prayer, Bed, Pottery, Rice, Lantern, Pottery,
             ];
         }
         7 => {
@@ -381,15 +395,20 @@ const fn japan(mut ch: Chapter, stage: usize) -> Chapter {
 const fn nordic(mut ch: Chapter, stage: usize) -> Chapter {
     ch.building_set = match stage {
         3 => Some(&NORDIC_SHEEP),
-        4..=6 => Some(&NORDIC_HEARTH),
-        7..=15 => Some(&NORDIC_CASKS),
-        16.. => Some(FJORD),
+        4 => Some(&NORDIC_HEARTH),
+        5..=10 => Some(&NORDIC_CASKS),
+        11.. => Some(FJORD),
         _ => ch.building_set,
     };
     match stage {
         3 => {
             ch.hint = "Eine Schafweide versorgt die Weberei bis zu zwei Plätze weit. Im Tagesplan siehst du, wer warme Schals sucht.";
             ch.goals = [Pair(Sheepfold, Weaver, 1), Serve(Textiles, 32), Specials(9)];
+        }
+        6 => {
+            ch.guests = &[
+                HearthMeal, Casks, SmokedFish, Textiles, HearthMeal, SmokedFish, Casks,
+            ];
         }
         7 => {
             ch.name = "Fackeln über Senja";

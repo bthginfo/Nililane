@@ -1,7 +1,7 @@
 use crate::{
     campaign::{Chapter, Region},
     model::{
-        GuestTip, Miss, Origin, SERVICES, Service, Tally, Town, Verdict, Visit,
+        Age, GuestTip, Miss, Origin, SERVICES, Service, Tally, Town, Verdict, Visit,
         satisfaction_percent,
     },
 };
@@ -327,6 +327,7 @@ pub(super) fn book(
     };
     let responses = Responses::from_tally(tally);
     let mut groups = [Responses::default(); 2];
+    let mut ages = [Responses::default(); 3];
     let mut reviewed = Vec::new();
     for (index, visit) in town.guest_history().iter().enumerate() {
         let Some(verdict) = visit.verdict() else {
@@ -335,6 +336,9 @@ pub(super) fn book(
         let count = &mut groups[usize::from(visit.origin == Origin::Ferry)];
         count.total += 1;
         count.served += u32::from(verdict == Verdict::Pleased);
+        let age = &mut ages[visit.age(index) as usize];
+        age.total += 1;
+        age.served += u32::from(verdict == Verdict::Pleased);
         reviewed.push((index, visit, verdict));
     }
     p.spawn(Node {
@@ -348,6 +352,16 @@ pub(super) fn book(
             metric(r, hud, "Von der Fähre", "ferry", groups[1]);
         }
     });
+    if Age::Child.available(town.chapter) && !reviewed.is_empty() {
+        p.spawn(row(8.0)).with_children(|r| {
+            for age in Age::ALL
+                .into_iter()
+                .filter(|age| age.available(town.chapter))
+            {
+                metric(r, hud, age.group(), age.icon(), ages[age as usize]);
+            }
+        });
+    }
 
     if tally.gaps.iter().any(|&count| count != 0) {
         p.spawn(row(8.0)).with_children(|reasons| {

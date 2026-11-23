@@ -30,6 +30,18 @@ pub struct SupplyOrder {
     pub goods: [(Good, u16); 2],
 }
 
+#[derive(Clone, Copy)]
+pub struct WorkOrder {
+    pub workshop: Build,
+    pub tier: u8,
+    pub base: Good,
+    pub base_needed: u16,
+    pub ingredient: Good,
+    pub units: u16,
+    pub companion: Good,
+    pub title: &'static str,
+}
+
 const NAMES: [[(&str, &str); CORE_HARBORS]; Region::ALL.len()] = [
     [
         ("Kleions Ufer", "Erste Häuser an der geschützten Bucht"),
@@ -388,13 +400,78 @@ impl Level {
             .chain(warehouse)
     }
 
-    pub fn order_count(self) -> u8 {
+    pub fn work_order(self) -> Option<WorkOrder> {
+        use Good::*;
+        let (stages, workshop, base, ingredients, companion, title) = match self.region {
+            Region::Greece => (
+                [4, 7, 9, 11],
+                Build::Harbor(Kind::Potter),
+                Craft,
+                [Local, Oil, Cloth, Oil],
+                Boards,
+                "Amphoren für die Küstenwache",
+            ),
+            Region::Rome => (
+                [5, 8, 10, 11],
+                Build::Brickyard,
+                Bricks,
+                [Stone, Tools, Local, Tools],
+                Bricks,
+                "Reliefziegel für die Wachstation",
+            ),
+            Region::Japan => (
+                [5, 8, 9, 11],
+                Build::Harbor(Kind::PaperWorkshop),
+                Paper,
+                [Boards, Cloth, Local, Cloth],
+                Meals,
+                "Laternen für die Wegstation",
+            ),
+            Region::Nordic => (
+                [4, 7, 9, 11],
+                Build::Harbor(Kind::Weaver),
+                Cloth,
+                [Wood, Craft, Local, Tools],
+                Fish,
+                "Flechtbänder für das Küstenhaus",
+            ),
+            Region::Oasis => (
+                [5, 7, 10, 11],
+                Build::Harbor(Kind::Perfumer),
+                Perfume,
+                [Food, Water, Cloth, Craft],
+                Water,
+                "Duftöle für die Karawane",
+            ),
+        };
+        let wave = stages.into_iter().position(|stage| stage == self.stage)?;
+        Some(WorkOrder {
+            workshop,
+            tier: [2, 3, 3, 4][wave],
+            base,
+            base_needed: [4, 5, 6, 8][wave],
+            ingredient: ingredients[wave],
+            units: [4, 5, 6, 8][wave],
+            companion,
+            title,
+        })
+    }
+
+    pub(super) fn regular_orders(self) -> u8 {
         match self.stage {
             0 => 0,
             1..=5 => 1,
             6..=9 => 2,
             _ => 3,
         }
+    }
+
+    pub fn order_count(self) -> u8 {
+        self.regular_orders() + u8::from(self.work_order().is_some())
+    }
+
+    pub fn work_order_delivered(self, delivered: u8) -> bool {
+        self.work_order().is_some() && delivered > self.regular_orders()
     }
 
     pub fn outpost(self) -> &'static str {
@@ -409,8 +486,17 @@ impl Level {
 
     pub fn order(self, index: u8) -> Option<SupplyOrder> {
         use Good::*;
-        if index >= self.order_count() {
-            return None;
+        if index >= self.regular_orders() {
+            let order = (index == self.regular_orders())
+                .then(|| self.work_order())
+                .flatten()?;
+            return Some(SupplyOrder {
+                title: order.title,
+                goods: [
+                    (Masterwork, order.units),
+                    (order.companion, 3 + self.stage as u16 / 2),
+                ],
+            });
         }
         let scale = self.stage as u16;
         let (title, goods) = match (index, self.stage, self.region) {

@@ -62,6 +62,32 @@ const PALACE: &[Kind] = &[
     MoonGarden,
     CarpetHall,
 ];
+const EARLY_GLASS: &[Kind] = &[
+    OasisHome,
+    Cistern,
+    DateGarden,
+    SpiceBazaar,
+    Caravanserai,
+    Glassworks,
+];
+
+pub(super) const fn revise(mut chapter: Chapter, stage: usize) -> Chapter {
+    chapter.building_set = match stage {
+        3..=4 => Some(EARLY_GLASS),
+        5..=6 => Some(GLASS),
+        7..=9 => Some(PERFUME),
+        10..=11 => Some(GARDENS),
+        12.. => Some(PALACE),
+        _ => chapter.building_set,
+    };
+    if stage == 3 {
+        chapter.guests = &[Dates, Glass, Spices, Bed, Bed, Glass, Dates, Bed];
+    }
+    if stage == 7 {
+        chapter.guests = &[Spices, Incense, Dates, Bed, Spices, Incense, Dates];
+    }
+    chapter
+}
 
 const FIRST: Chapter = Chapter {
     region: Region::Oasis,

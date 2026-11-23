@@ -87,6 +87,7 @@ pub fn spots(town: &Town, chapter: &Chapter) -> [Option<Spot>; SPOTS] {
         .wrapping_mul(13)
         .wrapping_add(town.day);
     let span = (chapter.layout.width() as f32 - 1.0) * crate::layout::LOT_SPACING * 0.5;
+    let quest_dog = crate::campaign_orders::quest_dog(town.chapter) && town.totals.dogs == 0;
     std::array::from_fn(|slot| {
         let (activity, start, end) = match slot {
             0 => (
@@ -98,8 +99,8 @@ pub fn spots(town: &Town, chapter: &Chapter) -> [Option<Spot>; SPOTS] {
                 0.12,
                 1.0,
             ),
-            1 if stage >= PET_STAGE && !seed.is_multiple_of(5) => (
-                if seed % 4 < 2 {
+            1 if stage >= PET_STAGE && (quest_dog || !seed.is_multiple_of(5)) => (
+                if !quest_dog && seed % 4 < 2 {
                     Activity::Cat
                 } else {
                     Activity::Dog
@@ -168,6 +169,11 @@ pub fn help(town: &mut Town, chapter: &Chapter, index: usize) -> Option<Activity
     }
     day.street_claims |= 1 << index;
     day.tally.street_bonus += spot.activity.reward();
+    match spot.activity {
+        Activity::Dog => day.tally.dogs += 1,
+        Activity::Leaves | Activity::Scraps => day.tally.cleaned += 1,
+        Activity::Cat => {}
+    }
     Some(spot.activity)
 }
 

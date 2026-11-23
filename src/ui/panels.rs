@@ -898,7 +898,7 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                 } else if town.planning() {
                     price_cards(page, hud, town, chapter, lot, service, b.price);
                     if let Some(forecast) = town.offer_forecast(chapter, lot, &before) {
-                        offer_cards(page, hud, b, &forecast, town.chapter);
+                        offer_cards(page, hud, b, &forecast, town, chapter);
                     }
                 }
             } else {
@@ -1074,12 +1074,43 @@ fn offer_cards(
     hud: &Hud,
     building: Building,
     forecast: &crate::model::OfferForecast,
-    island: usize,
+    town: &Town,
+    chapter: &Chapter,
 ) {
-    page.spawn(row(11.0)).with_children(|header| {
+    use crate::campaign::Goal;
+    let island = town.chapter;
+    let requested = crate::campaign_orders::trade_order(chapter, island)
+        .filter(|order| {
+            order.shop == building.kind
+                && town.goal(Goal::Sale(*order, true)).0 < order.special_sales
+        })
+        .map(|order| {
+            if town.goal(Goal::Sale(order, false)).0 < order.basic {
+                Assortment::Standard
+            } else {
+                order.special
+            }
+        });
+    page.spawn(Node {
+        flex_wrap: FlexWrap::Wrap,
+        row_gap: Val::Px(5.0),
+        ..row(11.0)
+    })
+    .with_children(|header| {
         label(header, hud, "Angebot", 18.0, Face::Bold, GOLD);
         metric(header, hud, "coin", "Möglicher Mehrerlös");
-        if let Some(next) = Assortment::ALL.into_iter().find(|choice| {
+        if let Some(choice) = requested.filter(|choice| !choice.unlocked(building.level)) {
+            metric(
+                header,
+                hud,
+                "star",
+                format!(
+                    "Auftrag ab Stufe {} · {}",
+                    choice.tier(),
+                    choice.label(building.kind)
+                ),
+            );
+        } else if let Some(next) = Assortment::ALL.into_iter().find(|choice| {
             !choice.unlocked(building.level)
                 && choice.flavor().is_some_and(|age| age.available(island))
         }) {
@@ -1139,6 +1170,12 @@ fn offer_cards(
                         icon(id, hud, art, 22.0);
                         label(id, hud, choice.label(building.kind), 15.5, Face::Bold, SAND);
                     });
+                    if requested == Some(choice) {
+                        tile.spawn(row(3.0)).with_children(|hint| {
+                            icon(hint, hud, "star", 16.0);
+                            label(hint, hud, "Auftrag", 14.0, Face::Bold, GOLD);
+                        });
+                    }
                     if let Some(age) = age {
                         let people = match age {
                             crate::model::Age::Child => "Kinder",
@@ -2102,9 +2139,7 @@ fn goals(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter
         "Aufträge",
         "book",
         |page| {
-            for task in chapter.goals {
-                super::screens::goal(page, hud, town, task);
-            }
+            objective_list(page, hud, town, chapter);
             hint(page, hud, chapter.hint, "nili");
             if chapter
                 .goals
@@ -2147,6 +2182,144 @@ fn goals(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter
             );
         },
     );
+}
+
+fn objective_list(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter) {
+    use crate::campaign::Goal;
+    let extra = crate::campaign_orders::extra_goals(chapter, town.chapter);
+    if extra.iter().all(Option::is_none) {
+        for task in chapter.goals {
+            super::screens::goal(p, hud, town, task);
+        }
+        return;
+    }
+    let last = extra.into_iter().flatten();
+    let order = crate::campaign_orders::trade_order(chapter, town.chapter);
+    let basics = chapter.goals.into_iter().chain(last.clone().filter(|task| {
+        order.is_some() && !matches!(task, Goal::Sale(..) | Goal::TradeUpgrade(..))
+    }));
+    let followups = last
+        .filter(|task| order.is_none() || matches!(task, Goal::Sale(..) | Goal::TradeUpgrade(..)));
+    let main = |p: &mut ChildSpawnerCommands| {
+        for task in basics {
+            campaign_goal(p, hud, town, task);
+        }
+    };
+    let extra = |p: &mut ChildSpawnerCommands| {
+        if let Some(order) = order {
+            metric(
+                p,
+                hud,
+                kind_icon(order.shop),
+                format!("Handelsauftrag · {}", order.shop.name()),
+            );
+        }
+        for task in followups {
+            campaign_goal(p, hud, town, task);
+        }
+    };
+    if hud.phone {
+        main(p);
+        line(p, LINE);
+        extra(p);
+    } else {
+        p.spawn(Node {
+            align_items: AlignItems::Start,
+            ..row(23.0)
+        })
+        .with_children(|columns| {
+            let group = Node {
+                flex_basis: Val::Px(0.0),
+                flex_grow: 1.0,
+                min_width: Val::Px(0.0),
+                ..column(10.0)
+            };
+            columns.spawn(group.clone()).with_children(main);
+            columns.spawn(group).with_children(extra);
+        });
+    }
+}
+
+fn campaign_goal(
+    p: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    town: &Town,
+    task: crate::campaign::Goal,
+) {
+    use crate::campaign::Goal;
+    super::screens::goal(p, hud, town, task);
+    match task {
+        Goal::GuestCare(_, minimum, _) => {
+            label(
+                p,
+                hud,
+                format!("Ab {minimum} zufriedenen Gästen dieser Gruppe an einem Tag."),
+                14.0,
+                Face::Body,
+                MUTED,
+            );
+        }
+        Goal::FavoriteMenu(_, _) => {
+            label(
+                p,
+                hud,
+                "Am selben Tag, aus verschiedenen Warengruppen.",
+                14.0,
+                Face::Body,
+                MUTED,
+            );
+        }
+        Goal::Rebuild(order) if town.planning() && town.goal(task).0 < task.target() => {
+            button(
+                p,
+                hud,
+                Action::LookAtLot(order.lot),
+                "Bauplatz öffnen",
+                "hammer",
+                "",
+                Style::Quiet,
+                false,
+            );
+        }
+        Goal::TradeUpgrade(order)
+            if super::shown_goal(town, Goal::Sale(order, false)).0 < order.basic =>
+        {
+            label(
+                p,
+                hud,
+                "Nach dem Verkauf des Grundangebots",
+                14.0,
+                Face::Body,
+                MUTED,
+            );
+        }
+        Goal::Sale(order, true)
+            if super::shown_goal(town, Goal::TradeUpgrade(order)).0
+                >= u32::from(order.special.tier())
+                && town.goal(task).0 < task.target() =>
+        {
+            let help = order
+                .special
+                .flavor()
+                .filter(|_| order.favorite_only)
+                .map_or_else(
+                    || "Wähle dieses Angebot morgens im Gebäude.".to_owned(),
+                    |age| format!("Morgens im Laden wählen · {}", age.group()),
+                );
+            label(p, hud, help, 14.0, Face::Body, MUTED);
+        }
+        Goal::Dogs(_) if town.planning() && town.goal(task).0 < task.target() => {
+            label(
+                p,
+                hud,
+                "In der ersten Schichthälfte kommt ein Hund in die Gasse.",
+                14.0,
+                Face::Body,
+                MUTED,
+            );
+        }
+        _ => {}
+    }
 }
 
 fn contract_card(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter) {
@@ -2928,9 +3101,7 @@ fn evening(
                     SAND,
                 );
             } else {
-                for goal in chapter.goals {
-                    super::screens::goal(page, hud, town, goal);
-                }
+                objective_list(page, hud, town, chapter);
                 if !tutorial && let Some(next) = onward {
                     let bonus = crate::save::travel_bonus(
                         next,

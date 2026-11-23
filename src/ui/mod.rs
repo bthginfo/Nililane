@@ -1198,6 +1198,11 @@ fn shown_goal(town: &crate::model::Town, goal: crate::campaign::Goal) -> (u32, u
             .filter(|&(record, today)| *record + today > 0)
             .count() as u32,
         Goal::FerryDay(_) => value.max(day.tally.ferry_served),
+        Goal::Produce(service, _) => value + day.tally.produced[service as usize],
+        Goal::Dogs(_) => value + day.tally.dogs,
+        Goal::Clean(_) => value + day.tally.cleaned,
+        Goal::GuestCare(age, minimum, _) => value.max(day.tally.care(age, minimum)),
+        Goal::FavoriteMenu(age, _) => value.max(day.tally.favorite_variety(age)),
         _ => value,
     };
     (shown, need)

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     Build, Good, Island, Level, NILI_CAPACITY, Property, Terrain,
     logistics::{Cargo, Haul},
+    simulation::load_goods,
     terrain::HALL_DOOR,
 };
 
@@ -14,7 +15,9 @@ pub const MAX_BUILD_CREW: u8 = 6;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BuildingSite {
     pub property: Property,
+    #[serde(deserialize_with = "load_goods")]
     pub needed: [u16; Good::ALL.len()],
+    #[serde(deserialize_with = "load_goods")]
     pub materials: [u16; Good::ALL.len()],
     pub work: f32,
     pub crew: u8,

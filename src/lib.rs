@@ -1,5 +1,6 @@
 mod adventure;
 mod campaign;
+mod campaign_orders;
 mod caravan;
 mod coach;
 mod controls;

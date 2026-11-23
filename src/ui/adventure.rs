@@ -821,8 +821,7 @@ fn walk(
                         }
                     }
                     if let Target::Plot(lot) = target
-                        && let Some(property) = island.lots[lot]
-                        && let Some(recipe) = property.kind.recipe(property.tier, level.region)
+                        && let Some(recipe) = island.recipe_for(level, lot)
                         && let Some((good, need)) = recipe
                             .need
                             .into_iter()
@@ -1147,7 +1146,10 @@ fn build_menu(
                         let costs = kind.cost(1);
                         let locked = island.locked(level, kind, 1);
                         let fits = kind.fits(level, lot);
-                        let required = level.goals().any(|goal| goal.kind == kind);
+                        let required = level.goals().any(|goal| goal.kind == kind)
+                            || level
+                                .work_order()
+                                .is_some_and(|order| order.workshop == kind);
                         button_shell(
                             r,
                             Action::Adventure(Command::Build(kind)),
@@ -1241,7 +1243,56 @@ fn property_panel(
         property.kind.name(level.region),
         build_icon(property.kind),
         |p| {
-            if let Some(recipe) = property.kind.recipe(property.tier, level.region) {
+            if let Some(recipe) = island.recipe_for(level, lot) {
+                if let Some(order) = level
+                    .work_order()
+                    .filter(|order| order.workshop == property.kind)
+                {
+                    let unlocked = island.masterwork_unlocked(level, lot);
+                    let masterwork = island.makes_masterwork(lot);
+                    p.spawn(Node {
+                        flex_wrap: FlexWrap::Wrap,
+                        row_gap: Val::Px(6.0),
+                        ..row(7.0)
+                    })
+                    .with_children(|r| {
+                        for (enable, good) in [(false, order.base), (true, Good::Masterwork)] {
+                            action(
+                                r,
+                                hud,
+                                Command::Masterwork(lot, enable),
+                                good.name(level.region),
+                                good.icon(level.region),
+                                "",
+                                if enable == masterwork {
+                                    Style::Selected
+                                } else {
+                                    Style::Quiet
+                                },
+                                enable && !unlocked,
+                            );
+                        }
+                    });
+                    if property.tier < order.tier {
+                        panels::metric(
+                            p,
+                            hud,
+                            "hammer",
+                            format!("Neue Rezeptur ab Stufe {}", order.tier),
+                        );
+                    }
+                    if island.base_crafted < order.base_needed {
+                        panels::metric(
+                            p,
+                            hud,
+                            order.base.icon(level.region),
+                            format!(
+                                "Grundware herstellen · {}/{}",
+                                island.base_crafted, order.base_needed
+                            ),
+                        );
+                    }
+                }
                 let fishing = recipe.output.0 == Good::Fish;
                 let staffed = island.assignment(Task::Produce(lot));
                 p.spawn(row(12.0)).with_children(|r| {
@@ -1271,9 +1322,22 @@ fn property_panel(
                         } else if fishing {
                             "Das Fischerboot ist unterwegs."
                         } else {
-                            "Die Produktion läuft."
+                            "Ein Arbeitsgang läuft."
                         },
                     );
+                    if batch.output.kind != recipe.output.0 {
+                        label(
+                            p,
+                            hud,
+                            format!(
+                                "Dieser Arbeitsgang ergibt {}.",
+                                batch.output.kind.name(level.region)
+                            ),
+                            16.0,
+                            Face::Body,
+                            MUTED,
+                        );
+                    }
                     p.spawn((
                         Node {
                             height: Val::Px(7.0),
@@ -2061,11 +2125,22 @@ fn mission(
 ) {
     panels::modal(root, hud, 692.0, level.hall(), "Aufträge", "book", |p| {
         if level.order_count() > 0 || level.plan().is_some() {
-            p.spawn(row(7.0)).with_children(|tabs| {
+            p.spawn(Node {
+                flex_wrap: FlexWrap::Wrap,
+                row_gap: Val::Px(6.0),
+                ..row(7.0)
+            })
+            .with_children(|tabs| {
                 for (group, name, art, visible) in [
                     (0, "Bauziele", "hammer", true),
                     (1, "Lieferungen", "storehouse", level.order_count() > 0),
                     (2, "Bauplan", "adventure_blueprint", level.plan().is_some()),
+                    (
+                        3,
+                        "Handwerk",
+                        Good::Masterwork.icon(level.region),
+                        level.work_order().is_some(),
+                    ),
                 ] {
                     if visible {
                         action(
@@ -2088,6 +2163,8 @@ fn mission(
         }
         if a.group == 1 && level.order_count() > 0 {
             shipment_panel(p, hud, a, island, level);
+        } else if a.group == 3 && level.work_order().is_some() {
+            work_order_panel(p, hud, a, island, level);
         } else if a.group == 2
             && let Some(plan) = level.plan()
         {
@@ -2196,6 +2273,114 @@ fn mission(
         }
         back(p, hud, "Zur Insel");
     });
+}
+
+fn work_order_panel(
+    p: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    a: &Adventure,
+    island: &Island,
+    level: Level,
+) {
+    let Some(order) = level.work_order() else {
+        return;
+    };
+    let delivered = level.work_order_delivered(island.orders_delivered);
+    let index = level.order_count() - 1;
+    let packed = island.shipment == Some(index)
+        || island
+            .courier
+            .as_ref()
+            .is_some_and(|trip| trip.order == Some(index));
+    let workshop = island
+        .lots
+        .iter()
+        .enumerate()
+        .filter_map(|(lot, property)| {
+            let property = property.filter(|property| property.kind == order.workshop)?;
+            Some((property.tier, lot))
+        })
+        .max();
+    let tier = workshop.map_or(0, |(tier, _)| tier);
+    let ware = island.amount(Good::Masterwork).min(order.units);
+    label(p, hud, order.title, 23.0, Face::Serif, SAND);
+    goal(
+        p,
+        hud,
+        order.base.icon(level.region),
+        &format!("{} herstellen", order.base.name(level.region)),
+        delivered || island.base_crafted >= order.base_needed,
+        format!("{}/{}", island.base_crafted, order.base_needed),
+    );
+    goal(
+        p,
+        hud,
+        build_icon(order.workshop),
+        &format!("{} ausbauen", order.workshop.name(level.region)),
+        delivered || tier >= order.tier,
+        format!("Stufe {tier}/{}", order.tier),
+    );
+    goal(
+        p,
+        hud,
+        Good::Masterwork.icon(level.region),
+        &format!("{} herstellen", Good::Masterwork.name(level.region)),
+        delivered || packed || ware >= order.units,
+        format!(
+            "{}/{}",
+            if packed || delivered {
+                order.units
+            } else {
+                ware
+            },
+            order.units
+        ),
+    );
+    goal(
+        p,
+        hud,
+        "ferry",
+        "Zum Außenposten liefern",
+        delivered,
+        String::new(),
+    );
+    if delivered {
+        return;
+    }
+    if let Some((_, lot)) = workshop {
+        let target = Target::Plot(lot);
+        let nearby = a.close_enough(target);
+        if !packed && ware < order.units {
+            action(
+                p,
+                hud,
+                if nearby {
+                    Command::Inspect(target)
+                } else {
+                    Command::SetRoute(target)
+                },
+                if nearby {
+                    "Werkstatt öffnen"
+                } else {
+                    "Weg zur Werkstatt"
+                },
+                build_icon(order.workshop),
+                "",
+                Style::Quiet,
+                false,
+            );
+        }
+    }
+    action(
+        p,
+        hud,
+        Command::Group(1),
+        "Zur Lieferliste",
+        "ferry",
+        "",
+        Style::Quiet,
+        false,
+    );
 }
 
 fn shipment_panel(
@@ -2520,6 +2705,16 @@ fn objectives(p: &mut ChildSpawnerCommands, hud: &Hud, level: Level, island: &Is
             "Lieferungen zum Außenposten",
             island.orders_delivered >= level.order_count(),
             format!("{}/{}", island.orders_delivered, level.order_count()),
+        );
+    }
+    if level.work_order().is_some() {
+        goal(
+            p,
+            hud,
+            Good::Masterwork.icon(level.region),
+            "Meisterauftrag",
+            level.work_order_delivered(island.orders_delivered),
+            String::new(),
         );
     }
 }

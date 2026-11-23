@@ -10,9 +10,10 @@ mod oasis;
 mod progression;
 
 use crate::{
+    campaign_orders::{RebuildOrder, TradeOrder, extra_goals},
     errands::Job,
     layout::Layout,
-    model::{DAY_SECONDS, Favor, Kind, Service, Weather},
+    model::{Age, Assortment, DAY_SECONDS, Favor, Kind, Service, Weather},
 };
 
 pub const REGION_SIZE: usize = 24;
@@ -180,6 +181,14 @@ pub enum Goal {
     Residents(u32),
     Upgrade(Kind, u32),
     Pair(Kind, Kind, u32),
+    Produce(Service, u32),
+    Sale(TradeOrder, bool),
+    TradeUpgrade(TradeOrder),
+    Dogs(u32),
+    Clean(u32),
+    GuestCare(Age, u32, u32),
+    FavoriteMenu(Age, u32),
+    Rebuild(RebuildOrder),
 }
 
 impl Goal {
@@ -208,8 +217,17 @@ impl Goal {
             | Self::GoodDay(n)
             | Self::Specials(n)
             | Self::Residents(n)
+            | Self::Produce(_, n)
+            | Self::Dogs(n)
+            | Self::Clean(n)
+            | Self::GuestCare(_, _, n)
+            | Self::FavoriteMenu(_, n)
             | Self::Upgrade(_, n)
             | Self::Pair(_, _, n) => n,
+            Self::Sale(order, false) => order.basic,
+            Self::Sale(order, true) => order.special_sales,
+            Self::TradeUpgrade(order) => u32::from(order.special.tier()),
+            Self::Rebuild(order) => u32::from(order.tier),
         }
     }
 
@@ -266,6 +284,32 @@ impl Goal {
             Self::Residents(_) => "Nachbarn im Viertel".into(),
             Self::Upgrade(kind, _) => format!("{} · Ausbaustufe", kind.name()),
             Self::Pair(a, b, _) => format!("{} neben {}", a.name(), b.name()),
+            Self::Produce(service, _) => format!("{} herstellen", service.name()),
+            Self::Sale(order, special) => {
+                let choice = if special {
+                    order.special
+                } else {
+                    Assortment::Standard
+                };
+                if special && order.favorite_only {
+                    format!(
+                        "{} als Lieblingsangebot verkaufen",
+                        choice.label(order.shop)
+                    )
+                } else {
+                    format!("{} verkaufen", choice.label(order.shop))
+                }
+            }
+            Self::TradeUpgrade(order) => format!("{} ausbauen", order.shop.name()),
+            Self::Dogs(_) => "Hunde streicheln".into(),
+            Self::Clean(_) => "Gasse aufräumen".into(),
+            Self::GuestCare(age, _, _) => format!("Zufriedenheit · {} (%)", age.group()),
+            Self::FavoriteMenu(age, _) => {
+                format!("Verschiedene Lieblingsangebote · {}", age.group())
+            }
+            Self::Rebuild(order) => {
+                format!("{} durch {} ersetzen", order.old.name(), order.new.name())
+            }
         }
     }
 }
@@ -297,6 +341,12 @@ pub struct Chapter {
 }
 
 impl Chapter {
+    pub fn objectives(&self, index: usize) -> impl Iterator<Item = Goal> {
+        self.goals
+            .into_iter()
+            .chain(extra_goals(self, index).into_iter().flatten())
+    }
+
     pub fn allowed(&self) -> &'static [Kind] {
         const GREEK_PLANS: [Kind; 12] = [
             House, Well, Bakery, Grove, Potter, Stoa, Taverna, HerbGarden, Inn, Storehouse, Press,

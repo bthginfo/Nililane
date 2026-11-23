@@ -1,6 +1,33 @@
 use super::*;
 
 #[test]
+fn pre_masterwork_saves_keep_their_stock_and_in_progress_sites() {
+    let level = Level::at(6);
+    let mut island = Island::new(level);
+    island.add(Good::Wood, 11);
+    assert!(island.plan_build(level, 0, Build::Sawmill));
+    let mut snapshot = serde_json::to_value(&island).unwrap();
+    snapshot["stores"].as_array_mut().unwrap().pop();
+    for field in ["needed", "materials"] {
+        snapshot["construction"][0][field]
+            .as_array_mut()
+            .unwrap()
+            .pop();
+    }
+    for field in ["masterwork_lots", "base_crafted"] {
+        snapshot.as_object_mut().unwrap().remove(field);
+    }
+    let restored: Island = serde_json::from_value(snapshot).unwrap();
+    assert_eq!(restored.amount(Good::Wood), 11);
+    assert_eq!(restored.amount(Good::Masterwork), 0);
+    assert_eq!(
+        restored.site(0).unwrap().needed,
+        island.site(0).unwrap().needed
+    );
+    assert_eq!(restored.base_crafted, 0);
+}
+
+#[test]
 fn showing_a_waypoint_leaves_nili_in_place_and_finds_a_walkable_detour() {
     let mut adventure = Adventure::default();
     adventure.open(0, true);
@@ -149,6 +176,10 @@ impl Expedition {
             return;
         }
         let level = self.terrain.level;
+        if good == Good::Masterwork {
+            self.supply_masterwork(target);
+            return;
+        }
         let output = |build: Build| {
             build
                 .recipe(1, level.region)
@@ -172,6 +203,7 @@ impl Expedition {
         let task = Task::Produce(lot);
         let property = self.island.lots[lot].unwrap();
         let recipe = property.kind.recipe(property.tier, level.region).unwrap();
+        let had_masterwork = self.island.set_masterwork(level, lot, false);
         assert!(
             recipe.need.iter().all(|&(input, _)| input != good),
             "{}: Produktionskreislauf für {good:?}",
@@ -213,6 +245,60 @@ impl Expedition {
             "{}: zu wenig {good:?}",
             level.name
         );
+        if had_masterwork {
+            assert!(self.island.set_masterwork(level, lot, true));
+        }
+    }
+
+    fn supply_masterwork(&mut self, target: u16) {
+        let level = self.terrain.level;
+        let order = level.work_order().unwrap();
+        let lot = self
+            .island
+            .lots
+            .iter()
+            .position(|property| property.is_some_and(|property| property.kind == order.workshop))
+            .unwrap_or_else(|| self.build(order.workshop, None));
+        if self.island.base_crafted < order.base_needed {
+            assert!(!self.island.set_masterwork(level, lot, true));
+            while self.island.base_crafted < order.base_needed {
+                self.run_workshop(lot);
+            }
+        }
+        while self.island.lots[lot].unwrap().tier < order.tier {
+            assert!(!self.island.set_masterwork(level, lot, true));
+            self.build(order.workshop, Some(lot));
+        }
+        if !self.island.makes_masterwork(lot) {
+            assert!(self.island.set_masterwork(level, lot, true));
+        }
+        while self.island.amount(Good::Masterwork) < target {
+            self.run_workshop(lot);
+        }
+        assert!(self.island.set_masterwork(level, lot, false));
+    }
+
+    fn run_workshop(&mut self, lot: usize) {
+        let level = self.terrain.level;
+        let recipe = self.island.recipe_for(level, lot).unwrap();
+        for (good, quantity) in recipe.need {
+            self.supply(good, quantity);
+        }
+        self.walk_to(self.terrain.plots[lot], reach(Target::Plot(lot)));
+        let before = self.island.amount(recipe.output.0);
+        assert!(
+            self.island.start_production(&self.terrain, lot),
+            "{}: {lot} steht still",
+            level.name
+        );
+        let batch = self.island.batch(lot).unwrap();
+        self.island
+            .tick_production(&self.terrain, batch.duration * 0.5);
+        assert_eq!(self.island.amount(recipe.output.0), before);
+        self.island
+            .tick_production(&self.terrain, batch.duration * 0.5 + 0.01);
+        assert!(self.island.amount(recipe.output.0) > before);
+        self.rounds += 1;
     }
 
     fn build(&mut self, kind: Build, previous: Option<usize>) -> usize {
