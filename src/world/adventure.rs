@@ -1829,10 +1829,11 @@ fn woods(terrain: &Terrain, colors: Palette) -> impl Iterator<Item = Mesh> {
                     &[q - leaf, q + leaf, q + Vec3::Y * (h * 0.8)],
                     shift(colors.leaves, -4),
                 );
+                // A tiny top ring keeps every side face a proper quad with a normal.
                 b.frustum(
                     q + Vec3::Y * (h - 0.03),
                     0.12,
-                    0.0,
+                    0.02,
                     0.08,
                     4,
                     shift(color, (k as i16) * 3),
