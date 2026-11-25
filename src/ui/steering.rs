@@ -210,13 +210,22 @@ pub(super) fn nearby(near: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, to
             );
         }
         None => {
-            panels::metric(near, hud, "pad_dpad", "Linker Stick oder ziehen");
+            panels::metric(near, hud, "pad_dpad", walk_hint(hud));
             if let Some(building) = game.destination.and_then(|lot| town.lots[lot]) {
                 panels::metric(near, hud, kind_icon(building.kind), building.kind.name());
             } else {
                 label(near, hud, "Geh zu einem Gebäude.", 15.0, Face::Body, MUTED);
             }
         }
+    }
+}
+
+/// How to walk with the device in use.
+fn walk_hint(hud: &Hud) -> &'static str {
+    match hud.device {
+        Device::Pad => "Linker Stick oder ziehen",
+        Device::Keys => "WASD, Pfeiltasten oder ziehen",
+        Device::Pointer => "Zum Gehen ziehen",
     }
 }
 
@@ -277,14 +286,7 @@ pub(super) fn draw(
             }
             steps.spawn(row(7.0)).with_children(|legend| {
                 icon(legend, hud, "pad_dpad", 19.0);
-                label(
-                    legend,
-                    hud,
-                    "Linker Stick oder ziehen",
-                    15.0,
-                    Face::Bold,
-                    MUTED,
-                );
+                label(legend, hud, walk_hint(hud), 15.0, Face::Bold, MUTED);
             });
         });
     });

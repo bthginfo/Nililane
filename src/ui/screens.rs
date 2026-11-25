@@ -182,7 +182,9 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
     let start = offset + if second { CORE_HARBORS } else { 0 };
     let mut node = frame_node(Val::Percent(95.0), 10.0, 19.0);
     node.max_width = Val::Px(1190.0);
-    overlay(p).with_children(|cover| {
+    let mut cover = overlay(p);
+    cover.insert(feel::Veil(feel::key("Die Hafenreisen")));
+    cover.with_children(|cover| {
         card(cover, node, INK).with_children(|body| {
             body.spawn(Node {
                 justify_content: JustifyContent::SpaceBetween,
@@ -239,9 +241,9 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
                             if locked { "lock" } else { r.icon() },
                             "",
                             if r == region {
-                                Style::Primary
+                                Style::TabOn
                             } else {
-                                Style::Quiet
+                                Style::Tab
                             },
                             false,
                         );
@@ -255,12 +257,8 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
                         "Hauptreise",
                         "",
                         "LB",
-                        if !second {
-                            Style::Selected
-                        } else {
-                            Style::Quiet
-                        },
-                        !second,
+                        if !second { Style::TabOn } else { Style::Tab },
+                        false,
                     );
                     button(
                         pages,
@@ -269,12 +267,8 @@ pub fn chart(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, save: &Campai
                         "Bonusroute",
                         "star",
                         "RB",
-                        if second {
-                            Style::Selected
-                        } else {
-                            Style::Quiet
-                        },
-                        second,
+                        if second { Style::TabOn } else { Style::Tab },
+                        false,
                     );
                 });
             });
@@ -750,7 +744,7 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
                         label(help, hud, reason.label(job), 16.0, Face::Body, SAND);
                     }
                     help.spawn(row(5.0)).with_children(|r| {
-                        icon(r, hud, "pad_dpad", 26.0);
+                        dpad(r, hud, 26.0);
                         label(
                             r,
                             hud,
@@ -944,6 +938,28 @@ pub fn stat(p: &mut ChildSpawnerCommands, hud: &Hud, pic: &str, amount: &str, un
     });
 }
 
+/// A report figure that counts up from zero the first time the report shows.
+pub fn counted_stat(
+    p: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    pic: &str,
+    reveal: u64,
+    value: Option<(u32, &'static str, &'static str)>,
+    unit: &str,
+) {
+    p.spawn(row(6.0)).with_children(|cell| {
+        icon(cell, hud, pic, 31.0);
+        cell.spawn(column(0.0)).with_children(|numbers| {
+            if let Some((value, prefix, suffix)) = value {
+                feel::counter(numbers, hud, reveal, value, prefix, suffix);
+            } else {
+                label(numbers, hud, "—", 25.0, Face::Bold, GOLD);
+            }
+            label(numbers, hud, unit, 14.0, Face::Body, MUTED);
+        });
+    });
+}
+
 pub fn goal(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, goal: Goal) {
     let (have, need) = super::shown_goal(town, goal);
     let done = have >= need;
@@ -1023,10 +1039,11 @@ pub fn goal(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, goal: Goal) {
                 BackgroundColor(LINE),
             ))
             .with_children(|track| {
+                let shown = have.min(need) as f32 / need.max(1) as f32 * 100.0;
                 track.spawn((
-                    GoalBar(goal),
+                    GoalBar(goal, shown),
                     Node {
-                        width: Val::Percent(have.min(need) as f32 / need as f32 * 100.0),
+                        width: Val::Percent(shown),
                         height: Val::Percent(100.0),
                         ..default()
                     },

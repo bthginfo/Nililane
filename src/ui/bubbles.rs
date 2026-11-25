@@ -150,6 +150,7 @@ type Bubbles<'w, 's> = Query<
         &'static mut Node,
         &'static mut Visibility,
         &'static mut ButtonAction,
+        &'static mut feel::Ease,
     ),
 >;
 
@@ -167,8 +168,10 @@ pub fn update(
     mut texts: Query<(&BubbleText, &mut Text)>,
     markers: Query<&prompts::Marker>,
     mut measure: CaptionMeasure,
+    mut shown: Local<Vec<usize>>,
 ) {
     if badges.is_empty() {
+        shown.clear();
         return;
     }
     let viewport = SafeViewport::new(&window, scale.0);
@@ -271,11 +274,17 @@ pub fn update(
             *free = Some(pending);
         }
     }
-    for (mut badge, mut node, mut visible, mut shortcut) in &mut badges {
+    let before = std::mem::take(&mut *shown);
+    for (mut badge, mut node, mut visible, mut shortcut, mut ease) in &mut badges {
         if let Some(p) = placed[badge.slot] {
             if *visible != Visibility::Inherited {
                 *visible = Visibility::Inherited;
             }
+            // A new reaction springs open; a rebuilt one stays as it was.
+            if !before.contains(&p.guest) {
+                ease.pop();
+            }
+            shown.push(p.guest);
             floating::place_box(&mut node, p.bounds);
             if badge.guest != Some(p.guest) {
                 badge.guest = Some(p.guest);

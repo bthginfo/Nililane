@@ -1,5 +1,6 @@
 mod adventure;
 mod bubbles;
+mod feel;
 mod floating;
 mod guests;
 mod lessons;
@@ -12,20 +13,23 @@ mod touch;
 mod wardrobe;
 
 pub(crate) use adventure::project as project_adventure;
+pub(crate) use feel::{animate_overlays, animate_report, animate_toast, press};
+pub(crate) use panels::GUIDE_PAGES;
 pub use steering::{WalkPad, WalkPointer, animate_walk_pad, walk_input};
 pub(crate) use touch::PanelTouch;
 
 use std::collections::HashMap;
 
-use bevy::{prelude::*, ui::FocusPolicy, window::PrimaryWindow};
+use bevy::{color::Mix, prelude::*, ui::FocusPolicy, window::PrimaryWindow};
 
 use crate::{
     campaign::CHAPTERS,
-    controls::{Direction, insets},
+    controls::{Controls, Device, Direction, insets},
     game::{Action, Game, Panel, View},
     model::{Kind, MAX_LEVEL, Phase, Service, Weather},
     save::Campaign,
 };
+use feel::{Backdrop, Ease, ToastSlot, ToastText, Veil};
 
 const INK: Color = Color::srgb(0.064, 0.171, 0.181);
 const DEEP: Color = Color::srgb(0.082, 0.205, 0.220);
@@ -49,6 +53,10 @@ pub struct Hud {
     adventure_map: Option<(usize, Handle<Image>)>,
     phone: bool,
     close_modal: Option<Action>,
+    /// What a tap beside the open dialog does, if anything.
+    dismiss: Option<Action>,
+    /// The input device the hints are drawn for.
+    device: Device,
     scroll_y: f32,
 }
 
@@ -59,7 +67,14 @@ pub struct ButtonAction {
     style: Style,
 }
 
-#[derive(Clone, Copy)]
+impl ButtonAction {
+    /// Whether this is the dimmed area around a dialog, which closes it.
+    pub fn closes_dialog(&self) -> bool {
+        self.style == Style::Backdrop
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Style {
     Primary,
     Quiet,
@@ -67,6 +82,12 @@ enum Style {
     Danger,
     Speech,
     Spotlight,
+    /// An inactive tab in a tab row.
+    Tab,
+    /// The open tab in a tab row.
+    TabOn,
+    /// The dimmed area around a dialog; tapping it closes the dialog.
+    Backdrop,
 }
 
 #[derive(Clone, Copy)]
@@ -88,8 +109,9 @@ pub(crate) enum Dynamic {
 #[derive(Component)]
 pub(crate) struct DynamicBar;
 
+/// A goal's progress fill, with the width in percent it currently shows.
 #[derive(Component)]
-pub(crate) struct GoalBar(crate::campaign::Goal);
+pub(crate) struct GoalBar(crate::campaign::Goal, f32);
 
 #[derive(Component)]
 pub(crate) struct GoalBadge(crate::campaign::Goal, &'static str);
@@ -97,7 +119,8 @@ pub(crate) struct GoalBadge(crate::campaign::Goal, &'static str);
 #[derive(Component)]
 pub(crate) struct ToastBox;
 
-pub fn setup(mut hud: ResMut<Hud>, assets: Res<AssetServer>) {
+pub fn setup(mut commands: Commands, mut hud: ResMut<Hud>, assets: Res<AssetServer>) {
+    feel::spawn_curtain(&mut commands);
     hud.fonts = [
         assets.load("embedded://fonts/DMSans-Medium.ttf"),
         assets.load("embedded://fonts/DMSans-Bold.ttf"),
@@ -123,6 +146,7 @@ pub fn draw(
     save: Res<Campaign>,
     expedition: Res<crate::adventure::Adventure>,
     mut images: ResMut<Assets<Image>>,
+    controls: Res<Controls>,
 ) {
     if !game.dirty {
         return;
@@ -130,6 +154,7 @@ pub fn draw(
     game.dirty = false;
     hud.phone = game.phone;
     hud.scroll_y = game.scroll_y;
+    hud.device = controls.device;
     hud.close_modal = Some(
         if game.view == View::Adventure && game.panel == Panel::None {
             Action::Adventure(crate::adventure::Command::Close)
@@ -137,6 +162,9 @@ pub fn draw(
             Action::Back
         },
     );
+    hud.dismiss = dismiss(&game, &expedition)
+        .then_some(hud.close_modal)
+        .flatten();
     if game.view == View::Adventure
         && expedition.screen == crate::adventure::Screen::Map
         && let Some(terrain) = expedition.terrain.as_ref()
@@ -175,6 +203,7 @@ pub fn draw(
                 ..default()
             },
             BackgroundColor(shade),
+            Backdrop(shade),
             FocusPolicy::Pass,
         ))
         .with_children(|outer| {
@@ -212,33 +241,47 @@ pub fn draw(
                         }
                     }
                 }
+                let top = if game.phone { 12.0 } else { 28.0 };
                 base.spawn((
-                    ToastBox,
-                    Visibility::Hidden,
+                    ToastSlot(top),
                     Node {
                         position_type: PositionType::Absolute,
-                        left: Val::Percent(38.0),
-                        top: Val::Px(if game.phone { 12.0 } else { 28.0 }),
-                        max_width: Val::Percent(34.0),
-                        padding: UiRect::axes(Val::Px(18.0), Val::Px(10.0)),
+                        left: Val::Px(0.0),
+                        right: Val::Px(0.0),
+                        top: Val::Px(top),
+                        justify_content: JustifyContent::Center,
                         ..default()
                     },
-                    BackgroundColor(GOLD),
-                    BorderRadius::all(Val::Px(12.0)),
                     ZIndex(20),
                     FocusPolicy::Pass,
                 ))
-                .with_children(|toast| {
-                    toast.spawn((
-                        Dynamic::Toast,
-                        Text::new(""),
-                        TextFont {
-                            font: hud.fonts[1].clone(),
-                            font_size: 19.0,
+                .with_children(|slot| {
+                    slot.spawn((
+                        ToastBox,
+                        Visibility::Hidden,
+                        Node {
+                            max_width: Val::Percent(if game.phone { 52.0 } else { 40.0 }),
+                            padding: UiRect::axes(Val::Px(18.0), Val::Px(10.0)),
                             ..default()
                         },
-                        TextColor(INK),
-                    ));
+                        BackgroundColor(GOLD),
+                        BorderRadius::all(Val::Px(12.0)),
+                        FocusPolicy::Pass,
+                    ))
+                    .with_children(|toast| {
+                        toast.spawn((
+                            Dynamic::Toast,
+                            ToastText,
+                            Text::new(""),
+                            TextFont {
+                                font: hud.fonts[1].clone(),
+                                font_size: 19.0,
+                                ..default()
+                            },
+                            TextLayout::new_with_justify(JustifyText::Center),
+                            TextColor(INK),
+                        ));
+                    });
                 });
             };
             if hud.phone {
@@ -383,6 +426,32 @@ fn first(game: &Game, save: &Campaign) -> Option<Action> {
     Some(action)
 }
 
+/// Whether tapping beside the open dialog closes it. Phones close dialogs with
+/// their close button, and dialogs that start or end a day need a choice.
+fn dismiss(game: &Game, expedition: &crate::adventure::Adventure) -> bool {
+    use crate::adventure::Screen;
+    if game.phone || game.lesson.is_some() {
+        return false;
+    }
+    match (game.view, game.panel) {
+        (_, Panel::Guide | Panel::Options) => true,
+        (View::Adventure, Panel::None) => matches!(
+            expedition.screen,
+            Screen::Lot(_)
+                | Screen::Demolish(_)
+                | Screen::Resource(_)
+                | Screen::Pause
+                | Screen::Help
+                | Screen::Storage
+        ),
+        (View::Street, panel) => !matches!(
+            panel,
+            Panel::None | Panel::Brief | Panel::Report | Panel::Wardrobe
+        ),
+        _ => false,
+    }
+}
+
 #[derive(Component)]
 pub(crate) struct Root;
 
@@ -391,29 +460,89 @@ pub use guests::refresh as refresh_guest_summary;
 pub use lessons::update as update_lessons;
 pub use prompts::update as update_prompts;
 
+/// A disabled fill: the deep card colour, partly see-through.
+const DIM_FILL: Color = Color::srgba(0.082, 0.205, 0.220, 0.55);
+const DIM_EDGE: Color = Color::srgba(0.106, 0.248, 0.262, 0.6);
+
+/// The resting fill and border of a button.
+fn button_colors(style: Style, disabled: bool, focused: bool, hovered: bool) -> (Color, Color) {
+    match style {
+        Style::Spotlight => (Color::NONE, if hovered { SAND } else { GOLD }),
+        Style::Speech => (if hovered { PAPER } else { SAND }, PAPER),
+        Style::Backdrop => (Color::NONE, Color::NONE),
+        _ if disabled => (DIM_FILL, DIM_EDGE),
+        Style::Danger => (
+            RUST,
+            if hovered || focused {
+                PAPER
+            } else {
+                Color::srgb(0.61, 0.35, 0.29)
+            },
+        ),
+        Style::TabOn => (SAND, if focused { GOLD } else { SAND }),
+        Style::Tab if focused => (JADE, GOLD),
+        Style::Tab if hovered => (CARD, MUTED),
+        Style::Tab => (DEEP, LINE),
+        Style::Primary if focused => (GOLD, GOLD),
+        Style::Primary if hovered => (PAPER, PAPER),
+        Style::Primary => (GOLD, PAPER),
+        _ if focused => (JADE, GOLD),
+        _ if hovered => (JADE, PAPER),
+        Style::Selected => (JADE, LINE),
+        _ => (CARD, LINE),
+    }
+}
+
+/// Moves a colour toward its target and snaps once the step is invisible.
+fn approach(current: Color, target: Color, blend: f32) -> Color {
+    let (a, b) = (current.to_srgba(), target.to_srgba());
+    let gap = (a.red - b.red).abs()
+        + (a.green - b.green).abs()
+        + (a.blue - b.blue).abs()
+        + (a.alpha - b.alpha).abs();
+    if gap < 0.004 {
+        target
+    } else {
+        current.mix(&target, blend)
+    }
+}
+
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn refresh(
     game: Res<Game>,
     save: Res<Campaign>,
     hud: Res<Hud>,
+    controls: Res<Controls>,
+    time: Res<Time<Real>>,
     window: Single<&Window, With<PrimaryWindow>>,
     mut scale: ResMut<UiScale>,
-    mut root: Query<&mut Node, With<Root>>,
+    mut root: Query<&mut Node, (With<Root>, Without<ButtonAction>)>,
     mut buttons: Query<(
         &ButtonAction,
         &Interaction,
         &mut BackgroundColor,
         &mut BorderColor,
         &mut Outline,
+        &mut Ease,
+        &mut Transform,
+        &mut Node,
     )>,
     mut texts: Query<(&Dynamic, &mut Text)>,
-    mut toast: Query<&mut Visibility, With<ToastBox>>,
-    mut bar: Query<&mut Node, (With<DynamicBar>, Without<Root>, Without<GoalBar>)>,
+    mut bar: Query<
+        &mut Node,
+        (
+            With<DynamicBar>,
+            Without<Root>,
+            Without<GoalBar>,
+            Without<ButtonAction>,
+        ),
+    >,
     mut goals: Query<
-        (&GoalBar, &mut Node, &mut BackgroundColor),
+        (&mut GoalBar, &mut Node, &mut BackgroundColor),
         (Without<DynamicBar>, Without<Root>, Without<ButtonAction>),
     >,
     mut badges: Query<(&GoalBadge, &mut ImageNode)>,
+    mut press: Local<(Option<u32>, f32)>,
 ) {
     let factor = if save.large_ui { 1.105 } else { 1.0 };
     let reference_height = if hud.phone { 650.0 } else { 720.0 };
@@ -438,51 +567,79 @@ pub fn refresh(
             node.padding = padding;
         }
     }
-    for (button, input, mut fill, mut border, mut outline) in &mut buttons {
-        let focused = game.focus.or(hud.first) == Some(button.action) && !button.disabled;
+    // Large frame gaps (a rebuild or a loading hitch) must not skip the motion.
+    let dt = time.delta_secs().min(0.1);
+    let now = time.elapsed_secs();
+    let blend = 1.0 - (-dt * 20.0).exp();
+    // A press is shown once on the button that is on screen; buttons rebuilt
+    // right after it start pressed too and spring back.
+    let fresh = game
+        .pressed
+        .filter(|(_, serial)| Some(*serial) != press.0)
+        .map(|(action, _)| action);
+    if let Some((_, serial)) = game.pressed
+        && fresh.is_some()
+    {
+        *press = (Some(serial), now);
+    }
+    let recent = game
+        .pressed
+        .map(|(action, _)| action)
+        .filter(|_| now - press.1 < 0.15);
+    let rings = controls.device != Device::Pointer;
+    let focus = game.focus.or(hud.first);
+    for (button, input, mut fill, mut border, mut outline, mut ease, mut transform, mut node) in
+        &mut buttons
+    {
+        if button.style == Style::Backdrop {
+            continue;
+        }
+        let focused = rings && !button.disabled && focus == Some(button.action);
         let hovered = *input != Interaction::None && !button.disabled;
-        outline.color = if focused { GOLD } else { Color::NONE };
-        (fill.0, border.0) = if matches!(button.style, Style::Spotlight) {
-            (Color::NONE, if hovered { SAND } else { GOLD })
-        } else if matches!(button.style, Style::Speech) {
-            (if hovered { PAPER } else { SAND }, PAPER)
-        } else if button.disabled {
-            (DEEP, CARD)
-        } else if matches!(button.style, Style::Danger) {
-            (
-                RUST,
-                if hovered {
-                    PAPER
-                } else {
-                    Color::srgb(0.61, 0.35, 0.29)
-                },
-            )
-        } else if focused {
-            (
-                if matches!(button.style, Style::Primary) {
-                    GOLD
-                } else {
-                    JADE
-                },
-                GOLD,
-            )
-        } else if hovered {
-            (
-                if matches!(button.style, Style::Primary) {
-                    PAPER
-                } else {
-                    JADE
-                },
-                PAPER,
-            )
+        let ring = if focused { GOLD } else { Color::NONE };
+        if outline.color != ring {
+            outline.color = ring;
+        }
+        let (fill_to, border_to) = button_colors(button.style, button.disabled, focused, hovered);
+        let size = if button.disabled || button.style == Style::Spotlight {
+            1.0
+        } else if *input == Interaction::Pressed {
+            0.95
+        } else if hovered || focused {
+            1.035
         } else {
-            match button.style {
-                Style::Primary => (GOLD, PAPER),
-                Style::Quiet => (CARD, LINE),
-                Style::Selected => (JADE, LINE),
-                Style::Danger | Style::Speech | Style::Spotlight => unreachable!(),
-            }
+            1.0
         };
+        if !ease.ready {
+            ease.ready = true;
+            ease.fill = fill_to;
+            ease.border = border_to;
+            ease.scale = if recent == Some(button.action) {
+                0.9
+            } else {
+                size
+            };
+            ease.speed = 0.0;
+        } else {
+            if fresh == Some(button.action) {
+                ease.scale = 0.9;
+                ease.speed = 0.0;
+            }
+            ease.fill = approach(ease.fill, fill_to, blend);
+            ease.border = approach(ease.border, border_to, blend);
+            ease.spring(size, dt);
+        }
+        if fill.0 != ease.fill {
+            fill.0 = ease.fill;
+        }
+        if border.0 != ease.border {
+            border.0 = ease.border;
+        }
+        let shown = Vec3::new(ease.scale, ease.scale, 1.0);
+        if transform.scale != shown {
+            transform.scale = shown;
+        }
+        ease.shake(&mut node, dt);
     }
     let town = save.active_town();
     let length = town.map_or(crate::model::DAY_SECONDS, |town| {
@@ -495,16 +652,6 @@ pub fn refresh(
             None
         }
     });
-    if let Ok(mut visible) = toast.single_mut() {
-        let state = if game.note_left > 0.0 && game.lesson.is_none() {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        };
-        if *visible != state {
-            *visible = state;
-        }
-    }
     for (value, mut text) in &mut texts {
         match value {
             Dynamic::Toast => {
@@ -556,9 +703,16 @@ pub fn refresh(
         }
     }
     if let Some(town) = town {
-        for (goal, mut fill, mut color) in &mut goals {
+        let glide = 1.0 - (-dt * 7.0).exp();
+        for (mut goal, mut fill, mut color) in &mut goals {
             let (have, need) = shown_goal(town, goal.0);
-            let width = Val::Percent(have.min(need) as f32 / need as f32 * 100.0);
+            let target = have.min(need) as f32 / need.max(1) as f32 * 100.0;
+            goal.1 = if (target - goal.1).abs() < 0.2 {
+                target
+            } else {
+                goal.1 + (target - goal.1) * glide
+            };
+            let width = Val::Percent(goal.1);
             if fill.width != width {
                 fill.width = width;
             }
@@ -596,10 +750,10 @@ pub fn move_focus(
     dir: Direction,
     buttons: &FocusButtons,
 ) -> Option<Action> {
-    let enabled = buttons
-        .iter()
-        .filter(|(node, _, button, _)| !button.disabled && node.size().length_squared() > 1.0);
-    let Some((_, origin, _, _)) = enabled
+    let enabled = buttons.iter().filter(|(node, _, button, _)| {
+        !button.disabled && button.style != Style::Backdrop && node.size().length_squared() > 1.0
+    });
+    let Some((origin_node, origin, _, _)) = enabled
         .clone()
         .find(|(_, _, b, _)| Some(b.action) == current)
     else {
@@ -607,7 +761,9 @@ pub fn move_focus(
     };
     let axis = dir.vector();
     let origin = origin.translation().truncate();
+    let row = (origin_node.size().y * 0.5).max(12.0);
     enabled
+        .clone()
         .filter_map(|(_, at, b, _)| {
             let delta = at.translation().truncate() - origin;
             let along = delta.dot(axis);
@@ -616,6 +772,20 @@ pub fn move_focus(
         })
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, action)| action)
+        .or_else(|| {
+            // At the end of a row, sideways focus wraps to its other end.
+            if !matches!(dir, Direction::Left | Direction::Right) {
+                return None;
+            }
+            enabled
+                .filter_map(|(_, at, b, _)| {
+                    let delta = at.translation().truncate() - origin;
+                    let along = delta.dot(axis);
+                    (along < -5.0 && delta.y.abs() < row).then_some((along, b.action))
+                })
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .map(|(_, action)| action)
+        })
         .or(current)
 }
 
@@ -730,8 +900,67 @@ fn card<'p>(p: &'p mut ChildSpawnerCommands, node: Node, color: Color) -> Entity
     ))
 }
 
+/// The keyboard key behind a controller button name.
+fn keyboard_name(name: &str) -> &str {
+    match name {
+        "A" => "Enter",
+        "B" => "Esc",
+        "LB" => "Q",
+        "RB" => "E",
+        "R3" => "N",
+        "L3" => "L",
+        "View" => "F",
+        "Start" => "P",
+        "LT / RT" => "+ / −",
+        other => other,
+    }
+}
+
+/// A button hint for the device in use: controller glyphs, keyboard keys, or
+/// nothing for mouse and touch.
 fn key(p: &mut ChildSpawnerCommands, hud: &Hud, name: &str, bright: bool) {
-    if hud.phone {
+    if hud.phone || hud.device == Device::Pointer {
+        return;
+    }
+    glyph(p, hud, name, bright, hud.device == Device::Keys);
+}
+
+/// Like `key`, but always visible; the control reference uses it.
+fn reference_key(p: &mut ChildSpawnerCommands, hud: &Hud, name: &str) {
+    let keys = !cfg!(target_os = "android") && hud.device != Device::Pad;
+    glyph(p, hud, name, false, keys);
+}
+
+fn glyph(p: &mut ChildSpawnerCommands, hud: &Hud, name: &str, bright: bool, keys: bool) {
+    if keys {
+        p.spawn((
+            Node {
+                min_width: Val::Px(28.0),
+                height: Val::Px(28.0),
+                justify_content: JustifyContent::Center,
+                padding: UiRect {
+                    left: Val::Px(6.0),
+                    right: Val::Px(6.0),
+                    bottom: Val::Px(1.0),
+                    ..default()
+                },
+                border: UiRect {
+                    left: Val::Px(1.0),
+                    right: Val::Px(1.0),
+                    top: Val::Px(1.0),
+                    bottom: Val::Px(3.0),
+                },
+                flex_shrink: 0.0,
+                ..row(0.0)
+            },
+            BackgroundColor(if bright { DARK_TEXT } else { JADE }),
+            BorderColor(if bright { INK } else { LINE }),
+            BorderRadius::all(Val::Px(6.0)),
+            FocusPolicy::Pass,
+        ))
+        .with_children(|cap| {
+            badge_label(cap, hud, keyboard_name(name), 13.0, SAND);
+        });
         return;
     }
     if name == "View" {
@@ -752,6 +981,7 @@ fn key(p: &mut ChildSpawnerCommands, hud: &Hud, name: &str, bright: bool) {
             justify_content: JustifyContent::Center,
             padding: UiRect::horizontal(Val::Px(if accent.is_some() { 3.0 } else { 6.0 })),
             border: UiRect::all(Val::Px(if accent.is_some() { 1.5 } else { 0.0 })),
+            flex_shrink: 0.0,
             ..row(0.0)
         },
         BackgroundColor(if bright { DARK_TEXT } else { JADE }),
@@ -760,6 +990,16 @@ fn key(p: &mut ChildSpawnerCommands, hud: &Hud, name: &str, bright: bool) {
         FocusPolicy::Pass,
     ))
     .with_children(|pill| label(pill, hud, name, 15.0, Face::Bold, accent.unwrap_or(SAND)));
+}
+
+/// The direction-pad hint: the pad icon, the WASD keys, or nothing for touch.
+fn dpad(p: &mut ChildSpawnerCommands, hud: &Hud, size: f32) {
+    match hud.device {
+        _ if hud.phone => {}
+        Device::Pad => icon(p, hud, "pad_dpad", size),
+        Device::Keys => glyph(p, hud, "WASD", false, true),
+        Device::Pointer => {}
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -773,7 +1013,7 @@ fn button(
     style: Style,
     disabled: bool,
 ) {
-    let primary = matches!(style, Style::Primary) && !disabled;
+    let dark = matches!(style, Style::Primary | Style::TabOn) && !disabled;
     button_shell(
         p,
         action,
@@ -794,6 +1034,8 @@ fn button(
                 } else {
                     60.0
                 }
+            } else if matches!(style, Style::Tab | Style::TabOn) {
+                46.0
             } else {
                 51.0
             }),
@@ -805,11 +1047,26 @@ fn button(
         },
     )
     .with_children(|item| {
-        if !image.is_empty() {
-            icon(item, hud, image, 29.0);
+        if !image.is_empty()
+            && let Some(picture) = hud.pictures.get(image)
+        {
+            item.spawn((
+                ImageNode {
+                    // Disabled buttons fade their art along with the label.
+                    color: Color::WHITE.with_alpha(if disabled { 0.42 } else { 1.0 }),
+                    ..ImageNode::new(picture.clone())
+                },
+                Node {
+                    width: Val::Px(29.0),
+                    height: Val::Px(29.0),
+                    flex_shrink: 0.0,
+                    ..default()
+                },
+                FocusPolicy::Pass,
+            ));
         }
-        if !hotkey.is_empty() {
-            key(item, hud, hotkey, primary);
+        if !hotkey.is_empty() && !disabled {
+            key(item, hud, hotkey, dark);
         }
         label(
             item,
@@ -817,9 +1074,11 @@ fn button(
             title,
             if hud.phone { 20.0 } else { 18.0 },
             Face::Bold,
-            if primary {
+            if disabled {
+                MUTED.with_alpha(0.6)
+            } else if dark {
                 INK
-            } else if disabled {
+            } else if style == Style::Tab {
                 MUTED
             } else {
                 SAND
@@ -843,6 +1102,7 @@ fn button_shell<'p>(
             disabled,
             style,
         },
+        Ease::default(),
         node,
         BackgroundColor(CARD),
         BorderColor(LINE),
@@ -861,6 +1121,7 @@ fn overlay<'p>(p: &'p mut ChildSpawnerCommands) -> EntityCommands<'p> {
             ..default()
         },
         FocusPolicy::Block,
+        Veil(0),
     ))
 }
 

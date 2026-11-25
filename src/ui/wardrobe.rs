@@ -70,6 +70,7 @@ pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign, gam
                     }
                 });
             closet.spawn(row(6.0)).with_children(|tabs| {
+                key(tabs, hud, "LB", false);
                 for category in Category::ALL {
                     button(
                         tabs,
@@ -79,13 +80,14 @@ pub(super) fn draw(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign, gam
                         category.icon(),
                         "",
                         if category == game.wardrobe_tab {
-                            Style::Primary
+                            Style::TabOn
                         } else {
-                            Style::Quiet
+                            Style::Tab
                         },
                         false,
                     );
                 }
+                key(tabs, hud, "RB", false);
             });
             let items: Vec<_> = Cosmetic::ALL
                 .into_iter()

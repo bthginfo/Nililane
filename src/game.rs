@@ -121,8 +121,8 @@ pub enum Action {
     NextDay,
 }
 
-#[derive(Clone, Copy)]
-enum Cue {
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Cue {
     Confirm,
     Back,
     Blocked,
@@ -138,6 +138,75 @@ enum Cue {
     TempleBell,
     CastOff,
     Harvest(crate::adventure::Good),
+    /// Focus moved to another button.
+    Tick,
+    /// One star of the evening report.
+    Star,
+    /// A harbor goal was just completed.
+    Goal,
+}
+
+impl Cue {
+    fn file(self) -> &'static str {
+        match self {
+            Cue::Confirm => "embedded://audio/ui_choose.wav",
+            Cue::Back => "embedded://audio/ui_back.wav",
+            Cue::Blocked => "embedded://audio/ui_blocked.wav",
+            Cue::Earned => "embedded://audio/chapter_chime.wav",
+            Cue::Day => "embedded://audio/quest_accepted.wav",
+            Cue::Build => "embedded://audio/build_place.wav",
+            Cue::Hammer => "embedded://audio/tier_assembly.wav",
+            Cue::Ferry => "embedded://audio/ferry_bell.wav",
+            Cue::Alert => "embedded://audio/street_bell.wav",
+            Cue::Street(Activity::Cat) => "embedded://audio/street_purr.wav",
+            Cue::Street(Activity::Dog) => "embedded://audio/street_woof.wav",
+            Cue::Street(_) => "embedded://audio/street_sweep.wav",
+            Cue::Aid => "embedded://audio/nili_aid.wav",
+            Cue::Sale => "embedded://audio/market_sale.wav",
+            Cue::TempleBell => "embedded://audio/temple_bell.wav",
+            Cue::CastOff => "embedded://audio/cast_off.wav",
+            Cue::Harvest(crate::adventure::Good::Wood) => "embedded://audio/abenteuer/wood.wav",
+            Cue::Harvest(crate::adventure::Good::Stone | crate::adventure::Good::Ore) => {
+                "embedded://audio/abenteuer/stone.wav"
+            }
+            Cue::Harvest(_) => "embedded://audio/abenteuer/forage.wav",
+            Cue::Tick => "embedded://audio/ui_tick.wav",
+            Cue::Star => "embedded://audio/ui_star.wav",
+            Cue::Goal => "embedded://audio/ui_goal.wav",
+        }
+    }
+
+    /// Mix level per cue: frequent cues sit lower, rewards a little higher.
+    fn volume(self) -> f32 {
+        match self {
+            Cue::Tick => 0.16,
+            Cue::Sale => 0.24,
+            Cue::Confirm | Cue::Back => 0.31,
+            Cue::Blocked => 0.33,
+            Cue::Harvest(_) | Cue::Street(_) => 0.34,
+            Cue::Ferry | Cue::Alert | Cue::Aid | Cue::Day => 0.36,
+            Cue::Build | Cue::Hammer | Cue::CastOff => 0.37,
+            Cue::Star | Cue::Goal => 0.38,
+            Cue::Earned | Cue::TempleBell => 0.40,
+        }
+    }
+
+    /// Melodic cues keep their tuning; the others get a small random pitch so
+    /// repeated clicks do not sound mechanical.
+    fn varies(self) -> bool {
+        !matches!(
+            self,
+            Cue::Star | Cue::Goal | Cue::Earned | Cue::TempleBell | Cue::Ferry
+        )
+    }
+}
+
+/// A cue waiting in the sound queue.
+#[derive(Clone, Copy)]
+struct Sound {
+    cue: Cue,
+    delay: f32,
+    pitch: Option<f32>,
 }
 
 pub const BUILD_TIME: f32 = 1.58;
@@ -209,9 +278,20 @@ pub struct Game {
     preview_nordic: Town,
     preview_oasis: Town,
     checkpoint: f32,
+    /// The main cue of this frame. A later assignment replaces an earlier one,
+    /// so a specific result sound wins over the generic confirm click.
     cue: Option<Cue>,
     /// Harbor, day and objectives already complete, to announce newly finished goals.
     goal_marks: Option<(usize, u32, u64)>,
+    /// Cues that play alongside the main one, optionally delayed.
+    sounds: Vec<Sound>,
+    /// Whether the current toast reports a failure.
+    pub note_failed: bool,
+    /// Counts the toasts, so the interface animates each one once.
+    pub note_serial: u32,
+    /// The action of the last pressed button (with a counter), so a rebuilt
+    /// button can still show its press.
+    pub pressed: Option<(Action, u32)>,
 }
 
 impl Default for Game {
@@ -350,6 +430,10 @@ impl Default for Game {
             checkpoint: 0.0,
             cue: None,
             goal_marks: None,
+            sounds: Vec::new(),
+            note_failed: false,
+            note_serial: 0,
+            pressed: None,
         }
     }
 }
@@ -481,7 +565,27 @@ impl Game {
     fn message(&mut self, message: impl Into<String>, cue: Cue) {
         self.note = message.into();
         self.note_left = 3.2;
+        self.note_failed = matches!(cue, Cue::Blocked);
+        self.note_serial = self.note_serial.wrapping_add(1);
         self.cue = Some(cue);
+    }
+
+    /// Queues a cue in addition to the main cue of this frame.
+    pub(crate) fn play(&mut self, cue: Cue) {
+        self.play_later(cue, 0.0, None);
+    }
+
+    /// Queues a cue after `delay` seconds; `pitch` fixes the playback speed.
+    pub(crate) fn play_later(&mut self, cue: Cue, delay: f32, pitch: Option<f32>) {
+        if self.sounds.len() < 16 {
+            self.sounds.push(Sound { cue, delay, pitch });
+        }
+    }
+
+    /// Remembers a pressed button, so its rebuilt successor can still pulse.
+    pub(crate) fn press(&mut self, action: Action) {
+        let serial = self.pressed.map_or(0, |(_, n)| n.wrapping_add(1));
+        self.pressed = Some((action, serial));
     }
 
     pub(crate) fn adventure_notice(&mut self, message: impl Into<String>, success: bool) {
@@ -563,7 +667,8 @@ pub fn frame(
     if finished {
         game.world_version += 1;
     }
-    game.note_left = (game.note_left - real_dt).max(0.0);
+    // A loading hitch must not swallow the toast.
+    game.note_left = (game.note_left - real_dt.min(0.1)).max(0.0);
     if game.view != View::Adventure {
         game.adventure_toasts.clear();
     } else if game.note_left == 0.0
@@ -588,6 +693,14 @@ pub fn frame(
         } else {
             pressed
         };
+    // A tap beside a dialog closes it; no button should pulse for that.
+    if let Some(action) = pressed
+        && !changed
+            .iter()
+            .any(|(state, button)| *state == Interaction::Pressed && button.closes_dialog())
+    {
+        game.press(action);
+    }
     if game.view == View::Adventure {
         crate::adventure::step(
             &mut adventure,
@@ -794,6 +907,15 @@ pub fn frame(
         }
     }
 
+    if let Some(forward) = [(controls::RB, true), (controls::LB, false)]
+        .into_iter()
+        .find_map(|(key, forward)| controls.got(key).then_some(forward))
+        && let Some(action) = tab_step(&game, &save, forward)
+    {
+        apply(action, &mut game, &mut save);
+        return;
+    }
+
     if game.view == View::Street
         && controls.got(controls::VIEW)
         && matches!(game.panel, Panel::None | Panel::Forecast | Panel::Report)
@@ -937,6 +1059,43 @@ pub fn frame(
         {
             apply(action, &mut game, &mut save);
         }
+    }
+}
+
+/// The neighbouring tab for LB/RB in panels with a tab row; it wraps around.
+fn tab_step(game: &Game, save: &Campaign, forward: bool) -> Option<Action> {
+    let next = |current: usize, count: usize, open: &dyn Fn(usize) -> bool| {
+        (1..count)
+            .map(|n| {
+                if forward {
+                    (current + n) % count
+                } else {
+                    (current + count - n) % count
+                }
+            })
+            .find(|&page| open(page))
+    };
+    match game.panel {
+        Panel::Forecast => {
+            let report = save
+                .active_town()
+                .is_some_and(|town| matches!(town.phase, Phase::Report(_)));
+            next(game.ledger_page, 4, &|page| {
+                !(report && matches!(page, 0 | 2))
+            })
+            .map(Action::LedgerPage)
+        }
+        Panel::Guide if !game.phone => {
+            next(game.guide, ui::GUIDE_PAGES, &|_| true).map(Action::GuideTab)
+        }
+        Panel::Wardrobe => {
+            let current = Category::ALL
+                .iter()
+                .position(|&tab| tab == game.wardrobe_tab)?;
+            next(current, Category::ALL.len(), &|_| true)
+                .map(|tab| Action::WardrobeTab(Category::ALL[tab]))
+        }
+        _ => None,
     }
 }
 
@@ -2027,6 +2186,7 @@ pub fn audio(
     mut coast: Query<Option<&mut AudioSink>, (With<Coast>, Without<RainAudio>)>,
     mut rain: Query<Option<&mut AudioSink>, (With<RainAudio>, Without<Coast>)>,
     window: Single<&Window, With<PrimaryWindow>>,
+    (controls, hud, mut mixer): (Res<Controls>, Res<Hud>, Local<Mixer>),
 ) {
     let town = game.visible_town(&save);
     let region = Region::of(town.chapter);
@@ -2163,40 +2323,127 @@ pub fn audio(
         }
         Ok(None) => {}
     }
-    if let Some(cue) = game.cue.take().filter(|_| save.sounds && focused) {
-        let file = match cue {
-            Cue::Confirm => "embedded://audio/ui_choose.wav",
-            Cue::Back => "embedded://audio/ui_back.wav",
-            Cue::Blocked => "embedded://audio/ui_blocked.wav",
-            Cue::Earned => "embedded://audio/chapter_chime.wav",
-            Cue::Day => "embedded://audio/quest_accepted.wav",
-            Cue::Build => "embedded://audio/build_place.wav",
-            Cue::Hammer => "embedded://audio/tier_assembly.wav",
-            Cue::Ferry => "embedded://audio/ferry_bell.wav",
-            Cue::Alert => "embedded://audio/street_bell.wav",
-            Cue::Street(Activity::Cat) => "embedded://audio/street_purr.wav",
-            Cue::Street(Activity::Dog) => "embedded://audio/street_woof.wav",
-            Cue::Street(_) => "embedded://audio/street_sweep.wav",
-            Cue::Aid => "embedded://audio/nili_aid.wav",
-            Cue::Sale => "embedded://audio/market_sale.wav",
-            Cue::TempleBell => "embedded://audio/temple_bell.wav",
-            Cue::CastOff => "embedded://audio/cast_off.wav",
-            Cue::Harvest(crate::adventure::Good::Wood) => "embedded://audio/abenteuer/wood.wav",
-            Cue::Harvest(crate::adventure::Good::Stone | crate::adventure::Good::Ore) => {
-                "embedded://audio/abenteuer/stone.wav"
+    let focus = game.focus.or(hud.first);
+    if controls.direction.is_some() && focus.is_some() && focus != mixer.focus {
+        game.play(Cue::Tick);
+    }
+    mixer.focus = focus;
+    mixer.clock += elapsed;
+    if let Some(cue) = game.cue.take() {
+        game.sounds.insert(
+            0,
+            Sound {
+                cue,
+                delay: 0.0,
+                pitch: None,
+            },
+        );
+    }
+    if !(save.sounds && focused) {
+        game.sounds.clear();
+        return;
+    }
+    let now = mixer.clock;
+    let mut index = 0;
+    while index < game.sounds.len() {
+        let sound = &mut game.sounds[index];
+        sound.delay -= elapsed;
+        if sound.delay > 0.0 {
+            index += 1;
+            continue;
+        }
+        let Sound { cue, pitch, .. } = game.sounds.remove(index);
+        // The same cue twice within 60 ms only doubles the volume.
+        let kind = std::mem::discriminant(&cue);
+        if let Some(last) = mixer.played.iter_mut().find(|(other, _)| *other == kind) {
+            if now - last.1 < 0.06 {
+                continue;
             }
-            Cue::Harvest(_) => "embedded://audio/abenteuer/forage.wav",
-        };
+            last.1 = now;
+        } else {
+            mixer.played.push((kind, now));
+        }
+        let speed = pitch.unwrap_or_else(|| {
+            if cue.varies() {
+                0.94 + 0.12 * mixer.random()
+            } else {
+                1.0
+            }
+        });
         commands.spawn((
-            AudioPlayer::new(assets.load(file)),
-            PlaybackSettings::DESPAWN.with_volume(Volume::Linear(0.35)),
+            AudioPlayer::new(assets.load(cue.file())),
+            PlaybackSettings::DESPAWN
+                .with_volume(Volume::Linear(cue.volume()))
+                .with_speed(speed),
         ));
+    }
+}
+
+/// Bookkeeping for the interface cues.
+#[derive(Default)]
+pub(crate) struct Mixer {
+    clock: f32,
+    seed: u32,
+    played: Vec<(std::mem::Discriminant<Cue>, f32)>,
+    focus: Option<Action>,
+}
+
+impl Mixer {
+    /// A small xorshift generator; the cue pitch needs no better randomness.
+    fn random(&mut self) -> f32 {
+        let mut x = if self.seed == 0 {
+            0x9E37_79B9
+        } else {
+            self.seed
+        };
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.seed = x;
+        (x >> 8) as f32 / (1u32 << 24) as f32
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shoulder_buttons_cycle_tabs_and_wrap() {
+        let save = Campaign::default();
+        let mut game = Game {
+            panel: Panel::Wardrobe,
+            wardrobe_tab: Category::ALL[0],
+            ..Game::default()
+        };
+        assert_eq!(
+            tab_step(&game, &save, false),
+            Some(Action::WardrobeTab(*Category::ALL.last().unwrap()))
+        );
+        game.panel = Panel::Guide;
+        game.guide = ui::GUIDE_PAGES - 1;
+        assert_eq!(tab_step(&game, &save, true), Some(Action::GuideTab(0)));
+        game.panel = Panel::Forecast;
+        game.ledger_page = 3;
+        assert_eq!(tab_step(&game, &save, true), Some(Action::LedgerPage(0)));
+        game.panel = Panel::None;
+        assert_eq!(tab_step(&game, &save, true), None);
+    }
+
+    #[test]
+    fn cues_queue_behind_the_main_cue() {
+        let mut game = Game::default();
+        game.message("Das geht im Moment nicht.", Cue::Blocked);
+        assert!(game.note_failed);
+        let serial = game.note_serial;
+        game.adventure_notice("Lieferung angekommen", true);
+        assert!(!game.note_failed);
+        assert_ne!(game.note_serial, serial);
+        for _ in 0..40 {
+            game.play(Cue::Tick);
+        }
+        assert_eq!(game.sounds.len(), 16);
+    }
 
     #[test]
     fn a_marked_request_starts_from_nilis_current_position() {
