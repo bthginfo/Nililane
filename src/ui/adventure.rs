@@ -644,7 +644,7 @@ fn walk(
                     label(line, hud, if at_site { "→ Baustelle" } else { "→ Rathaus" }, 17.0, Face::Bold, GOLD);
                 });
             });
-        } else if let Some(spec) = island.encounters.carrying().and_then(|slot| level.encounter(slot)) {
+        } else if let Some(spec) = island.encounters.carrying().and_then(|slot| island.encounter(level, slot)) {
             card(corner, frame_node(Val::Auto, 0.0, 10.0), INK).with_children(|chip| {
                 panels::metric(chip, hud, spec.icon(), format!("Fracht für {}", spec.author.split(" · ").next().unwrap_or(spec.author)));
             });
@@ -740,7 +740,7 @@ fn walk(
                         }
                     }
                     Target::Encounter(id) | Target::EncounterSource(id) => {
-                        let spec = level.encounter(id).expect("visible encounter");
+                        let spec = island.encounter(level, id).expect("visible encounter");
                         let phase = island.encounters.visits[id].status;
                         if matches!(target, Target::EncounterSource(_)) {
                             disabled = island.has_cargo() || spec.cargo.is_some_and(|cargo| !island.ready(&[cargo]));
@@ -2706,7 +2706,7 @@ fn encounter_panel(
         })
         .with_children(|r| {
             for entry in visible {
-                let spec = level.encounter(entry).unwrap();
+                let spec = island.encounter(level, entry).unwrap();
                 let done = island.encounters.visits[entry].status == EncounterStatus::Finished;
                 action(
                     r,
@@ -2725,7 +2725,7 @@ fn encounter_panel(
             }
         });
     }
-    let spec = level.encounter(slot).unwrap();
+    let spec = island.encounter(level, slot).unwrap();
     let status = island.encounters.visits[slot].status;
     panels::metric(p, hud, spec.icon(), spec.author);
     label(p, hud, spec.title, 27.0, Face::Serif, SAND);
@@ -3399,14 +3399,9 @@ fn target_icon(target: Target, a: &Adventure) -> &'static str {
         Target::Deposit(id) => terrain.deposits[id].kind.icon(terrain.level.region),
         Target::Dropped(_) => "adventure_craft",
         Target::TradeHarbor => "sea_trade",
-        Target::Encounter(slot) => terrain
-            .level
-            .encounter(slot)
-            .map_or("star", |spec| spec.icon()),
+        Target::Encounter(slot) => a.encounter_spec(slot).map_or("star", |spec| spec.icon()),
         Target::EncounterSource(slot) => {
-            terrain
-                .level
-                .encounter(slot)
+            a.encounter_spec(slot)
                 .map_or("star", |spec| match spec.event {
                     Event::Fire => "water",
                     Event::Relic => "adventure_blueprint",
@@ -3436,14 +3431,11 @@ fn target_name(target: Target, a: &Adventure) -> &'static str {
             .map_or("Abgelegte Fracht", |pile| {
                 pile.cargo.kind.name(terrain.level.region)
             }),
-        Target::Encounter(slot) => terrain
-            .level
-            .encounter(slot)
+        Target::Encounter(slot) => a
+            .encounter_spec(slot)
             .map_or("Begegnung", |spec| spec.title),
         Target::EncounterSource(slot) => {
-            terrain
-                .level
-                .encounter(slot)
+            a.encounter_spec(slot)
                 .map_or("Auftragsziel", |spec| match spec.event {
                     Event::Fire => {
                         if a.encounter_well(slot).is_some() {

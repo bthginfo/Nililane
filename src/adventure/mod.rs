@@ -426,7 +426,7 @@ impl Adventure {
             }
             Target::EncounterSource(slot) => {
                 let island = self.active()?;
-                let spec = terrain.level.encounter(slot)?;
+                let spec = island.encounter(terrain.level, slot)?;
                 if island.encounters.visits[slot].status != EncounterStatus::Seeking {
                     return None;
                 }
@@ -445,6 +445,10 @@ impl Adventure {
             Target::Relic => Some(terrain.relic),
             Target::Outpost => (terrain.level.order_count() > 0).then_some(terrain.outpost),
         }
+    }
+
+    pub fn encounter_spec(&self, slot: usize) -> Option<encounters::Encounter> {
+        self.active()?.encounter(self.terrain.as_ref()?.level, slot)
     }
 
     pub fn encounter_well(&self, slot: usize) -> Option<usize> {
@@ -1478,7 +1482,7 @@ fn help_encounter(target: Target, adventure: &mut Adventure, game: &mut Game, sa
         return;
     };
     let level = Level::at(island.index);
-    let Some(spec) = level.encounter(slot) else {
+    let Some(spec) = island.encounter(level, slot) else {
         return;
     };
     let status = island.encounters.visits[slot].status;
@@ -1955,13 +1959,29 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
         game.adventure_toast(
             format!(
                 "Neue Begegnung · {}",
-                terrain.level.encounter(slot).unwrap().title
+                island.encounter(terrain.level, slot).unwrap().title
             ),
             true,
         );
     }
+    for &slot in &encounter_changes.burned_out {
+        let spec = island.encounter(terrain.level, slot).unwrap();
+        game.adventure_toast(
+            format!(
+                "{} · Das Feuer ist von selbst erloschen. Kein Lohn.",
+                spec.title
+            ),
+            false,
+        );
+        if matches!(
+            adventure.waypoint,
+            Some(Target::Encounter(id) | Target::EncounterSource(id)) if id == slot
+        ) {
+            adventure.waypoint = None;
+        }
+    }
     for &slot in &encounter_changes.finished {
-        let spec = terrain.level.encounter(slot).unwrap();
+        let spec = island.encounter(terrain.level, slot).unwrap();
         game.adventure_toast(
             format!(
                 "{} erledigt · +{} {}",
@@ -1980,7 +2000,8 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
     }
     let market_or_encounters_changed = market_credit.is_some()
         || !encounter_changes.offered.is_empty()
-        || !encounter_changes.finished.is_empty();
+        || !encounter_changes.finished.is_empty()
+        || !encounter_changes.burned_out.is_empty();
     game.dirty |= market_or_encounters_changed;
     if before != island.stores || delivered || !completed.is_empty() {
         game.dirty = true;

@@ -54,11 +54,17 @@ fn island_encounters_appear_through_play_and_use_walkable_locations() {
             let map = Terrain::new(level);
             let mut island = Island::new(level);
             assert!(island.update_encounters(level, 12.0).offered.is_empty());
-            for lot in island.lots.iter_mut().take(5) {
-                *lot = Some(Property {
-                    kind: Build::Harbor(level.home()),
-                    tier: 1,
-                });
+            // Later visitors only come once the island has reached its goals.
+            for goal in level.goals() {
+                for _ in island.progress(goal)..goal.count {
+                    let free = (0..island.lots.len())
+                        .find(|&lot| island.lots[lot].is_none() && goal.kind.fits(level, lot))
+                        .unwrap();
+                    island.lots[free] = Some(Property {
+                        kind: goal.kind,
+                        tier: goal.tier,
+                    });
+                }
             }
             let events = island.update_encounters(level, 200.0);
             assert_eq!(events.offered.len(), level.encounter_count());
@@ -1459,6 +1465,66 @@ fn a_damaged_island_keeps_the_others_and_the_original_file_as_a_backup() {
     assert!(!adventure.restore_rewards(&mut campaign));
     assert!(adventure.unlocked(5));
     assert!(!adventure.unlocked(6));
+}
+
+#[test]
+fn later_visitors_wait_for_progress_come_back_with_new_events_and_ignored_fires_go_out() {
+    let level = (0..LEVELS)
+        .map(Level::at)
+        .find(|level| {
+            level.encounter_count() == encounters::SLOTS
+                && level
+                    .encounter(0)
+                    .is_some_and(|spec| spec.event == Event::Fire)
+        })
+        .unwrap();
+    let mut island = Island::new(level);
+    island.lots[0] = Some(Property {
+        kind: Build::Harbor(level.home()),
+        tier: 1,
+    });
+    assert_eq!(island.update_encounters(level, 400.0).offered, [0]);
+    let stock = island.stores;
+    assert!(island.update_encounters(level, 149.0).burned_out.is_empty());
+    assert_eq!(island.update_encounters(level, 1.5).burned_out, [0]);
+    assert_eq!(
+        island.encounters.visits[0].status,
+        EncounterStatus::Finished
+    );
+    assert_eq!(island.stores, stock);
+
+    assert!(island.update_encounters(level, 200.0).offered.is_empty());
+    assert_eq!(island.update_encounters(level, 41.0).offered, [0]);
+    let visit = island.encounters.visits[0];
+    assert_eq!(visit.status, EncounterStatus::Offered);
+    assert!(visit.round > 0);
+    let next = island.encounter(level, 0).unwrap();
+    assert_ne!(next.event, Event::Fire);
+    for slot in 1..encounters::SLOTS {
+        assert_ne!(level.encounter(slot).unwrap().event, next.event);
+        assert_eq!(
+            island.encounters.visits[slot].status,
+            EncounterStatus::Hidden
+        );
+    }
+    let saved: Island = serde_json::from_slice(&serde_json::to_vec(&island).unwrap()).unwrap();
+    assert_eq!(saved.encounter(level, 0).unwrap().event, next.event);
+    let old: encounters::Visit =
+        serde_json::from_str(r#"{"status":"Finished","since":3.0}"#).unwrap();
+    assert_eq!(old.round, 0);
+
+    for goal in level.goals() {
+        for _ in island.progress(goal)..goal.count {
+            let free = (0..island.lots.len())
+                .find(|&lot| island.lots[lot].is_none() && goal.kind.fits(level, lot))
+                .unwrap();
+            island.lots[free] = Some(Property {
+                kind: goal.kind,
+                tier: goal.tier,
+            });
+        }
+    }
+    assert_eq!(island.update_encounters(level, 0.1).offered, [1, 2]);
 }
 
 #[test]
