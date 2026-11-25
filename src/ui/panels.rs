@@ -46,7 +46,20 @@ pub(super) fn modal(
     image: &str,
     content: impl FnOnce(&mut ChildSpawnerCommands),
 ) {
-    overlay(p).with_children(|overlay| {
+    let mut veil = overlay(p);
+    veil.insert(feel::Veil(feel::key(title)));
+    if let Some(action) = hud.dismiss {
+        // A tap beside the card closes the dialog; the card itself blocks.
+        veil.insert((
+            Button,
+            ButtonAction {
+                action,
+                disabled: false,
+                style: Style::Backdrop,
+            },
+        ));
+    }
+    veil.with_children(|overlay| {
         let mut node = frame_node(
             Val::Percent(93.0),
             if hud.phone { 8.0 } else { 14.0 },
@@ -56,7 +69,9 @@ pub(super) fn modal(
         if hud.phone {
             node.max_height = Val::Percent(95.0);
         }
-        card(overlay, node, INK).with_children(|page| {
+        let mut sheet = card(overlay, node, INK);
+        sheet.insert(FocusPolicy::Block);
+        sheet.with_children(|page| {
             page.spawn(Node {
                 flex_shrink: if hud.phone { 0.0 } else { 1.0 },
                 ..row(12.0)
@@ -531,9 +546,9 @@ fn build(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, chap
                             "",
                             "",
                             if game.build_page == i {
-                                Style::Primary
+                                Style::TabOn
                             } else {
-                                Style::Quiet
+                                Style::Tab
                             },
                             false,
                         );
@@ -2370,6 +2385,7 @@ fn forecast(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, c
         },
         |page| {
             page.spawn(row(8.0)).with_children(|tabs| {
+                key(tabs, hud, "LB", false);
                 for (i, (name, pic)) in books.into_iter().enumerate() {
                     button(
                         tabs,
@@ -2379,13 +2395,14 @@ fn forecast(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, c
                         pic,
                         "",
                         if game.ledger_page == i {
-                            Style::Primary
+                            Style::TabOn
                         } else {
-                            Style::Quiet
+                            Style::Tab
                         },
                         matches!(i, 0 | 2) && matches!(town.phase, Phase::Report(_)),
                     );
                 }
+                key(tabs, hud, "RB", false);
             });
             match game.ledger_page {
                 0 => supplies(page, hud, town, chapter),
@@ -2926,44 +2943,49 @@ fn evening(
         title,
         if clear { "star" } else { "sun" },
         |page| {
+            // The figures count up and the stars pop in once per report.
+            let reveal = feel::report_key(town.chapter, town.day);
+            let count = super::screens::counted_stat;
             page.spawn(row(24.0)).with_children(|figures| {
-                super::screens::stat(
+                count(
                     figures,
                     hud,
                     guests::total_symbol(&report.tally),
-                    &report
-                        .tally
-                        .satisfaction()
-                        .map_or_else(|| "—".into(), |n| format!("{n} %")),
+                    reveal,
+                    report.tally.satisfaction().map(|n| (n, "", " %")),
                     "Zufriedenheit",
                 );
-                super::screens::stat(
+                count(
                     figures,
                     hud,
                     "coin",
-                    &format!("+{}", report.tally.income + report.grant),
+                    reveal,
+                    Some((report.tally.income + report.grant, "+", "")),
                     &format!("{} heute", Region::of(town.chapter).currency()),
                 );
-                super::screens::stat(
+                count(
                     figures,
                     hud,
                     "house",
-                    &report.tally.served_total().to_string(),
+                    reveal,
+                    Some((report.tally.served_total(), "", "")),
                     "Gäste versorgt",
                 );
-                super::screens::stat(
+                count(
                     figures,
                     hud,
                     "star",
-                    &format!("+{}", report.tally.reputation),
+                    reveal,
+                    Some((report.tally.reputation, "+", "")),
                     "Ansehen heute",
                 );
                 if report.tally.routes_today() > 0 {
-                    super::screens::stat(
+                    count(
                         figures,
                         hud,
                         "nili",
-                        &report.tally.routes_today().to_string(),
+                        reveal,
+                        Some((report.tally.routes_today(), "", "")),
                         "Touren",
                     );
                 } else if report.tally.favors > 0 {
@@ -3013,12 +3035,7 @@ fn evening(
                             .with_children(|band| {
                                 band.spawn(row(5.0)).with_children(|stars| {
                                     for i in 0..3 {
-                                        icon(
-                                            stars,
-                                            hud,
-                                            if i < report.stars { "star" } else { "lock" },
-                                            35.0,
-                                        );
+                                        feel::star(stars, hud, reveal, i, i < report.stars, 35.0);
                                     }
                                     label(
                                         stars,
@@ -3380,25 +3397,30 @@ fn hint(p: &mut ChildSpawnerCommands, hud: &Hud, content: &str, image: &str) {
     });
 }
 
+const GUIDE_TABS: [&str; GUIDE_PAGES] = [
+    "Steuerung",
+    "Dein Tag",
+    "Waren",
+    "Nili",
+    "Reisen",
+    "Rom",
+    "Japan",
+    "Nordisch",
+];
+
+/// The number of pages in the desktop game guide.
+pub(crate) const GUIDE_PAGES: usize = 8;
+
 pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
     if hud.phone {
         return modal(p, hud, 690.0, "", "Spielhilfe", "guide", |page| {
             phone::help(page, hud, Action::Back);
         });
     }
-    const PAGES: [&str; 8] = [
-        "Steuerung",
-        "Dein Tag",
-        "Waren",
-        "Nili",
-        "Reisen",
-        "Rom",
-        "Japan",
-        "Nordisch",
-    ];
     modal(p, hud, 985.0, "", "Spielhilfe", "guide", |page| {
         page.spawn(row(7.0)).with_children(|tabs| {
-            for (i, name) in PAGES.iter().enumerate() {
+            key(tabs, hud, "LB", false);
+            for (i, name) in GUIDE_TABS.iter().enumerate() {
                 button(
                     tabs,
                     hud,
@@ -3407,13 +3429,14 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                     "",
                     "",
                     if i == game.guide {
-                        Style::Primary
+                        Style::TabOn
                     } else {
-                        Style::Quiet
+                        Style::Tab
                     },
                     false,
                 );
             }
+            key(tabs, hud, "RB", false);
         });
         if game.guide == 0 {
             controls_guide(page, hud);
@@ -3665,9 +3688,11 @@ fn controls_guide(p: &mut ChildSpawnerCommands, hud: &Hud) {
                 )
                 .with_children(|tile| {
                     if !pad.is_empty() {
-                        key(tile, hud, pad, false);
+                        reference_key(tile, hud, pad);
                     }
-                    if !art.is_empty() {
+                    if art == "pad_dpad" && hud.device != Device::Pad {
+                        reference_key(tile, hud, "WASD");
+                    } else if !art.is_empty() {
                         icon(tile, hud, art, 26.0);
                     }
                     label(tile, hud, caption, 16.0, Face::Body, SAND);

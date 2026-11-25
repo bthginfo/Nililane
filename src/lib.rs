@@ -94,9 +94,13 @@ pub fn run() {
             (
                 (
                     controls::poll,
+                    ui::press,
                     frame,
                     ui::draw,
                     ui::refresh,
+                    ui::animate_overlays,
+                    ui::animate_toast,
+                    ui::animate_report,
                     ui::animate_walk_pad,
                     ui::refresh_guest_summary,
                     game::audio,
@@ -250,6 +254,9 @@ fn embed_assets(app: &App) {
         "audio/ui_choose.wav",
         "audio/ui_blocked.wav",
         "audio/ui_back.wav",
+        "audio/ui_tick.wav",
+        "audio/ui_star.wav",
+        "audio/ui_goal.wav",
         "audio/chapter_chime.wav",
         "audio/quest_accepted.wav",
         "audio/build_place.wav",

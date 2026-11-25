@@ -43,9 +43,20 @@ impl Direction {
     }
 }
 
+/// The input device the player touched last, so hints can match it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Device {
+    #[default]
+    Keys,
+    Pad,
+    Pointer,
+}
+
 #[derive(Resource, Default)]
 pub struct Controls {
     pub pressed: u16,
+    pub device: Device,
+    sensed: bool,
     pub direction: Option<Direction>,
     pub zoom: f32,
     pub pan: Vec2,
@@ -60,13 +71,18 @@ impl Controls {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn poll(
     mut controls: ResMut<Controls>,
     keyboard: Res<ButtonInput<KeyCode>>,
     pads: Query<&Gamepad>,
     time: Res<Time<Real>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    touches: Res<Touches>,
+    mut cursor: EventReader<bevy::window::CursorMoved>,
 ) {
     let mut input = Pad::default();
+    let mut pad_used = false;
     for (key, bit) in [
         (KeyCode::Enter, A),
         (KeyCode::Space, A),
@@ -122,6 +138,9 @@ pub fn poll(
                 input.pressed |= bit;
             }
         }
+        pad_used |= pad.get_just_pressed().next().is_some()
+            || pad.left_stick().length_squared() > 0.25
+            || pad.right_stick().length_squared() > 0.25;
         input.left += pad.left_stick();
         input.pan += pad.right_stick();
         input.zoom += pad.get(GamepadAxis::RightZ).unwrap_or(0.0)
@@ -131,6 +150,7 @@ pub fn poll(
     #[cfg(target_os = "android")]
     {
         let pad = android::poll();
+        pad_used |= android::pad_used();
         input.held |= pad.held;
         input.pressed |= pad.pressed;
         input.left += pad.left;
@@ -138,6 +158,38 @@ pub fn poll(
         input.zoom += pad.zoom;
     }
 
+    let moved: f32 = cursor
+        .read()
+        .filter_map(|event| event.delta)
+        .map(Vec2::length)
+        .sum();
+    let pointer =
+        mouse.get_just_pressed().next().is_some() || touches.any_just_pressed() || moved > 12.0;
+    let keys = keyboard.get_just_pressed().next().is_some();
+    if !controls.sensed {
+        controls.sensed = true;
+        controls.device = if pads.iter().next().is_some() {
+            Device::Pad
+        } else if cfg!(target_os = "android") {
+            Device::Pointer
+        } else {
+            Device::Keys
+        };
+    }
+    let device = if pad_used {
+        Some(Device::Pad)
+    } else if keys {
+        Some(Device::Keys)
+    } else if pointer {
+        Some(Device::Pointer)
+    } else {
+        None
+    };
+    if let Some(device) = device
+        && controls.device != device
+    {
+        controls.device = device;
+    }
     controls.pressed = input.pressed;
     controls.zoom = input.zoom.clamp(-1.0, 1.0);
     controls.pan = input.pan.clamp_length_max(1.0);
@@ -244,6 +296,13 @@ mod android {
     static PAD: Mutex<NativePad> = Mutex::new(NativePad::EMPTY);
     static INSETS: Mutex<[u16; 4]> = Mutex::new([0; 4]);
     static PHONE_EDITION: AtomicBool = AtomicBool::new(false);
+    static PAD_USED: AtomicBool = AtomicBool::new(false);
+
+    /// Whether a controller sent input since the last frame (the system back
+    /// gesture alone does not count).
+    pub fn pad_used() -> bool {
+        PAD_USED.swap(false, Ordering::Relaxed)
+    }
 
     pub fn phone_edition() -> bool {
         PHONE_EDITION.load(Ordering::Relaxed)
@@ -314,6 +373,9 @@ mod android {
                 return false;
             };
             let down = unsafe { AKeyEvent_getAction(event) } as u32 == AKEY_EVENT_ACTION_DOWN;
+            if gamepad && down {
+                PAD_USED.store(true, Ordering::Relaxed);
+            }
             if gamepad && pad.id != Some(id) {
                 *pad = NativePad {
                     id: Some(id),
@@ -350,12 +412,18 @@ mod android {
         };
         pad.zoom = axis(AMOTION_EVENT_AXIS_RTRIGGER).max(axis(AMOTION_EVENT_AXIS_GAS))
             - axis(AMOTION_EVENT_AXIS_LTRIGGER).max(axis(AMOTION_EVENT_AXIS_BRAKE));
+        if pad.left.length_squared() > 0.25 || pad.pan.length_squared() > 0.25 {
+            PAD_USED.store(true, Ordering::Relaxed);
+        }
         let x = axis(AMOTION_EVENT_AXIS_HAT_X);
         let y = axis(AMOTION_EVENT_AXIS_HAT_Y);
         let hat = u16::from(x < -0.5) * LEFT
             | u16::from(x > 0.5) * RIGHT
             | u16::from(y < -0.5) * UP
             | u16::from(y > 0.5) * DOWN;
+        if hat & !pad.hat != 0 {
+            PAD_USED.store(true, Ordering::Relaxed);
+        }
         pad.pending |= hat & !pad.hat;
         pad.hat = hat;
         true

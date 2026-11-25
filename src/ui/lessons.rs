@@ -184,6 +184,7 @@ pub(super) fn spawn(p: &mut ChildSpawnerCommands, hud: &Hud, lesson: Lesson, tow
                 style: Style::Spotlight,
                 disabled: false,
             },
+            feel::Ease::default(),
             BackgroundColor(Color::NONE),
             Node {
                 position_type: PositionType::Absolute,

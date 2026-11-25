@@ -88,8 +88,8 @@ pub(super) fn strip(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: 
             icon(r, hud, art, 43.0);
             if !shortcut.is_empty() {
                 key(r, hud, shortcut, active);
-            } else if step.lot().is_some() && !hud.phone {
-                icon(r, hud, "pad_dpad", 27.0);
+            } else if step.lot().is_some() {
+                dpad(r, hud, 27.0);
             }
             label(
                 r,
@@ -499,6 +499,7 @@ type Marks<'w, 's> = Query<
         &'static mut Visibility,
         &'static mut ButtonAction,
         &'static mut FocusPolicy,
+        &'static mut feel::Ease,
     ),
 >;
 
@@ -516,8 +517,10 @@ pub fn update(
     mut images: Query<(&MarkerIcon, &mut ImageNode)>,
     mut labels: Query<(&MarkerText, &mut Text)>,
     mut measure: CaptionMeasure,
+    mut shown: Local<Vec<u64>>,
 ) {
     if markers.is_empty() {
+        shown.clear();
         return;
     }
     let viewport = SafeViewport::new(&window, scale.0);
@@ -626,12 +629,19 @@ pub fn update(
             }
         }
     }
-    for (mut marker, mut node, mut visibility, mut button, mut focus) in &mut markers {
+    let before = std::mem::take(&mut *shown);
+    for (mut marker, mut node, mut visibility, mut button, mut focus, mut ease) in &mut markers {
         marker.bounds = active[marker.slot].as_ref().map(|p| p.bounds);
         if let Some(p) = &active[marker.slot] {
             if *visibility == Visibility::Hidden {
                 *visibility = Visibility::Inherited;
             }
+            // New markers spring open; markers that survive a rebuild do not.
+            let id = feel::key(p.sign.title) ^ feel::key(p.sign.icon).rotate_left(1);
+            if !before.contains(&id) {
+                ease.pop();
+            }
+            shown.push(id);
             floating::place_box(&mut node, p.bounds);
             if let Some(action) = p.sign.action
                 && button.action != action
