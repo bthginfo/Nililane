@@ -254,7 +254,15 @@ pub(crate) fn sync(
                         let at = v(x, terrain.height(Vec2::ZERO) + 1.35, 1.95);
                         root.spawn((CivicGlow, super::glow::halo(&art.glow, at, size, x * 3.0)));
                     }
-                    super::critters::spawn(root, &mut meshes, &art.matte, terrain);
+                    let gull = meshes.add(super::actors::bird());
+                    super::critters::spawn(
+                        root,
+                        &mut meshes,
+                        &art.matte,
+                        &art.glow,
+                        &gull,
+                        terrain,
+                    );
                     for (site, deposit) in terrain.deposits.iter().enumerate() {
                         let p = deposit.at;
                         let at = v(p.x, terrain.height(p), p.y);
@@ -611,6 +619,18 @@ pub(crate) fn sync(
                             MeshMaterial3d(art.matte.clone()),
                             Transform::from_translation(p),
                         ));
+                        // Light spills from the doorway once night falls.
+                        spot.with_children(|spot| {
+                            spot.spawn((
+                                CivicGlow,
+                                super::glow::halo(
+                                    &art.glow,
+                                    v(0.0, 0.62, 1.32),
+                                    1.6,
+                                    lot as f32 * 1.9,
+                                ),
+                            ));
+                        });
                         if let Some(&(_, when)) = adventure
                             .scene_changes
                             .iter()

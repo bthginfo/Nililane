@@ -17,6 +17,7 @@ use super::StreetCamera;
 pub(crate) struct Glow {
     pub(crate) quad: Handle<Mesh>,
     pub(crate) warm: Handle<StandardMaterial>,
+    pub(crate) firefly: Handle<StandardMaterial>,
 }
 
 #[derive(Component)]
@@ -65,16 +66,19 @@ pub(crate) fn prepare(
         TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::RENDER_WORLD,
     );
+    let texture = images.add(image);
+    let glow = |color: Color| StandardMaterial {
+        base_color: color,
+        base_color_texture: Some(texture.clone()),
+        unlit: true,
+        alpha_mode: AlphaMode::Add,
+        fog_enabled: false,
+        ..default()
+    };
     Glow {
         quad: meshes.add(Rectangle::new(1.0, 1.0)),
-        warm: materials.add(StandardMaterial {
-            base_color: Color::srgba(1.0, 0.70, 0.36, 0.62),
-            base_color_texture: Some(images.add(image)),
-            unlit: true,
-            alpha_mode: AlphaMode::Add,
-            fog_enabled: false,
-            ..default()
-        }),
+        warm: materials.add(glow(Color::srgba(1.0, 0.70, 0.36, 0.62))),
+        firefly: materials.add(glow(Color::srgba(0.82, 1.0, 0.46, 0.95))),
     }
 }
 
