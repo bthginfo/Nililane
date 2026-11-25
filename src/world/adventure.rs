@@ -53,6 +53,9 @@ pub(crate) struct Relic;
 pub(crate) struct CivicLight;
 
 #[derive(Component)]
+pub(crate) struct CivicGlow;
+
+#[derive(Component)]
 pub(crate) struct ResourceModel {
     site: usize,
     alive: bool,
@@ -247,6 +250,11 @@ pub(crate) fn sync(
                         },
                         Transform::from_xyz(0.0, terrain.height(Vec2::ZERO) + 1.6, 1.8),
                     ));
+                    for (x, size) in [(-0.95, 2.2), (0.95, 2.2), (0.0, 3.6)] {
+                        let at = v(x, terrain.height(Vec2::ZERO) + 1.35, 1.95);
+                        root.spawn((CivicGlow, super::glow::halo(&art.glow, at, size, x * 3.0)));
+                    }
+                    super::critters::spawn(root, &mut meshes, &art.matte, terrain);
                     for (site, deposit) in terrain.deposits.iter().enumerate() {
                         let p = deposit.at;
                         let at = v(p.x, terrain.height(p), p.y);
@@ -1026,6 +1034,7 @@ pub(crate) fn animate(
     mut sun: Query<(&mut Transform, &mut DirectionalLight), With<Sun>>,
     art: Res<Art>,
     mut waters: ResMut<Assets<super::water::Water>>,
+    mut civic_glow: Query<&mut super::glow::Halo, With<CivicGlow>>,
     mut scene: ParamSet<(
         Query<(&mut Transform, &mut Projection), (With<StreetCamera>, Without<Sun>)>,
         Query<&mut Transform, (With<Hippo>, Without<Sun>)>,
@@ -1274,6 +1283,9 @@ pub(crate) fn animate(
     );
     for mut lamp in &mut civic_lights {
         lamp.intensity = night * 9800.0;
+    }
+    for mut halo in &mut civic_glow {
+        halo.strength = ((night - 0.25) / 0.45).clamp(0.0, 1.0);
     }
     let dusk = night / 0.86;
     let sea = super::water::Settings::calm(Vec3::ONE.lerp(v(0.44, 0.58, 0.80), dusk), 0.05)
@@ -1653,8 +1665,8 @@ fn surf(terrain: &Terrain) -> Mesh {
         (p, direction)
     };
     for (lane, inset, width, tint, y) in [
-        (0_u32, 0.10, 0.46, [226, 244, 236], -1.145),
-        (1, -0.85, 0.20, [170, 226, 218], -1.152),
+        (0_u32, 0.85, 0.62, [226, 244, 236], -1.145),
+        (1, -0.15, 0.24, [176, 228, 220], -1.152),
     ] {
         for i in 0..steps {
             let seed = i as u32 * 31 + lane * 977 + terrain.level.index as u32 * 13;

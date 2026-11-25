@@ -14,6 +14,7 @@ mod architecture;
 mod buildings;
 mod clothes;
 mod construction;
+pub(crate) mod critters;
 mod encounter;
 pub(crate) mod glow;
 pub(crate) use encounter::{
@@ -129,6 +130,7 @@ pub struct Art {
     temple_bell: Handle<Mesh>,
     doorway: [Handle<Mesh>; Region::ALL.len()],
     lantern_material: Handle<StandardMaterial>,
+    pub(crate) glow: glow::Glow,
     house: Handle<Scene>,
     store: Handle<Scene>,
     tower: Handle<Scene>,
@@ -263,6 +265,7 @@ pub fn setup(
             ..default()
         }),
         kinds: HashMap::new(),
+        glow: glow.clone(),
         work: Parts::prepare(&mut meshes, &mut materials),
         house: scene("embedded://models/villages/aegean.glb", 0),
         store: scene("embedded://models/villages/aegean.glb", 1),

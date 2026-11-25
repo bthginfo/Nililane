@@ -129,6 +129,7 @@ pub fn run() {
                     world::animate_weather,
                     world::animate_pets,
                     world::glow::animate,
+                    world::critters::animate,
                     world::haze,
                 )
                     .chain(),

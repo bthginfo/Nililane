@@ -1406,6 +1406,20 @@ fn showcase_settlements_for_visual_review() {
             }
         }
         run.island.position = (terrain::HALL_DOOR + Vec2::new(1.5, 2.5)).to_array();
+        if let Some(phase) = std::env::var("NILILANE_SHOWCASE_PHASE")
+            .ok()
+            .and_then(|phase| phase.parse().ok())
+        {
+            run.island.phase = phase;
+        }
+        if std::env::var_os("NILILANE_SHOWCASE_COAST").is_some() {
+            let direction = Vec2::new(0.6, 0.8);
+            let edge = run.terrain.shore(direction) + 1.0;
+            let spot = direction * (edge - 5.0);
+            if run.terrain.walkable(spot, &run.island.lots) {
+                run.island.position = spot.to_array();
+            }
+        }
         for earlier in 0..index {
             if book.islands[earlier].is_none() {
                 let mut done = Island::new(Level::at(earlier));
