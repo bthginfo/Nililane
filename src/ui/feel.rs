@@ -4,6 +4,8 @@
 // rebuilt entities; a rebuild never replays an animation.
 use std::hash::{DefaultHasher, Hash, Hasher};
 
+use bevy::ecs::system::SystemParam;
+
 use super::*;
 use crate::{controls, game::Cue};
 
@@ -14,6 +16,12 @@ const OPEN_TIME: f32 = 0.18;
 /// How long the scene curtain takes to lift.
 const CURTAIN_TIME: f32 = 0.35;
 const TOAST_SLIDE: f32 = 16.0;
+/// The main menu arrives once per launch: each entry rises 12 px and fades
+/// in, 60 ms after the one above it, as the curtain lifts.
+const ARRIVAL_DELAY: f32 = 0.24;
+const ARRIVAL_GAP: f32 = 0.06;
+const ARRIVAL_TIME: f32 = 0.34;
+const ARRIVAL_RISE: f32 = 12.0;
 
 /// Per-button motion state: the spring for the scale, the eased colours and
 /// the horizontal shake of a refused tap.
@@ -130,6 +138,110 @@ pub(crate) struct Counter {
     value: u32,
     prefix: &'static str,
     suffix: &'static str,
+}
+
+/// A main-menu entry, numbered from the top, that arrives in turn on the
+/// first title screen of a launch.
+#[derive(Component)]
+pub(crate) struct Arrival(u8);
+
+/// Wraps a title-menu entry so it can arrive in turn.
+pub(super) fn arriving(
+    p: &mut ChildSpawnerCommands,
+    index: u8,
+    contents: impl FnOnce(&mut ChildSpawnerCommands),
+) {
+    p.spawn((
+        Arrival(index),
+        Node {
+            flex_direction: FlexDirection::Column,
+            ..default()
+        },
+        FocusPolicy::Pass,
+    ))
+    .with_children(contents);
+}
+
+/// Everything the main-menu arrival moves and fades.
+#[derive(SystemParam)]
+pub(crate) struct Arrivals<'w, 's> {
+    entries: Query<'w, 's, (Entity, &'static Arrival, &'static mut Node)>,
+    children: Query<'w, 's, &'static Children>,
+    buttons: Query<'w, 's, (&'static mut Ease, &'static mut Outline), With<ButtonAction>>,
+    fills: Query<'w, 's, &'static mut BackgroundColor, (Without<Curtain>, Without<Backdrop>)>,
+    borders: Query<'w, 's, &'static mut BorderColor>,
+    texts: Query<'w, 's, &'static mut TextColor>,
+    images: Query<'w, 's, &'static mut ImageNode>,
+    /// The resting opacity of each colour inside an entry, by entity and
+    /// colour slot; buttons are recoloured every frame and need none.
+    rest: Local<'s, HashMap<(Entity, u8), f32>>,
+}
+
+impl Arrivals<'_, '_> {
+    /// Lays out the entries for the arrival clock: lowered and transparent
+    /// before their turn, then rising and fading in, with the button spring
+    /// giving a small pop as each one starts. True once all are at rest, or
+    /// the menu is gone.
+    fn show(&mut self, clock: f32, started: &mut u8) -> bool {
+        let mut settled = true;
+        for (entry, arrival_of, mut node) in &mut self.entries {
+            let shown = arrival(clock, arrival_of.0);
+            settled &= shown >= 1.0;
+            let top = Val::Px(ARRIVAL_RISE * (1.0 - shown));
+            if node.top != top {
+                node.top = top;
+            }
+            let bit = 1u8 << arrival_of.0.min(7);
+            let starting = shown > 0.0 && *started & bit == 0;
+            if starting {
+                *started |= bit;
+            }
+            let opacity = smooth(shown);
+            let rest = &mut self.rest;
+            let mut fade = |item: Entity, slot: u8, color: Color| {
+                let full = *rest.entry((item, slot)).or_insert(color.alpha());
+                color.with_alpha(full * opacity)
+            };
+            for item in self.children.iter_descendants(entry) {
+                if let Ok((mut ease, mut outline)) = self.buttons.get_mut(item) {
+                    // The button colours were set this frame; scale them.
+                    if starting {
+                        ease.scale = 0.94;
+                        ease.speed = 0.0;
+                    }
+                    outline.color = outline.color.with_alpha(outline.color.alpha() * opacity);
+                    if let Ok(mut fill) = self.fills.get_mut(item) {
+                        fill.0 = fill.0.with_alpha(fill.0.alpha() * opacity);
+                    }
+                    if let Ok(mut border) = self.borders.get_mut(item) {
+                        border.0 = border.0.with_alpha(border.0.alpha() * opacity);
+                    }
+                    continue;
+                }
+                if let Ok(mut fill) = self.fills.get_mut(item) {
+                    fill.0 = fade(item, 0, fill.0);
+                }
+                if let Ok(mut border) = self.borders.get_mut(item) {
+                    border.0 = fade(item, 1, border.0);
+                }
+                if let Ok(mut text) = self.texts.get_mut(item) {
+                    text.0 = fade(item, 2, text.0);
+                }
+                if let Ok(mut image) = self.images.get_mut(item) {
+                    image.color = fade(item, 3, image.color);
+                }
+            }
+        }
+        if settled {
+            self.rest.clear();
+        }
+        settled
+    }
+}
+
+/// How far an entry has arrived: 0 hidden and lowered, 1 in place.
+fn arrival(clock: f32, index: u8) -> f32 {
+    ease_out((clock - ARRIVAL_DELAY - ARRIVAL_GAP * f32::from(index)) / ARRIVAL_TIME)
 }
 
 /// A stable key for a dialog title.
@@ -273,9 +385,15 @@ pub(crate) struct Overlays {
     veil: Option<u64>,
     opened: f32,
     fade_backdrop: bool,
+    /// Time since the main menu first appeared; infinite once it has
+    /// arrived, so it never plays again in this launch.
+    welcome: Option<f32>,
+    /// The menu entries that have begun to arrive, one bit each.
+    welcomed: u8,
 }
 
-/// The scene curtain, the dialog opening and the backdrop fade.
+/// The scene curtain, the dialog opening, the backdrop fade and the first
+/// arrival of the main menu.
 #[allow(clippy::type_complexity)]
 pub(crate) fn animate_overlays(
     game: Res<Game>,
@@ -284,8 +402,17 @@ pub(crate) fn animate_overlays(
     mut curtain: Query<(&mut BackgroundColor, &mut Visibility), (With<Curtain>, Without<Backdrop>)>,
     mut veils: Query<(&Veil, &mut Transform)>,
     mut backdrop: Query<(&Backdrop, &mut BackgroundColor), Without<Curtain>>,
+    mut arrivals: Arrivals,
 ) {
     let dt = time.delta_secs().min(MAX_STEP);
+    // Runs after the buttons are recoloured, so the fade applies on top.
+    if state.welcome.is_none() && !arrivals.entries.is_empty() {
+        state.welcome = Some(0.0);
+    }
+    if let Some(clock) = state.welcome.filter(|clock| clock.is_finite()) {
+        let settled = arrivals.show(clock, &mut state.welcomed);
+        state.welcome = Some(if settled { f32::INFINITY } else { clock + dt });
+    }
     if state.view != Some(game.view) {
         state.view = Some(game.view);
         state.curtain = 1.0;
@@ -531,6 +658,19 @@ mod tests {
             }
             assert_eq!(ease.scale, 1.0);
             assert!(peak > 1.0 && peak < 1.1, "overshoot {peak} at {dt}");
+        }
+    }
+
+    #[test]
+    fn menu_entries_arrive_in_turn_and_come_to_rest() {
+        assert_eq!(arrival(0.0, 0), 0.0);
+        let start = |index: u8| ARRIVAL_DELAY + ARRIVAL_GAP * f32::from(index);
+        assert_eq!(arrival(start(1), 1), 0.0);
+        assert!(arrival(start(1), 0) > 0.0);
+        let end = start(4) + ARRIVAL_TIME;
+        assert!(end < 1.0, "the menu waits {end} s");
+        for index in 0..5 {
+            assert_eq!(arrival(end, index), 1.0);
         }
     }
 

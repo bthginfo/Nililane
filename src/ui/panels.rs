@@ -3422,21 +3422,33 @@ fn pause(p: &mut ChildSpawnerCommands, hud: &Hud, tutorial: bool) {
 
 pub fn options(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign) {
     modal(p, hud, 615.0, "", "Einstellungen", "sun", |page| {
-        for (action, name, enabled) in [
-            (Action::LargeUi, "Große Oberfläche", save.large_ui),
-            (Action::Music, "Musik", save.music),
-            (Action::Sounds, "Umgebung und Klänge", save.sounds),
-        ] {
-            button(
-                page,
-                hud,
-                action,
-                &format!("{name}  ·  {}", if enabled { "An" } else { "Aus" }),
-                if enabled { "check" } else { "" },
-                "",
-                Style::Quiet,
-                false,
-            );
+        button(
+            page,
+            hud,
+            Action::LargeUi,
+            &format!(
+                "Große Oberfläche  ·  {}",
+                if save.large_ui { "An" } else { "Aus" }
+            ),
+            if save.large_ui { "check" } else { "" },
+            "",
+            Style::Quiet,
+            false,
+        );
+        for channel in crate::save::Channel::ALL {
+            volume_control(page, hud, channel, save.volume(channel));
+        }
+        if !hud.phone && hud.device != Device::Pointer {
+            page.spawn((row(8.0), FocusPolicy::Pass))
+                .with_children(|hint| {
+                    if hud.device == Device::Pad {
+                        icon(hint, hud, "pad_dpad", 30.0);
+                    } else {
+                        glyph(hint, hud, "←", false, true);
+                        glyph(hint, hud, "→", false, true);
+                    }
+                    label(hint, hud, "Lautstärke einstellen", 17.0, Face::Body, MUTED);
+                });
         }
         label(
             page,
@@ -3456,6 +3468,133 @@ pub fn options(p: &mut ChildSpawnerCommands, hud: &Hud, save: &Campaign) {
             Style::Primary,
             false,
         );
+    });
+}
+
+/// One volume row: − and + for touch around the level itself, which counts
+/// up on a tap and follows left and right on a controller or keyboard.
+fn volume_control(
+    p: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    channel: crate::save::Channel,
+    step: u8,
+) {
+    use crate::save::{LOUDEST, volume_label};
+    let height = if hud.phone { 60.0 } else { 51.0 };
+    let nudge = |line: &mut ChildSpawnerCommands, louder: bool| {
+        let disabled = if louder { step >= LOUDEST } else { step == 0 };
+        button_shell(
+            line,
+            Action::VolumeStep(channel, louder),
+            Style::Quiet,
+            disabled,
+            Node {
+                min_width: Val::Px(height),
+                min_height: Val::Px(height),
+                justify_content: JustifyContent::Center,
+                flex_shrink: 0.0,
+                ..row(0.0)
+            },
+        )
+        .with_children(|item| {
+            label(
+                item,
+                hud,
+                if louder { "+" } else { "−" },
+                26.0,
+                Face::Bold,
+                if disabled {
+                    MUTED.with_alpha(0.6)
+                } else {
+                    SAND
+                },
+            );
+        });
+    };
+    p.spawn((
+        Node {
+            width: Val::Percent(100.0),
+            ..row(10.0)
+        },
+        FocusPolicy::Pass,
+    ))
+    .with_children(|line| {
+        nudge(line, false);
+        button_shell(
+            line,
+            Action::Volume(channel),
+            Style::Quiet,
+            false,
+            Node {
+                flex_grow: 1.0,
+                min_height: Val::Px(height),
+                padding: UiRect::axes(Val::Px(16.0), Val::Px(7.0)),
+                ..row(14.0)
+            },
+        )
+        .with_children(|slider| {
+            slider
+                .spawn((
+                    Node {
+                        flex_grow: 1.0,
+                        ..default()
+                    },
+                    FocusPolicy::Pass,
+                ))
+                .with_children(|name| {
+                    label(
+                        name,
+                        hud,
+                        channel.name(),
+                        if hud.phone { 20.0 } else { 18.0 },
+                        Face::Bold,
+                        SAND,
+                    );
+                });
+            // Rising bars, one per step above off.
+            slider
+                .spawn((
+                    Node {
+                        align_items: AlignItems::FlexEnd,
+                        ..row(5.0)
+                    },
+                    FocusPolicy::Pass,
+                ))
+                .with_children(|bars| {
+                    for level in 1..=LOUDEST {
+                        bars.spawn((
+                            Node {
+                                width: Val::Px(20.0),
+                                height: Val::Px(8.0 + 4.0 * f32::from(level)),
+                                ..default()
+                            },
+                            BackgroundColor(if level <= step { GOLD } else { LINE }),
+                            BorderRadius::all(Val::Px(3.0)),
+                            FocusPolicy::Pass,
+                        ));
+                    }
+                });
+            slider
+                .spawn((
+                    Node {
+                        min_width: Val::Px(62.0),
+                        justify_content: JustifyContent::FlexEnd,
+                        ..default()
+                    },
+                    FocusPolicy::Pass,
+                ))
+                .with_children(|value| {
+                    label(
+                        value,
+                        hud,
+                        volume_label(step),
+                        if hud.phone { 20.0 } else { 18.0 },
+                        Face::Bold,
+                        if step == 0 { MUTED } else { GOLD },
+                    );
+                });
+        });
+        nudge(line, true);
     });
 }
 
