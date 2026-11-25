@@ -1598,6 +1598,118 @@ impl DayEvent {
     }
 }
 
+/// Nili's call at a gathering place, once a day per building. Each call brings a small
+/// party that buys right there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Calling {
+    /// Japan: the temple bell calls pilgrims to prayer.
+    Bell,
+    /// Greece: an offering at the shrine draws pilgrims.
+    Offering,
+    /// Rome: the herald calls buyers to the forum.
+    Herald,
+}
+
+impl Calling {
+    pub fn of(kind: Kind) -> Option<Self> {
+        match kind {
+            Kind::Temple => Some(Self::Bell),
+            Kind::Shrine => Some(Self::Offering),
+            Kind::Forum => Some(Self::Herald),
+            _ => None,
+        }
+    }
+
+    /// The neighbour that brings one guest more.
+    pub fn partner(self) -> Kind {
+        match self {
+            Self::Bell => Kind::PaperWorkshop,
+            Self::Offering => Kind::Grove,
+            Self::Herald => Kind::Storehouse,
+        }
+    }
+
+    pub fn action(self) -> &'static str {
+        match self {
+            Self::Bell => "Glocke läuten",
+            Self::Offering => "Opfergabe bringen",
+            Self::Herald => "Herold rufen",
+        }
+    }
+
+    /// The map sign once Nili stands at the building.
+    pub fn verb(self) -> &'static str {
+        match self {
+            Self::Bell => "Läuten",
+            Self::Offering => "Opfern",
+            Self::Herald => "Ausrufen",
+        }
+    }
+
+    /// The map sign from further away.
+    pub fn sign(self) -> &'static str {
+        match self {
+            Self::Bell => "Tempelglocke",
+            Self::Offering => "Opfergabe",
+            Self::Herald => "Herold",
+        }
+    }
+
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::Bell => "temple_bell",
+            Self::Offering => "olive",
+            Self::Herald => "guest_steps",
+        }
+    }
+
+    pub fn guests(self, count: u16) -> &'static str {
+        match self {
+            Self::Bell | Self::Offering => "Pilger",
+            Self::Herald if count == 1 => "Marktgast",
+            Self::Herald => "Marktgäste",
+        }
+    }
+
+    /// The building's status line: how often it calls, or that it already did today.
+    pub fn status(self, guests: u16, done: bool) -> String {
+        let (once, today) = match self {
+            Self::Bell => ("läuten", "geläutet"),
+            Self::Offering => ("opfern", "geopfert"),
+            Self::Herald => ("ausrufen", "ausgerufen"),
+        };
+        if done {
+            format!("Heute schon {today}")
+        } else {
+            format!("Einmal pro Tag {once} · +{guests} {}", self.guests(guests))
+        }
+    }
+
+    /// How the call works, for the harbor brief.
+    pub fn hint(self) -> &'static str {
+        match self {
+            Self::Bell => {
+                "Geh tagsüber zum Tempel und läute die Glocke. Zwei Pilger kommen zum Gebet."
+            }
+            Self::Offering => {
+                "Geh tagsüber mit Nili zum Heiligtum. Zwei Pilger kommen, mit einem Olivenhain nebenan drei."
+            }
+            Self::Herald => {
+                "Geh tagsüber mit Nili zum Forum. Zwei Marktgäste kommen, mit einem Speicher nebenan drei."
+            }
+        }
+    }
+
+    pub fn announce(self, guests: u16) -> String {
+        let who = self.guests(guests);
+        match self {
+            Self::Bell => format!("Die Glocke ruft {guests} {who} zum Tempel"),
+            Self::Offering => format!("Die Opfergabe lockt {guests} {who} zum Heiligtum"),
+            Self::Herald => format!("Der Herold ruft {guests} {who} aufs Forum"),
+        }
+    }
+}
+
 /// The day event as it unfolds: when the group arrives and how many come.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Gathering {
@@ -2843,31 +2955,46 @@ impl Town {
         self.day_plan(chapter, &self.production(chapter)).visits
     }
 
+    /// The call Nili can make at this plot: the temple bell, an offering or the herald.
+    pub fn calling(&self, lot: usize) -> Option<Calling> {
+        Calling::of(self.lots.get(lot).copied().flatten()?.kind)
+    }
+
+    /// Whether Nili can make the call of this plot now. Each building calls once a day.
     pub fn bell_ready(&self, chapter: &Chapter, lot: usize) -> bool {
         let Phase::Open(day) = &self.phase else {
             return false;
         };
         chapter.layout.contains(lot)
-            && self.lots[lot].is_some_and(|building| building.kind == Kind::Temple)
+            && self.calling(lot).is_some()
             && day.route.is_none()
             && day.rung_bells & (1 << lot) == 0
             && day.seconds + 1.0 < chapter.day_seconds()
     }
 
+    /// Guests one call brings: two, and one more with the right neighbour next door.
     pub fn bell_guests(&self, lot: usize) -> u16 {
-        2 + u16::from(self.neighboring(lot, Kind::PaperWorkshop, 1))
+        let partner = self.calling(lot).map(Calling::partner);
+        2 + u16::from(partner.is_some_and(|kind| self.neighboring(lot, kind, 1)))
     }
 
+    /// Already called at this plot today.
+    pub fn bell_rung(&self, lot: usize) -> bool {
+        matches!(&self.phase, Phase::Open(day) if day.rung_bells & (1 << lot) != 0)
+    }
+
+    /// Makes the call of this plot. Only the temple bell counts for bell objectives.
     pub fn ring_bell(&mut self, chapter: &Chapter, lot: usize) -> bool {
         if !self.bell_ready(chapter, lot) {
             return false;
         }
         let guests = self.bell_guests(lot);
+        let calling = self.calling(lot);
         let Phase::Open(day) = &mut self.phase else {
             return false;
         };
         day.rung_bells |= 1 << lot;
-        day.tally.bell_rings += 1;
+        day.tally.bell_rings += u32::from(calling == Some(Calling::Bell));
         day.restock(lot, guests);
         let at = day.seconds;
         invite_party(
@@ -4814,6 +4941,66 @@ mod tests {
             before.0 as u32 + 3
         );
         assert_eq!(resumed.totals.income, 0);
+    }
+
+    #[test]
+    fn offerings_and_heralds_call_buyers_once_a_day_but_are_no_temple_bells() {
+        use crate::campaign::Region;
+
+        for (region, kind, partner) in [
+            (Region::Greece, Shrine, None),
+            (Region::Greece, Shrine, Some(Grove)),
+            (Region::Rome, Forum, None),
+            (Region::Rome, Forum, Some(Storehouse)),
+        ] {
+            let index = CHAPTERS
+                .iter()
+                .position(|c| c.region == region && c.allowed().contains(&kind))
+                .unwrap();
+            let service = kind.service().unwrap();
+            let mut chapter = CHAPTERS[index];
+            chapter.ferry = 0;
+            let mut town = Town::new(index, &chapter);
+            town.lots.fill(None);
+            town.coins = 500;
+            assert!(town.build(&chapter, 8, kind));
+            if let Some(partner) = partner {
+                assert!(town.build(&chapter, 9, partner));
+            }
+            assert_eq!(town.calling(8), Calling::of(kind));
+            assert!(!town.ring_bell(&chapter, 8), "only during the day");
+            assert!(town.open(&chapter));
+            let guests = 2 + u16::from(partner.is_some());
+            assert_eq!(town.bell_guests(8), guests);
+            let Phase::Open(day) = &town.phase else {
+                unreachable!()
+            };
+            let before = (day.visits.len(), day.stock[8]);
+            assert!(town.ring_bell(&chapter, 8));
+            assert!(town.bell_rung(8));
+            assert!(!town.ring_bell(&chapter, 8), "once per building and day");
+            let Phase::Open(day) = &town.phase else {
+                unreachable!()
+            };
+            assert_eq!(day.visits.len(), before.0 + usize::from(guests));
+            assert_eq!(day.stock[8], before.1 + guests);
+            assert!(
+                day.visits[before.0..]
+                    .iter()
+                    .all(|visit| visit.wants == service && visit.guided_to == Some(8))
+            );
+            assert!(town.tick(&chapter, chapter.day_seconds()));
+            assert_eq!(town.totals.served[service as usize], u32::from(guests));
+            assert_eq!(
+                town.totals.income,
+                u32::from(guests) * Price::Regular.coins(service)
+            );
+            // Bell objectives belong to the Japanese temple.
+            assert_eq!(town.goal(Goal::Bell(1)).0, 0);
+            assert!(town.advance());
+            assert!(town.open(&chapter));
+            assert!(town.bell_ready(&chapter, 8), "a new day, a new call");
+        }
     }
 
     #[test]

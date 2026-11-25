@@ -7,7 +7,8 @@ use crate::{
     coach::{self, Step},
     errands::Job,
     model::{
-        Assortment, Building, HarborPlan, MAX_LEVEL, Price, Production, Report, SERVICES, Town,
+        Assortment, Building, Calling, HarborPlan, MAX_LEVEL, Price, Production, Report, SERVICES,
+        Town,
     },
     trade::SailingRoute,
 };
@@ -314,11 +315,7 @@ fn new_in_harbor(page: &mut ChildSpawnerCommands, hud: &Hud, island: usize, chap
                 "Vom Feld in die Küche",
                 "Brunnen am Feld und Felder neben der Reisküche bringen mehr Reis auf den Tisch.",
             )),
-            1 => Some((
-                "temple_bell",
-                "Pilger rufen",
-                "Geh tagsüber zum Tempel und läute die Glocke. Zwei Pilger kommen zum Gebet.",
-            )),
+            1 => Some(("temple_bell", "Pilger rufen", Calling::Bell.hint())),
             2 => Some((
                 "tea_garden",
                 "Tee aus der Nähe",
@@ -416,6 +413,16 @@ fn new_in_harbor(page: &mut ChildSpawnerCommands, hud: &Hud, island: usize, chap
             let description =
                 building_link(building).map_or("Hier kannst du es bauen.", |(_, copy)| copy);
             fresh.push((kind_icon(building), building.name(), description));
+        }
+        // Japan introduces its bell above; shrines and forums get their call here.
+        for calling in chapter
+            .allowed()
+            .iter()
+            .filter(|kind| !CHAPTERS[island - 1].allowed().contains(kind))
+            .filter_map(|&kind| Calling::of(kind))
+            .filter(|&calling| calling != Calling::Bell)
+        {
+            fresh.push((calling.icon(), calling.action(), calling.hint()));
         }
     }
     if fresh.is_empty() {
@@ -890,29 +897,28 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                         false,
                     );
                 }
-                if service == Service::Prayer {
+                if let Some(calling) = town.calling(lot) {
                     if town.bell_ready(chapter, lot) {
                         button(
                             page,
                             hud,
                             Action::RingBell(lot),
-                            "Glocke läuten",
-                            "temple_bell",
+                            calling.action(),
+                            calling.icon(),
                             "A",
                             Style::Primary,
                             false,
                         );
                     }
                     let guests = town.bell_guests(lot);
-                    let status = if let Phase::Open(day) = &town.phase
-                        && day.rung_bells & (1 << lot) != 0
-                    {
-                        "Heute schon geläutet".to_owned()
-                    } else {
-                        format!("Einmal pro Tag läuten · +{guests} Pilger")
-                    };
-                    metric(page, hud, "temple_bell", status);
-                } else if town.planning() {
+                    let done = town.bell_rung(lot);
+                    let mut status = calling.status(guests, done);
+                    if !done && guests < 3 {
+                        status += &format!(" · {} nebenan: +1", calling.partner().name());
+                    }
+                    metric(page, hud, calling.icon(), status);
+                }
+                if service.priced() && town.planning() {
                     price_cards(page, hud, town, chapter, lot, service, b.price, &before);
                     if let Some(forecast) = town.offer_forecast(chapter, lot, &before) {
                         offer_cards(page, hud, b, &forecast, town, chapter);
@@ -3618,6 +3624,12 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                         "Bei Wind, Regen und Sturm den Kai räumen",
                         "Fährgäste laufen dann zwei Plätze weiter.",
                     ),
+                    (
+                        "shrine",
+                        "olive",
+                        "Opfergabe am Heiligtum",
+                        "Geh tagsüber mit Nili zum Heiligtum. Zwei Pilger kommen, mit einem Olivenhain nebenan drei.",
+                    ),
                 ],
                 4 => &[
                     (
@@ -3657,6 +3669,12 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                         "budget",
                         "In Villen wohnen mehr Menschen",
                         "Viele von ihnen können mehr ausgeben.",
+                    ),
+                    (
+                        "forum",
+                        "guest_steps",
+                        "Den Herold rufen",
+                        "Geh tagsüber mit Nili zum Forum. Zwei Marktgäste kommen, mit einem Speicher nebenan drei.",
                     ),
                 ],
                 6 => &[

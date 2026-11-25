@@ -1814,13 +1814,22 @@ pub(crate) fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                 return;
             };
             let chapter = &CHAPTERS[town.chapter];
-            if motion::can_inspect(town, lot, chapter.layout) && town.ring_bell(chapter, lot) {
+            let calling = town.calling(lot);
+            if motion::can_inspect(town, lot, chapter.layout)
+                && town.ring_bell(chapter, lot)
+                && let Some(calling) = calling
+            {
                 let guests = town.bell_guests(lot);
+                // Nili's pull at the bell rope doubles as the offering and the herald's call.
                 game.bell_action = Some((lot, game.clock));
                 game.show(Panel::None);
                 game.message(
-                    format!("Die Glocke ruft {guests} Pilger zum Tempel"),
-                    Cue::TempleBell,
+                    calling.announce(guests),
+                    match calling {
+                        model::Calling::Bell => Cue::TempleBell,
+                        model::Calling::Offering => Cue::Aid,
+                        model::Calling::Herald => Cue::Ferry,
+                    },
                 );
                 game.save(save);
             }

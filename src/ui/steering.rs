@@ -173,21 +173,25 @@ pub(super) fn nearby(near: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, to
         Some(Nearby::Building(lot)) => {
             let b = town.lots[lot].unwrap();
             let action = game.nearby_action(town, lot);
+            let calling = town.calling(lot);
             let (label, art) = match action {
-                Action::RingBell(_) => ("Glocke läuten", "temple_bell"),
+                Action::RingBell(_) => calling.map_or(("Glocke läuten", "temple_bell"), |call| {
+                    (call.action(), call.icon())
+                }),
                 Action::AidAt(_) => ("Hilfe starten", "nili"),
                 _ if b.kind == Kind::Boatyard => ("Seehandel", "sea_trade"),
                 _ => (b.kind.name(), kind_icon(b.kind)),
             };
             if matches!(action, Action::RingBell(_)) {
+                let look = format!("{} ansehen", b.kind.name());
                 near.spawn(row(6.0)).with_children(|choices| {
                     button(choices, hud, action, label, art, "A", Style::Primary, false);
                     button(
                         choices,
                         hud,
                         Action::LookAtLot(lot),
-                        "Tempel ansehen",
-                        "temple",
+                        &look,
+                        kind_icon(b.kind),
                         "",
                         Style::Quiet,
                         false,
