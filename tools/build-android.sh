@@ -31,7 +31,7 @@ case "$variant" in
         out="$base/phone"
         mkdir -p "$out"
         sed -e 's/package="game.nililane"/package="game.nililane.phone"/' \
-            -e 's/android:versionCode="[0-9]*"/android:versionCode="8"/' \
+            -e 's/android:versionCode="[0-9]*"/android:versionCode="9"/' \
             -e "s/android:versionName=\"[^\"]*\"/android:versionName=\"$version\"/" \
             -e 's/android:label="Nililane"/android:label="Nililane Handy"/' \
             -e 's/android:name=".GameActivity"/android:name="game.nililane.GameActivity"/' \

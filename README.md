@@ -15,7 +15,7 @@ Siedlungen.
 
 [SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/f71208911b62387aeff661f966a2804ca6948008/Nililane-3.5.1.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/f71208911b62387aeff661f966a2804ca6948008/Nililane-3.5.1-x86_64.apk.sha256)
 
-![Siedlung auf der griechischen Torinsel mit Werkstätten und Bürgern](docs/bilder/abenteuer-siedlung.jpg)
+![Siedlung in den Salzgärten mit Blumenwiesen, Steinplattenwegen und abgesteckten Bauplätzen](docs/bilder/abenteuer-siedlung.jpg)
 
 ![Nachtschicht in Raml Yasmin mit beleuchteten Gassen, Mondgarten und Karawanserei](docs/bilder/oasen-nacht.jpg)
 
@@ -69,13 +69,14 @@ sowie Musik und Spielklänge separat schalten.
 | A | Bestätigen oder mit dem Gebäude, der Abholung oder dem Tier in deiner Nähe interagieren |
 | B | Zurück, pausieren oder den laufenden Auftrag abbrechen |
 | X | Aufträge ansehen |
-| Y | Tag starten, das Tempo wechseln oder auf der Kampagnenkarte das Tutorial neu starten |
+| Y | Tag starten, das Tempo zwischen 1×, 2× und 4× wechseln oder auf der Kampagnenkarte das Tutorial neu starten |
 | RB | Tagesplan mit Gästezahlen, Wetter und Notizen öffnen |
 | View (Taste mit zwei Rechtecken) | Gästebuch direkt öffnen |
 | Rechten Stick drücken (R3) | Ab Amorgos Nilis Touren öffnen |
 | Linken Stick drücken (L3) | In der Abenteuerkampagne das Rohstofflager öffnen |
 | Rechter Stick, LT und RT | Kamera schwenken und zoomen |
 | LB | Kamera zurücksetzen |
+| LB und RB in Fenstern mit Reitern | Durch Tagesplan, Spielhilfe, Garderobe und Kampagnenkarte blättern |
 | Start | Pausenmenü öffnen |
 
 Zieh tagsüber das runde Steuerfeld, um Nili zu bewegen. Geh zu einem
@@ -84,6 +85,9 @@ Für Bauplätze, Preise und Angebote nutzt du morgens die Planung.
 Mit der Tastatur bewegst du Nili mit WASD oder den Pfeiltasten. Enter
 entspricht A, Escape entspricht B. X, Y, P, Q und E entsprechen X, Y,
 Start, LB und RB. N öffnet Nilis Touren. F öffnet das Gästebuch.
+Die Tastenhinweise folgen dem zuletzt benutzten Gerät: Controller-Symbole,
+Tastaturtasten oder keine Hinweise bei Maus und Touch. Auf Desktop und
+Tablet schließt ein Tipp neben ein Fenster dieses Fenster.
 
 ## Aufträge in den Häfen
 
@@ -102,8 +106,9 @@ siehst du die Zufriedenheit der Altersgruppen. Bei einem Umbau führt
 
 Im Hauptmenü erreichst du die **Abenteuerkampagne**. Auf jeder Insel wartet
 ein Rathaus. Geh zu einem Rohstoff, starte den Abbau und bring die Ladung
-zum Rathaus. Nili trägt bis zu zehn Einheiten einer Sorte. Nach dem Abbau
-bleiben Stümpfe, Bruchstücke oder abgeerntete Stellen zurück. **Weg anzeigen**
+zum Rathaus. Nili trägt zehn Einheiten einer Sorte. Jede Stufe deines besten
+Speichers erlaubt zwei mehr, höchstens zwanzig. Nach dem Abbau bleiben
+Stümpfe, Bruchstücke oder abgeerntete Stellen zurück. **Weg anzeigen**
 und die Markierungen auf der Inselkarte legen eine türkise Spur zum Ziel.
 Du führst Nili selbst entlang der Spur.
 
@@ -172,6 +177,81 @@ Du führst Nili selbst entlang der Spur.
 | Aufträge und Siedlungsbilanz | RB oder die gleichnamige Schaltfläche |
 | Weg in der Einführung ein- oder ausblenden | View oder „Weg anzeigen“ |
 | Pause | Start, B oder „Pause“ |
+
+## Neu in 3.6.0
+
+Die Downloads oben enthalten noch Version 3.5.1. Version 3.6.0 lässt sich
+aus dem Quellcode bauen.
+
+**Grafik**
+
+- **Lebendiges Meer.** Jede Facette des Wassers bewegt sich mit der Dünung,
+  fängt das Licht und glitzert. Sturm, Regen und Hitze verändern Wellengang
+  und Glanz. Nachts bleibt das Meer dunkel und spiegelt kühles Mondlicht.
+- **Küsten mit Brandung.** Um die Abenteuerinseln liegt türkises Flachwasser
+  über dem Sand, dahinter tiefes Blau. Zwei Gischtbänder folgen der Küste.
+- **Wiesen statt Rasenteppich.** Das Gras wechselt zwischen satten Senken und
+  sonnigen Hängen und wird um die Siedlung und entlang der Wege ausgetreten.
+  Steinplatten bilden die Wege. Freie Bauplätze sind mit Pflöcken und Schnur
+  abgesteckt. Wildblumen, Grasbüschel, Kiesel und Schmetterlinge beleben die
+  Wiesen.
+- **Licht und Tiefe.** Laternen, Feuerschalen und erleuchtete Türen bekommen
+  nachts einen warmen Lichthof. Das Rathaus leuchtet in der Nacht. Gebäude
+  stehen in einem weichen Kontaktschatten, ein leichter Dunst legt sich über
+  das ferne Wasser. Neue Gebäude feiern ihre Fertigstellung mit Konfetti.
+
+![Küste der Salzgärten mit türkisem Flachwasser, Brandung und facettiertem Meer](docs/bilder/kueste.jpg)
+
+![Griechischer Hafen bei Nacht mit leuchtenden Laternen](docs/bilder/laternen.jpg)
+
+**Abenteuerkampagne**
+
+- **Der nächste Schritt.** Ab der zweiten Insel zeigt dir eine Zeile immer,
+  was als Nächstes zu tun ist, mit **Weg** zur Markierung. Die Vorratsleiste
+  zeigt genau die Waren, die deine Ziele, Baustellen und Lieferungen brauchen.
+- **Fortschritt wird gefeiert.** Meldungen wie „Inselziel 4/7“, „+2 Bürger
+  ziehen ein“ oder „Nur noch 12 Werkzeug“ begleiten den Aufbau.
+- **Weniger Leerlauf.** Speicher machen Nili stärker: bis zu 20 Waren pro
+  Gang. Hat Nili noch Platz, führt die Markierung zum nächsten Baum oder Stein
+  derselben Sorte. In einer laufenden Werkstatt kann Nili **mitarbeiten**,
+  dann geht der Arbeitsgang schneller.
+- **Begegnungen mit Rhythmus.** Besucher kommen passend zu deinem Fortschritt,
+  kehren später mit neuen Geschichten zurück, und ein unbeachtetes Feuer
+  erlischt von selbst.
+- **Mehr Abwechslung.** Späte Inseln verlangen die Spezialware ihres Gebiets.
+  Die ersten Oasen haben eigene Sonderbauten.
+- **Korrekturen.** Bürger bleiben nicht mehr in fertigen Gebäuden stecken.
+  Baustellen nennen den echten Grund, wenn es nicht weitergeht. Ein
+  beschädigter Spielstand löscht nicht mehr alle Inseln.
+
+**Hafenreisen**
+
+- **Tagesereignisse.** Handelsschiffe, Hochzeiten, Schulausflüge und Pilger
+  bringen an manchen Tagen zusätzliche Gäste. Der Tagesplan kündigt sie an.
+- **Serien und Rekorde.** Je fünf zufriedene Gäste in Folge bringen +1
+  Ansehen. „Ziel erreicht“ erscheint sofort, und der Abendbericht zeigt neue
+  Tagesrekorde.
+- **Mehr zu tun an langen Tagen.** Das Tempo reicht bis 4×, und auf großen
+  Inseln darf Nili mehr Touren laufen. Schnelle Hilfe bei Zwischenfällen
+  bringt +3 Münzen und +2 Ansehen. Das Tagesextra wächst mit deinem Hafen.
+- **Korrekturen.** Begleitete Gäste kaufen jetzt wirklich ein. Schattentouren
+  wirken auch in Gartenhof und Mondgarten. Die Festhalle braucht zwei
+  Räucherfische und hat neben einer Räucherei einen Platz mehr. Ein
+  beschädigter Hafen löscht nicht mehr die ganze Kampagne; eine unlesbare
+  Datei wird vorher als `.bak` gesichert. Die Fähre legt erst ab, wenn ihr
+  letzter Fahrgast an Land ist.
+
+**Bedienung**
+
+- Schaltflächen wachsen beim Darüberfahren, federn beim Drücken und rütteln
+  kurz, wenn eine Aktion gerade nicht möglich ist. Fenster öffnen sich sanft,
+  Szenenwechsel werden überblendet.
+- Hinweise stehen mittig. Fehler erscheinen in Rostrot.
+- Die Abendabrechnung zählt die Werte hoch, und die Sterne leuchten
+  nacheinander mit einem Glockenklang auf. Erfüllte Aufträge melden sich mit
+  Häkchen und Klang.
+- Neue, leise Klänge für die Auswahl, Sterne und erfüllte Aufträge. Gleiche
+  Klänge variieren leicht in der Tonhöhe.
 
 ## Neu in 2.7.0
 

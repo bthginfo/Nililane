@@ -1,5 +1,25 @@
 # Spielreview und Abnahme
 
+## Grafik, Spielgefühl und Spiellogik 3.6.0
+
+- Alle 94 Rust-Tests sind bestanden, ein Fixture-Test für Sichtproben ist
+  ausgeklammert. Formatprüfung und Clippy mit `-D warnings` sind sauber. Die
+  Kampagnenprüfung umfasst weiterhin alle 120 Häfen mit drei Sternen und alle
+  60 Abenteuerinseln. Ein neuer Test hält Boden, Pflanzen und Wasser jeder
+  Abenteuerinsel unter 200 000 Vertices.
+- Neue Tests prüfen die Reparatur beschädigter Hafen- und Inselspielstände
+  samt `.bak`-Kopie, Tagesereignisse auf 120 Häfen über acht Tage, Bürger,
+  die aus fertigen Gebäuden geschoben werden, die Rückkehr von Begegnungen,
+  die Tragkraft mit Speichern, das Blättern durch Reiter, die Klangwarteschlange
+  und das Einschwingen der Animationen.
+- Sichtproben unter Linux mit Mesa-Lavapipe (Vulkan) im Format 1280 × 800:
+  Naxos bei Tag und Nacht, die Abendabrechnung, die Kampagnenkarte und die
+  Salzgärten mit ausgebauter Siedlung, Küste, Nacht und Handy-Vorschau. Das
+  Meer zeigt facettierte Wellen, die Laternen ihre Lichthöfe.
+- Der Wasser-Shader verzichtet auf Schleifen über Arrays, weil Lavapipe daran
+  scheiterte. Auf echten Android-Geräten und im Android-Emulator ist 3.6.0
+  noch nicht geprüft. Es gibt noch keine signierten 3.6.0-APKs.
+
 ## Handelsfracht und Arbeitsaufträge 3.5.1
 
 - In allen fünf Gebieten wurden Importwaren am Anleger gekauft, mit Nili
