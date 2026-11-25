@@ -1733,6 +1733,29 @@ pub struct OfferForecast {
     pub extra_coins: [u32; Assortment::ALL.len()],
 }
 
+/// What each price would bring one shop today, if nobody restocks it.
+pub struct PriceForecast {
+    pub sales: [u16; Price::ALL.len()],
+    pub coins: [u32; Price::ALL.len()],
+    /// Guests who wanted to buy here and left without it.
+    pub misses: [u16; Price::ALL.len()],
+}
+
+impl PriceForecast {
+    /// The price that earns the most. On a tie the one that leaves fewer guests
+    /// unhappy, then the cheaper one.
+    pub fn best(&self) -> Option<Price> {
+        Price::ALL
+            .into_iter()
+            .rev()
+            .max_by_key(|&price| {
+                let i = price as usize;
+                (self.coins[i], std::cmp::Reverse(self.misses[i]))
+            })
+            .filter(|&price| self.coins[price as usize] > 0)
+    }
+}
+
 impl SupplyNeed {
     pub fn shortage(&self) -> u16 {
         self.guests.saturating_sub(self.stock)
@@ -2697,6 +2720,49 @@ impl Town {
                 .count() as u16;
             forecast.matches[choice as usize] = served;
             forecast.extra_coins[choice as usize] = u32::from(served) * choice.extra_coins();
+        }
+        Some(forecast)
+    }
+
+    /// Plays today's planned market once per price, so the price cards can show the money
+    /// each choice brings. Walking range, budgets, stock and other shops all count.
+    pub fn price_forecast(
+        &self,
+        chapter: &Chapter,
+        lot: usize,
+        production: &Production,
+    ) -> Option<PriceForecast> {
+        let building = self.lots.get(lot).copied().flatten()?;
+        let service = building.kind.service().filter(|service| service.priced())?;
+        if !self.planning() {
+            return None;
+        }
+        let mut forecast = PriceForecast {
+            sales: [0; Price::ALL.len()],
+            coins: [0; Price::ALL.len()],
+            misses: [0; Price::ALL.len()],
+        };
+        let mut town = self.clone();
+        for price in Price::ALL {
+            // The plan is made again, because a day event picks its wishes by price too.
+            town.lots[lot] = Some(Building { price, ..building });
+            let mut market = town.day_plan(chapter, production);
+            resolve_visits(
+                &town.lots,
+                &mut market,
+                chapter,
+                chapter.day_seconds(),
+                None,
+            );
+            let i = price as usize;
+            for visit in market.visits.iter().filter(|visit| visit.wants == service) {
+                if visit.shop == Some(lot as u8) {
+                    forecast.sales[i] += 1;
+                    forecast.coins[i] += price.coins(service) + visit.specialty_bonus;
+                } else if visit.shop.is_none() && visit.declined_at == Some(lot as u8) {
+                    forecast.misses[i] += 1;
+                }
+            }
         }
         Some(forecast)
     }
@@ -4835,6 +4901,73 @@ mod tests {
         assert!(town.open(chapter));
         assert!(town.tick(chapter, chapter.day_seconds()));
         assert_eq!(town.last_day.as_ref().unwrap().specialty_income, expected);
+    }
+
+    #[test]
+    fn price_cards_predict_the_sales_coins_and_misses_of_each_price() {
+        let mut cheaper_wins = 0;
+        let mut dearer_wins = 0;
+        for (index, chapter) in CHAPTERS.iter().enumerate().step_by(5) {
+            let mut town = Town::new(index, chapter);
+            prepare_market(&mut town, chapter, &reference_layout(index, chapter));
+            let production = town.production(chapter);
+            for lot in chapter.layout.lots() {
+                let Some(forecast) = town.price_forecast(chapter, lot, &production) else {
+                    continue;
+                };
+                let service = town.lots[lot].unwrap().kind.service().unwrap();
+                for price in Price::ALL {
+                    let mut played = town.clone();
+                    assert!(played.set_price(lot, price));
+                    assert!(played.open(chapter));
+                    assert!(played.tick(chapter, chapter.day_seconds()));
+                    let here = || {
+                        played
+                            .last_visits
+                            .iter()
+                            .filter(move |visit| visit.wants == service)
+                    };
+                    let sold = || here().filter(|visit| visit.shop == Some(lot as u8));
+                    let actual = (
+                        sold().count() as u16,
+                        sold()
+                            .map(|visit| price.coins(service) + visit.specialty_bonus)
+                            .sum::<u32>(),
+                        here()
+                            .filter(|visit| {
+                                visit.shop.is_none() && visit.declined_at == Some(lot as u8)
+                            })
+                            .count() as u16,
+                    );
+                    let i = price as usize;
+                    assert_eq!(
+                        (forecast.sales[i], forecast.coins[i], forecast.misses[i]),
+                        actual,
+                        "{} plot {lot}: {}",
+                        chapter.district,
+                        price.label()
+                    );
+                }
+                match forecast.best() {
+                    Some(Price::Fair) => cheaper_wins += 1,
+                    Some(Price::Fine) => dearer_wins += 1,
+                    _ => {}
+                }
+            }
+            // Prices are set in the morning, so there is nothing to forecast once the day runs.
+            assert!(town.open(chapter));
+            assert!(
+                chapter
+                    .layout
+                    .lots()
+                    .all(|lot| town.price_forecast(chapter, lot, &production).is_none())
+            );
+        }
+        // Which price earns most depends on the street, so the cards must not guess.
+        assert!(
+            cheaper_wins > 0 && dearer_wins > 0,
+            "{cheaper_wins} / {dearer_wins}"
+        );
     }
 
     #[test]

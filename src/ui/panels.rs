@@ -6,7 +6,9 @@ use crate::{
     caravan::Contract,
     coach::{self, Step},
     errands::Job,
-    model::{Assortment, Building, HarborPlan, MAX_LEVEL, Price, Report, SERVICES, Town},
+    model::{
+        Assortment, Building, HarborPlan, MAX_LEVEL, Price, Production, Report, SERVICES, Town,
+    },
     trade::SailingRoute,
 };
 
@@ -911,7 +913,7 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                     };
                     metric(page, hud, "temple_bell", status);
                 } else if town.planning() {
-                    price_cards(page, hud, town, chapter, lot, service, b.price);
+                    price_cards(page, hud, town, chapter, lot, service, b.price, &before);
                     if let Some(forecast) = town.offer_forecast(chapter, lot, &before) {
                         offer_cards(page, hud, b, &forecast, town, chapter);
                     }
@@ -1501,6 +1503,7 @@ fn caravan_routes(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn price_cards(
     p: &mut ChildSpawnerCommands,
     hud: &Hud,
@@ -1509,13 +1512,14 @@ fn price_cards(
     lot: usize,
     service: Service,
     current: Price,
+    production: &Production,
 ) {
-    let visits = town.visit_plan(chapter);
-    let budgets: Vec<_> = visits
-        .iter()
-        .filter(|visit| visit.wants == service)
-        .map(|visit| visit.budget)
-        .collect();
+    let Some(forecast) = town.price_forecast(chapter, lot, production) else {
+        return;
+    };
+    let currency = Region::of(town.chapter).currency();
+    let best = forecast.best();
+    let top = forecast.coins.iter().copied().max().unwrap_or(0).max(1);
     let suggested = coach::recommended_price(town, lot);
     p.spawn(Node {
         align_items: AlignItems::Stretch,
@@ -1523,10 +1527,8 @@ fn price_cards(
     })
     .with_children(|prices| {
         for price in Price::ALL {
-            let affordable = budgets
-                .iter()
-                .filter(|&&budget| price as u8 <= budget as u8)
-                .count();
+            let i = price as usize;
+            let (sales, coins, misses) = (forecast.sales[i], forecast.coins[i], forecast.misses[i]);
             button_shell(
                 prices,
                 Action::Price(price),
@@ -1551,7 +1553,12 @@ fn price_cards(
                         ..row(4.0)
                     })
                     .with_children(|head| {
-                        label(head, hud, price.label(), 19.0, Face::Bold, SAND);
+                        head.spawn(row(5.0)).with_children(|name| {
+                            label(name, hud, price.label(), 19.0, Face::Bold, SAND);
+                            if best == Some(price) {
+                                icon(name, hud, "star", 19.0);
+                            }
+                        });
                         if current == price {
                             icon(head, hud, "check", 24.0);
                         } else if Some(price) == suggested {
@@ -1562,17 +1569,41 @@ fn price_cards(
                     choice,
                     hud,
                     "coin",
-                    format!(
-                        "{} · {affordable}/{} können zahlen",
-                        price.coins(service),
-                        budgets.len()
-                    ),
+                    format!("{} je Verkauf", price.coins(service)),
                 );
-                meter(
-                    choice,
-                    affordable as f32 / budgets.len().max(1) as f32,
-                    GOLD,
-                );
+                // The best card reads in gold, so the money is easy to compare at a glance.
+                choice.spawn(row(5.0)).with_children(|line| {
+                    icon(line, hud, "guest_happy", 24.0);
+                    label(
+                        line,
+                        hud,
+                        format!(
+                            "≈ {sales} {} · {coins} {currency}",
+                            if sales == 1 { "Verkauf" } else { "Verkäufe" }
+                        ),
+                        16.0,
+                        Face::Body,
+                        if best == Some(price) { GOLD } else { SAND },
+                    );
+                });
+                meter(choice, coins as f32 / top as f32, GOLD);
+                if misses > 0 {
+                    label(
+                        choice,
+                        hud,
+                        format!(
+                            "{misses} {} ohne Kauf",
+                            if misses == 1 {
+                                "Gast geht"
+                            } else {
+                                "Gäste gehen"
+                            }
+                        ),
+                        14.0,
+                        Face::Body,
+                        MUTED,
+                    );
+                }
             });
         }
     });
