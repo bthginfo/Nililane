@@ -69,91 +69,109 @@ und viele kleine Geschichten.",
             height: Val::Px(10.0),
             ..default()
         });
-        if let Some(town) = save.active_town() {
-            button(
-                stack,
-                hud,
-                Action::Resume,
-                if save.in_tutorial() {
-                    "Tutorial fortsetzen"
-                } else {
-                    "Reise fortsetzen"
-                },
-                if save.in_tutorial() { "guide" } else { "ferry" },
-                "A",
-                Style::Primary,
-                false,
-            );
-            label(
-                stack,
-                hud,
-                format!("{}  ·  Tag {}", CHAPTERS[town.chapter].district, town.day),
-                18.0,
-                Face::Body,
-                MUTED,
-            );
-        } else {
-            button(
-                stack,
-                hud,
-                Action::Begin,
-                "Erste Reise",
-                "ferry",
-                "A",
-                Style::Primary,
-                false,
-            );
-        }
-        button(
-            stack,
-            hud,
-            Action::Chart,
-            if save.in_tutorial() {
-                "Übung beenden"
+        // The entries arrive one after another on the first title of a launch.
+        feel::arriving(stack, 0, |stack| {
+            if let Some(town) = save.active_town() {
+                button(
+                    stack,
+                    hud,
+                    Action::Resume,
+                    if save.in_tutorial() {
+                        "Tutorial fortsetzen"
+                    } else {
+                        "Reise fortsetzen"
+                    },
+                    if save.in_tutorial() { "guide" } else { "ferry" },
+                    "A",
+                    Style::Primary,
+                    false,
+                );
+                stack
+                    .spawn(Node {
+                        margin: UiRect::top(Val::Px(if hud.phone { 11.0 } else { 19.0 })),
+                        ..default()
+                    })
+                    .with_children(|place| {
+                        label(
+                            place,
+                            hud,
+                            format!("{}  ·  Tag {}", CHAPTERS[town.chapter].district, town.day),
+                            18.0,
+                            Face::Body,
+                            MUTED,
+                        );
+                    });
             } else {
-                "Kampagnenkarte"
-            },
-            "chart",
-            "",
-            Style::Quiet,
-            false,
-        );
-        button(
-            stack,
-            hud,
-            Action::Adventure(crate::adventure::Command::Enter),
-            "Abenteuerkampagne",
-            "adventure",
-            "",
-            Style::Quiet,
-            false,
-        );
+                button(
+                    stack,
+                    hud,
+                    Action::Begin,
+                    "Erste Reise",
+                    "ferry",
+                    "A",
+                    Style::Primary,
+                    false,
+                );
+            }
+        });
+        feel::arriving(stack, 1, |stack| {
+            button(
+                stack,
+                hud,
+                Action::Chart,
+                if save.in_tutorial() {
+                    "Übung beenden"
+                } else {
+                    "Kampagnenkarte"
+                },
+                "chart",
+                "",
+                Style::Quiet,
+                false,
+            );
+        });
+        feel::arriving(stack, 2, |stack| {
+            button(
+                stack,
+                hud,
+                Action::Adventure(crate::adventure::Command::Enter),
+                "Abenteuerkampagne",
+                "adventure",
+                "",
+                Style::Quiet,
+                false,
+            );
+        });
         stack
             .spawn(Node {
                 width: Val::Percent(100.0),
                 ..row(9.0)
             })
             .with_children(|row| {
-                button(
-                    row,
-                    hud,
-                    Action::Guide,
-                    "Spielhilfe",
-                    "guide",
-                    "",
-                    Style::Quiet,
-                    false,
-                );
-                button(
-                    row,
-                    hud,
-                    Action::Options,
-                    "Einstellungen",
-                    "",
-                    "",
-                    Style::Quiet,
-                    false,
-                );
+                feel::arriving(row, 3, |row| {
+                    button(
+                        row,
+                        hud,
+                        Action::Guide,
+                        "Spielhilfe",
+                        "guide",
+                        "",
+                        Style::Quiet,
+                        false,
+                    );
+                });
+                feel::arriving(row, 4, |row| {
+                    button(
+                        row,
+                        hud,
+                        Action::Options,
+                        "Einstellungen",
+                        "",
+                        "",
+                        Style::Quiet,
+                        false,
+                    );
+                });
             });
     });
     p.spawn((
