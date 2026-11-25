@@ -390,10 +390,15 @@ fn map_signs(town: &Town, game: &Game) -> Vec<MapSign> {
         })
     {
         let nearby = crate::world::motion::can_inspect(town, lot, chapter.layout);
+        let calling = town.calling(lot).unwrap_or(crate::model::Calling::Bell);
         signs.push(MapSign {
             point: Point::Lot(lot),
-            title: if nearby { "Läuten" } else { "Tempelglocke" },
-            icon: "temple_bell",
+            title: if nearby {
+                calling.verb()
+            } else {
+                calling.sign()
+            },
+            icon: calling.icon(),
             action: Some(if nearby {
                 Action::RingBell(lot)
             } else {

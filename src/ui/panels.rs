@@ -6,7 +6,10 @@ use crate::{
     caravan::Contract,
     coach::{self, Step},
     errands::Job,
-    model::{Assortment, Building, HarborPlan, MAX_LEVEL, Price, Report, SERVICES, Town},
+    model::{
+        Assortment, Building, Calling, HarborPlan, MAX_LEVEL, Price, Production, Report, SERVICES,
+        Town,
+    },
     trade::SailingRoute,
 };
 
@@ -312,11 +315,7 @@ fn new_in_harbor(page: &mut ChildSpawnerCommands, hud: &Hud, island: usize, chap
                 "Vom Feld in die Küche",
                 "Brunnen am Feld und Felder neben der Reisküche bringen mehr Reis auf den Tisch.",
             )),
-            1 => Some((
-                "temple_bell",
-                "Pilger rufen",
-                "Geh tagsüber zum Tempel und läute die Glocke. Zwei Pilger kommen zum Gebet.",
-            )),
+            1 => Some(("temple_bell", "Pilger rufen", Calling::Bell.hint())),
             2 => Some((
                 "tea_garden",
                 "Tee aus der Nähe",
@@ -414,6 +413,16 @@ fn new_in_harbor(page: &mut ChildSpawnerCommands, hud: &Hud, island: usize, chap
             let description =
                 building_link(building).map_or("Hier kannst du es bauen.", |(_, copy)| copy);
             fresh.push((kind_icon(building), building.name(), description));
+        }
+        // Japan introduces its bell above; shrines and forums get their call here.
+        for calling in chapter
+            .allowed()
+            .iter()
+            .filter(|kind| !CHAPTERS[island - 1].allowed().contains(kind))
+            .filter_map(|&kind| Calling::of(kind))
+            .filter(|&calling| calling != Calling::Bell)
+        {
+            fresh.push((calling.icon(), calling.action(), calling.hint()));
         }
     }
     if fresh.is_empty() {
@@ -888,30 +897,29 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                         false,
                     );
                 }
-                if service == Service::Prayer {
+                if let Some(calling) = town.calling(lot) {
                     if town.bell_ready(chapter, lot) {
                         button(
                             page,
                             hud,
                             Action::RingBell(lot),
-                            "Glocke läuten",
-                            "temple_bell",
+                            calling.action(),
+                            calling.icon(),
                             "A",
                             Style::Primary,
                             false,
                         );
                     }
                     let guests = town.bell_guests(lot);
-                    let status = if let Phase::Open(day) = &town.phase
-                        && day.rung_bells & (1 << lot) != 0
-                    {
-                        "Heute schon geläutet".to_owned()
-                    } else {
-                        format!("Einmal pro Tag läuten · +{guests} Pilger")
-                    };
-                    metric(page, hud, "temple_bell", status);
-                } else if town.planning() {
-                    price_cards(page, hud, town, chapter, lot, service, b.price);
+                    let done = town.bell_rung(lot);
+                    let mut status = calling.status(guests, done);
+                    if !done && guests < 3 {
+                        status += &format!(" · {} nebenan: +1", calling.partner().name());
+                    }
+                    metric(page, hud, calling.icon(), status);
+                }
+                if service.priced() && town.planning() {
+                    price_cards(page, hud, town, chapter, lot, service, b.price, &before);
                     if let Some(forecast) = town.offer_forecast(chapter, lot, &before) {
                         offer_cards(page, hud, b, &forecast, town, chapter);
                     }
@@ -1501,6 +1509,7 @@ fn caravan_routes(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn price_cards(
     p: &mut ChildSpawnerCommands,
     hud: &Hud,
@@ -1509,13 +1518,14 @@ fn price_cards(
     lot: usize,
     service: Service,
     current: Price,
+    production: &Production,
 ) {
-    let visits = town.visit_plan(chapter);
-    let budgets: Vec<_> = visits
-        .iter()
-        .filter(|visit| visit.wants == service)
-        .map(|visit| visit.budget)
-        .collect();
+    let Some(forecast) = town.price_forecast(chapter, lot, production) else {
+        return;
+    };
+    let currency = Region::of(town.chapter).currency();
+    let best = forecast.best();
+    let top = forecast.coins.iter().copied().max().unwrap_or(0).max(1);
     let suggested = coach::recommended_price(town, lot);
     p.spawn(Node {
         align_items: AlignItems::Stretch,
@@ -1523,10 +1533,8 @@ fn price_cards(
     })
     .with_children(|prices| {
         for price in Price::ALL {
-            let affordable = budgets
-                .iter()
-                .filter(|&&budget| price as u8 <= budget as u8)
-                .count();
+            let i = price as usize;
+            let (sales, coins, misses) = (forecast.sales[i], forecast.coins[i], forecast.misses[i]);
             button_shell(
                 prices,
                 Action::Price(price),
@@ -1551,7 +1559,12 @@ fn price_cards(
                         ..row(4.0)
                     })
                     .with_children(|head| {
-                        label(head, hud, price.label(), 19.0, Face::Bold, SAND);
+                        head.spawn(row(5.0)).with_children(|name| {
+                            label(name, hud, price.label(), 19.0, Face::Bold, SAND);
+                            if best == Some(price) {
+                                icon(name, hud, "star", 19.0);
+                            }
+                        });
                         if current == price {
                             icon(head, hud, "check", 24.0);
                         } else if Some(price) == suggested {
@@ -1562,17 +1575,41 @@ fn price_cards(
                     choice,
                     hud,
                     "coin",
-                    format!(
-                        "{} · {affordable}/{} können zahlen",
-                        price.coins(service),
-                        budgets.len()
-                    ),
+                    format!("{} je Verkauf", price.coins(service)),
                 );
-                meter(
-                    choice,
-                    affordable as f32 / budgets.len().max(1) as f32,
-                    GOLD,
-                );
+                // The best card reads in gold, so the money is easy to compare at a glance.
+                choice.spawn(row(5.0)).with_children(|line| {
+                    icon(line, hud, "guest_happy", 24.0);
+                    label(
+                        line,
+                        hud,
+                        format!(
+                            "≈ {sales} {} · {coins} {currency}",
+                            if sales == 1 { "Verkauf" } else { "Verkäufe" }
+                        ),
+                        16.0,
+                        Face::Body,
+                        if best == Some(price) { GOLD } else { SAND },
+                    );
+                });
+                meter(choice, coins as f32 / top as f32, GOLD);
+                if misses > 0 {
+                    label(
+                        choice,
+                        hud,
+                        format!(
+                            "{misses} {} ohne Kauf",
+                            if misses == 1 {
+                                "Gast geht"
+                            } else {
+                                "Gäste gehen"
+                            }
+                        ),
+                        14.0,
+                        Face::Body,
+                        MUTED,
+                    );
+                }
             });
         }
     });
@@ -2843,6 +2880,23 @@ fn day_plan(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
                 if weather == Weather::Feast {
                     metric(day, hud, "budget", "Größere Budgets");
                 }
+                if chapter.region == Region::Oasis
+                    && matches!(weather, Weather::Wind | Weather::Storm)
+                {
+                    metric(
+                        day,
+                        hud,
+                        "budget",
+                        if weather == Weather::Storm {
+                            "Sandsturm: größere Budgets"
+                        } else {
+                            "Flugsand: größere Budgets"
+                        },
+                    );
+                }
+                if let Some(festival) = town.festival_ahead(chapter, index) {
+                    metric(day, hud, festival.icon(), festival.title(chapter.region));
+                }
                 if chapter.region == Region::Nordic
                     && matches!(weather, Weather::Wind | Weather::Storm)
                 {
@@ -3587,6 +3641,12 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                         "Bei Wind, Regen und Sturm den Kai räumen",
                         "Fährgäste laufen dann zwei Plätze weiter.",
                     ),
+                    (
+                        "shrine",
+                        "olive",
+                        "Opfergabe am Heiligtum",
+                        "Geh tagsüber mit Nili zum Heiligtum. Zwei Pilger kommen, mit einem Olivenhain nebenan drei.",
+                    ),
                 ],
                 4 => &[
                     (
@@ -3626,6 +3686,12 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                         "budget",
                         "In Villen wohnen mehr Menschen",
                         "Viele von ihnen können mehr ausgeben.",
+                    ),
+                    (
+                        "forum",
+                        "guest_steps",
+                        "Den Herold rufen",
+                        "Geh tagsüber mit Nili zum Forum. Zwei Marktgäste kommen, mit einem Speicher nebenan drei.",
                     ),
                 ],
                 6 => &[
