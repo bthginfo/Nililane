@@ -12,6 +12,51 @@ use crate::{
 
 const VERSION: u32 = 2;
 
+/// The loudest volume step (100 %); step 0 is off.
+pub const LOUDEST: u8 = 4;
+
+/// A volume control in the settings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Channel {
+    /// Harbor, menu and adventure music.
+    Music,
+    /// The sea, the shore and the rain.
+    Ambience,
+    /// Interface and game cues.
+    Cues,
+}
+
+impl Channel {
+    pub const ALL: [Self; 3] = [Self::Music, Self::Ambience, Self::Cues];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Music => "Musik",
+            Self::Ambience => "Umgebung",
+            Self::Cues => "Klänge",
+        }
+    }
+}
+
+/// The amplitude factor of a volume step. The steps follow loudness rather
+/// than amplitude, so 50 % sounds about half as loud instead of barely
+/// quieter: −16, −9, −4 and 0 dB.
+pub fn gain(step: u8) -> f32 {
+    const DECIBELS: [f32; LOUDEST as usize] = [-16.0, -9.0, -4.0, 0.0];
+    match step.min(LOUDEST) {
+        0 => 0.0,
+        step => 10f32.powf(DECIBELS[usize::from(step) - 1] / 20.0),
+    }
+}
+
+/// How a volume step reads in the settings.
+pub fn volume_label(step: u8) -> String {
+    match step.min(LOUDEST) {
+        0 => "Aus".to_owned(),
+        step => format!("{} %", u32::from(step) * 100 / u32::from(LOUDEST)),
+    }
+}
+
 #[derive(Clone, Copy, Default, Deserialize, Serialize)]
 pub struct Record {
     pub stars: u8,
@@ -31,11 +76,20 @@ pub struct Campaign {
     moored: Vec<Town>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tutorial: Option<Town>,
-    pub music: bool,
-    pub sounds: bool,
+    /// The on/off switches of older versions. They are still written, so an
+    /// older version keeps playing what the player hears now; the volume
+    /// steps below take precedence once set.
+    music: bool,
+    sounds: bool,
     pub large_ui: bool,
     #[serde(default, skip_serializing_if = "Wardrobe::is_empty")]
     pub wardrobe: Wardrobe,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    music_volume: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ambience_volume: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sound_volume: Option<u8>,
 }
 
 impl Default for Campaign {
@@ -51,6 +105,9 @@ impl Default for Campaign {
             sounds: true,
             large_ui: false,
             wardrobe: Wardrobe::default(),
+            music_volume: None,
+            ambience_volume: None,
+            sound_volume: None,
         }
     }
 }
@@ -164,6 +221,48 @@ impl Campaign {
         output.flush()?;
         output.sync_all()?;
         fs::rename(temporary, file)
+    }
+
+    /// The volume step (0 = off, `LOUDEST` = 100 %) of a channel. Saves from
+    /// before the volume steps map their switches: on is 100 %, off is off.
+    /// The old sound switch covered both the ambience and the cues.
+    pub fn volume(&self, channel: Channel) -> u8 {
+        let (step, switch) = match channel {
+            Channel::Music => (self.music_volume, self.music),
+            Channel::Ambience => (self.ambience_volume, self.sounds),
+            Channel::Cues => (self.sound_volume, self.sounds),
+        };
+        step.unwrap_or(if switch { LOUDEST } else { 0 })
+            .min(LOUDEST)
+    }
+
+    pub fn set_volume(&mut self, channel: Channel, step: u8) {
+        let mut steps = Channel::ALL.map(|channel| self.volume(channel));
+        steps[channel as usize] = step.min(LOUDEST);
+        let [music, ambience, cues] = steps;
+        self.music_volume = Some(music);
+        self.ambience_volume = Some(ambience);
+        self.sound_volume = Some(cues);
+        self.music = music > 0;
+        self.sounds = ambience > 0 || cues > 0;
+    }
+
+    /// Moves a channel one step louder or quieter; false at either end.
+    pub fn step_volume(&mut self, channel: Channel, louder: bool) -> bool {
+        let step = self.volume(channel);
+        let next = if louder {
+            (step + 1).min(LOUDEST)
+        } else {
+            step.saturating_sub(1)
+        };
+        self.set_volume(channel, next);
+        next != step
+    }
+
+    /// One step louder, from 100 % back to off; a tap on the control does this.
+    pub fn cycle_volume(&mut self, channel: Channel) {
+        let step = self.volume(channel);
+        self.set_volume(channel, if step >= LOUDEST { 0 } else { step + 1 });
     }
 
     pub fn unlocked(&self, chapter: usize) -> bool {
@@ -727,5 +826,101 @@ mod tests {
         assert_eq!(before.seconds, after.seconds);
         assert_eq!(after.nili_at, crate::errands::Stop::Parcel(8));
         assert_eq!(after.favor_at, Some(8));
+    }
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+
+    fn decode(json: serde_json::Value) -> Campaign {
+        Campaign::decode(serde_json::to_vec(&json).unwrap().as_slice()).unwrap()
+    }
+
+    /// A save as the versions before the volume steps wrote it.
+    fn switches(music: bool, sounds: bool) -> serde_json::Value {
+        let mut old = serde_json::to_value(Campaign::default()).unwrap();
+        old["music"] = music.into();
+        old["sounds"] = sounds.into();
+        for field in ["music_volume", "ambience_volume", "sound_volume"] {
+            assert!(old.get(field).is_none(), "{field} is written by default");
+        }
+        old
+    }
+
+    #[test]
+    fn old_switches_map_to_full_volume_or_off() {
+        let quiet = decode(switches(false, true));
+        assert_eq!(quiet.volume(Channel::Music), 0);
+        assert_eq!(quiet.volume(Channel::Ambience), LOUDEST);
+        assert_eq!(quiet.volume(Channel::Cues), LOUDEST);
+
+        let silent = decode(switches(true, false));
+        assert_eq!(silent.volume(Channel::Music), LOUDEST);
+        assert_eq!(silent.volume(Channel::Ambience), 0);
+        assert_eq!(silent.volume(Channel::Cues), 0);
+
+        let fresh = Campaign::default();
+        for channel in Channel::ALL {
+            assert_eq!(fresh.volume(channel), LOUDEST);
+        }
+    }
+
+    #[test]
+    fn volume_steps_survive_a_reload_and_keep_the_old_switches_in_step() {
+        let mut progress = decode(switches(true, true));
+        progress.set_volume(Channel::Music, 2);
+        progress.set_volume(Channel::Cues, 0);
+        progress.set_volume(Channel::Ambience, 1);
+        let json = serde_json::to_value(&progress).unwrap();
+        // An older version reads only the switches.
+        assert_eq!(json["music"], true);
+        assert_eq!(json["sounds"], true);
+        let loaded = decode(json);
+        assert_eq!(loaded.volume(Channel::Music), 2);
+        assert_eq!(loaded.volume(Channel::Ambience), 1);
+        assert_eq!(loaded.volume(Channel::Cues), 0);
+
+        let mut muted = loaded;
+        muted.set_volume(Channel::Music, 0);
+        muted.set_volume(Channel::Ambience, 0);
+        let json = serde_json::to_value(&muted).unwrap();
+        assert_eq!(json["music"], false);
+        assert_eq!(json["sounds"], false);
+    }
+
+    #[test]
+    fn a_damaged_volume_is_clamped_and_steps_stop_at_both_ends() {
+        let mut old = switches(true, true);
+        old["music_volume"] = 9.into();
+        let mut progress = decode(old);
+        assert_eq!(progress.volume(Channel::Music), LOUDEST);
+        assert!(!progress.step_volume(Channel::Music, true));
+        assert!(progress.step_volume(Channel::Music, false));
+        assert_eq!(progress.volume(Channel::Music), LOUDEST - 1);
+        progress.set_volume(Channel::Cues, 0);
+        assert!(!progress.step_volume(Channel::Cues, false));
+        // A tap counts up and wraps from 100 % to off.
+        let mut seen = Vec::new();
+        for _ in 0..=LOUDEST {
+            progress.cycle_volume(Channel::Cues);
+            seen.push(progress.volume(Channel::Cues));
+        }
+        assert_eq!(seen, [1, 2, 3, 4, 0]);
+    }
+
+    #[test]
+    fn volume_steps_rise_by_loudness_and_read_as_percent() {
+        assert_eq!(gain(0), 0.0);
+        assert_eq!(gain(LOUDEST), 1.0);
+        assert_eq!(gain(LOUDEST + 3), 1.0);
+        for step in 1..=LOUDEST {
+            assert!(gain(step) > gain(step - 1));
+        }
+        // Half loudness is close to −10 dB, well below half the amplitude.
+        assert!((0.3..0.4).contains(&gain(2)), "{}", gain(2));
+        assert!(gain(1) > 0.1, "25 % must stay audible");
+        let labels: Vec<_> = (0..=LOUDEST).map(volume_label).collect();
+        assert_eq!(labels, ["Aus", "25 %", "50 %", "75 %", "100 %"]);
     }
 }

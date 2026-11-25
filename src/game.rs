@@ -21,7 +21,7 @@ use crate::{
     model::{
         self, Assortment, GuestTip, HarborPlan, Kind, LOTS, Miss, Phase, Price, Town, Weather,
     },
-    save::Campaign,
+    save::{self, Campaign, Channel},
     street::{self, Activity},
     trade::SailingRoute,
     ui::{self, Hud},
@@ -78,8 +78,10 @@ pub enum Action {
     Wear(Cosmetic),
     Guide,
     GuideTab(usize),
-    Music,
-    Sounds,
+    /// A volume control: a tap or A counts up and wraps, left/right steps.
+    Volume(Channel),
+    /// The − and + beside a volume control.
+    VolumeStep(Channel, bool),
     LargeUi,
     QuickMenu,
     CameraView,
@@ -198,6 +200,12 @@ impl Cue {
             self,
             Cue::Star | Cue::Goal | Cue::Earned | Cue::TempleBell | Cue::Ferry
         )
+    }
+
+    /// The success fanfares of toasts and the evening report; the music
+    /// makes room for them.
+    fn ducks_music(self) -> bool {
+        matches!(self, Cue::Star | Cue::Goal | Cue::Earned)
     }
 }
 
@@ -1052,6 +1060,20 @@ pub fn frame(
             return;
         }
         if let Some(dir) = controls.direction {
+            // Left and right set a focused volume control instead of moving on.
+            if let (
+                Panel::Options,
+                Some(Action::Volume(channel)),
+                Direction::Left | Direction::Right,
+            ) = (game.panel, game.focus.or(hud.first), dir)
+            {
+                apply(
+                    Action::VolumeStep(channel, dir == Direction::Right),
+                    &mut game,
+                    &mut save,
+                );
+                return;
+            }
             game.focus = ui::move_focus(game.focus.or(hud.first), dir, &buttons).or(hud.first);
         }
         if controls.got(controls::A)
@@ -1691,14 +1713,30 @@ pub(crate) fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
             game.quick_menu = false;
             game.dirty = true;
         }
-        Action::Music | Action::Sounds | Action::LargeUi => {
-            match action {
-                Action::Music => save.music = !save.music,
-                Action::Sounds => save.sounds = !save.sounds,
-                _ => save.large_ui = !save.large_ui,
-            }
+        Action::LargeUi => {
+            save.large_ui = !save.large_ui;
             game.save(save);
             game.focus = Some(action);
+            game.dirty = true;
+        }
+        Action::Volume(channel) | Action::VolumeStep(channel, _) => {
+            let changed = match action {
+                Action::VolumeStep(_, louder) => save.step_volume(channel, louder),
+                _ => {
+                    save.cycle_volume(channel);
+                    true
+                }
+            };
+            // The cue plays at the new level, so a sound step can be heard.
+            game.cue = Some(match channel {
+                _ if !changed => Cue::Blocked,
+                Channel::Cues => Cue::Confirm,
+                _ => Cue::Tick,
+            });
+            if changed {
+                game.save(save);
+            }
+            game.focus = Some(Action::Volume(channel));
             game.dirty = true;
         }
         Action::Plot => {
@@ -2174,6 +2212,41 @@ type MusicVoices<'w, 's> = Query<
     (Without<Coast>, Without<RainAudio>),
 >;
 
+/// How long the outgoing music takes to fade out, and the incoming one to
+/// fade in, when the track changes or the music is switched off.
+const FADE_OUT: f32 = 0.55;
+const FADE_IN: f32 = 0.72;
+/// A success fanfare lowers the music by 30 % for 0.8 s.
+const DUCK_DEPTH: f32 = 0.3;
+const DUCK_TIME: f32 = 0.8;
+
+/// Moves a music voice's envelope toward full level or silence.
+fn envelope(gain: f32, audible: bool, elapsed: f32) -> f32 {
+    let goal = if audible { 1.0 } else { 0.0 };
+    gain + (goal - gain).clamp(-elapsed / FADE_OUT, elapsed / FADE_IN)
+}
+
+/// Eases a looping sound toward its level and pauses it once silent, so a
+/// volume change or switching the sound off never clicks.
+fn ease_loop(sink: &mut AudioSink, target: f32, focused: bool, elapsed: f32) {
+    if !focused {
+        sink.pause();
+        return;
+    }
+    let level = sink.volume().to_linear();
+    let next = if (level - target).abs() < 0.002 {
+        target
+    } else {
+        level.lerp(target, (elapsed * 6.0).min(1.0))
+    };
+    sink.set_volume(Volume::Linear(next));
+    if next > 0.001 {
+        sink.play();
+    } else {
+        sink.pause();
+    }
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn audio(
     mut commands: Commands,
@@ -2216,7 +2289,14 @@ pub fn audio(
     let swell = before.swell().lerp(after.swell(), blend);
     let rainfall = before.rain_strength().lerp(after.rain_strength(), blend);
     let focused = window.focused;
-    let audible = focused && save.music;
+    let [music_gain, ambience_gain, cue_gain] =
+        Channel::ALL.map(|channel| save::gain(save.volume(channel)));
+    let audible = focused && music_gain > 0.0;
+    let elapsed = time.delta_secs().min(0.1);
+    mixer.advance(elapsed);
+    if music_gain > 0.0 {
+        mixer.music_gain = music_gain;
+    }
     let has_track = music.iter().any(|(_, item, _)| item.track == track);
     let track_ready = music
         .iter()
@@ -2233,17 +2313,18 @@ pub fn audio(
     let incident = in_harbor
         .then(|| town.incident(&CHAPTERS[town.chapter]))
         .flatten();
+    // Incidents and success fanfares lower the music so they can be heard.
     let song_volume = match incident {
         Some((model::Favor::LostGuests, _)) => 0.37,
         Some(_) => 0.31,
         None => 0.43,
-    };
+    } * mixer.music_gain
+        * mixer.duck_gain();
     // Wait for the incoming asset, then fade the outgoing instruments before
     // the new arrangement starts.
     let fading_out = music
         .iter()
         .any(|(_, item, sink)| item.track != track && item.gain > 0.0 && sink.is_some());
-    let elapsed = time.delta_secs().min(0.1);
     for (entity, mut item, sink) in &mut music {
         let current = item.track == track;
         let Some(mut sink) = sink else {
@@ -2253,10 +2334,8 @@ pub fn audio(
             continue;
         };
         let ready_to_play = audible && if current { !fading_out } else { !track_ready };
-        let goal = if ready_to_play { 1.0 } else { 0.0 };
-        let delta = (goal - item.gain).clamp(-elapsed / 0.55, elapsed / 0.72);
-        item.gain += delta;
-        if !current && track_ready && (!audible || item.gain <= 0.0) {
+        item.gain = envelope(item.gain, ready_to_play, elapsed);
+        if !current && track_ready && (!focused || item.gain <= 0.0) {
             commands.entity(entity).despawn();
             continue;
         }
@@ -2268,7 +2347,9 @@ pub fn audio(
         } else {
             mix
         }));
-        if audible && item.gain > 0.0 {
+        // Switching the music off fades it like a track change; only a
+        // window in the background pauses at once.
+        if focused && item.gain > 0.0 {
             sink.play();
         } else {
             sink.pause();
@@ -2279,33 +2360,28 @@ pub fn audio(
             commands.spawn((
                 Coast,
                 AudioPlayer::new(assets.load("embedded://audio/shore_loop.wav")),
-                PlaybackSettings::LOOP.with_volume(Volume::Linear(0.42)),
+                PlaybackSettings::LOOP.with_volume(Volume::Linear(0.0)),
             ));
         }
         Ok(Some(mut sink)) => {
-            if save.sounds && window.focused {
-                let coast_volume = if game.view == View::Adventure {
-                    adventure.terrain.as_ref().zip(adventure.active()).map_or(
-                        0.08,
-                        |(terrain, island)| {
-                            (0.32 - terrain.shore(Vec2::from_array(island.position)) * 0.012)
-                                .clamp(0.055, 0.33)
-                        },
-                    )
-                } else {
-                    0.35 + swell * 0.28
-                };
-                sink.set_volume(Volume::Linear(coast_volume));
-                sink.play();
+            let coast_volume = if game.view == View::Adventure {
+                adventure.terrain.as_ref().zip(adventure.active()).map_or(
+                    0.08,
+                    |(terrain, island)| {
+                        (0.32 - terrain.shore(Vec2::from_array(island.position)) * 0.012)
+                            .clamp(0.055, 0.33)
+                    },
+                )
             } else {
-                sink.pause();
-            }
+                0.35 + swell * 0.28
+            };
+            ease_loop(&mut sink, coast_volume * ambience_gain, focused, elapsed);
         }
         Ok(None) => {}
     }
     match rain.single_mut() {
         Err(_) => {
-            let mut settings = PlaybackSettings::LOOP.with_volume(Volume::Linear(0.32));
+            let mut settings = PlaybackSettings::LOOP.with_volume(Volume::Linear(0.0));
             settings.paused = true;
             commands.spawn((
                 RainAudio,
@@ -2314,12 +2390,12 @@ pub fn audio(
             ));
         }
         Ok(Some(mut sink)) => {
-            if save.sounds && focused && rainfall > 0.01 {
-                sink.set_volume(Volume::Linear(0.51 * rainfall));
-                sink.play();
+            let level = if rainfall > 0.01 {
+                0.51 * rainfall
             } else {
-                sink.pause();
-            }
+                0.0
+            };
+            ease_loop(&mut sink, level * ambience_gain, focused, elapsed);
         }
         Ok(None) => {}
     }
@@ -2328,7 +2404,6 @@ pub fn audio(
         game.play(Cue::Tick);
     }
     mixer.focus = focus;
-    mixer.clock += elapsed;
     if let Some(cue) = game.cue.take() {
         game.sounds.insert(
             0,
@@ -2339,11 +2414,10 @@ pub fn audio(
             },
         );
     }
-    if !(save.sounds && focused) {
+    if !(cue_gain > 0.0 && focused) {
         game.sounds.clear();
         return;
     }
-    let now = mixer.clock;
     let mut index = 0;
     while index < game.sounds.len() {
         let sound = &mut game.sounds[index];
@@ -2353,15 +2427,8 @@ pub fn audio(
             continue;
         }
         let Sound { cue, pitch, .. } = game.sounds.remove(index);
-        // The same cue twice within 60 ms only doubles the volume.
-        let kind = std::mem::discriminant(&cue);
-        if let Some(last) = mixer.played.iter_mut().find(|(other, _)| *other == kind) {
-            if now - last.1 < 0.06 {
-                continue;
-            }
-            last.1 = now;
-        } else {
-            mixer.played.push((kind, now));
+        if !mixer.admit(cue) {
+            continue;
         }
         let speed = pitch.unwrap_or_else(|| {
             if cue.varies() {
@@ -2373,7 +2440,7 @@ pub fn audio(
         commands.spawn((
             AudioPlayer::new(assets.load(cue.file())),
             PlaybackSettings::DESPAWN
-                .with_volume(Volume::Linear(cue.volume()))
+                .with_volume(Volume::Linear(cue.volume() * cue_gain))
                 .with_speed(speed),
         ));
     }
@@ -2386,9 +2453,47 @@ pub(crate) struct Mixer {
     seed: u32,
     played: Vec<(std::mem::Discriminant<Cue>, f32)>,
     focus: Option<Action>,
+    /// How much longer the music stays lowered for a fanfare.
+    duck: f32,
+    /// The last music volume that was not off; switching the music off
+    /// fades out from it.
+    music_gain: f32,
 }
 
 impl Mixer {
+    fn advance(&mut self, elapsed: f32) {
+        self.clock += elapsed;
+        self.duck = (self.duck - elapsed).max(0.0);
+    }
+
+    /// Whether a due cue sounds now. The same cue twice within 60 ms would
+    /// only double the volume, so the second one is dropped.
+    fn admit(&mut self, cue: Cue) -> bool {
+        let now = self.clock;
+        let kind = std::mem::discriminant(&cue);
+        if let Some(last) = self.played.iter_mut().find(|(other, _)| *other == kind) {
+            if now - last.1 < 0.06 {
+                return false;
+            }
+            last.1 = now;
+        } else {
+            self.played.push((kind, now));
+        }
+        if cue.ducks_music() {
+            self.duck = DUCK_TIME;
+        }
+        true
+    }
+
+    /// The music level factor while a fanfare plays.
+    fn duck_gain(&self) -> f32 {
+        if self.duck > 0.0 {
+            1.0 - DUCK_DEPTH
+        } else {
+            1.0
+        }
+    }
+
     /// A small xorshift generator; the cue pitch needs no better randomness.
     fn random(&mut self) -> f32 {
         let mut x = if self.seed == 0 {
@@ -2443,6 +2548,52 @@ mod tests {
             game.play(Cue::Tick);
         }
         assert_eq!(game.sounds.len(), 16);
+    }
+
+    #[test]
+    fn fanfares_duck_the_music_briefly_and_repeats_are_dropped() {
+        let mut mixer = Mixer::default();
+        mixer.advance(1.0 / 60.0);
+        assert!(mixer.admit(Cue::Tick));
+        assert_eq!(mixer.duck_gain(), 1.0);
+        assert!(
+            !mixer.admit(Cue::Tick),
+            "a repeat within 60 ms only doubles"
+        );
+        assert!(mixer.admit(Cue::Star));
+        assert!((mixer.duck_gain() - 0.7).abs() < 1e-6);
+        for _ in 0..42 {
+            mixer.advance(1.0 / 60.0);
+        }
+        assert!(mixer.duck_gain() < 1.0, "still lowered after 0.7 s");
+        assert!(mixer.admit(Cue::Tick));
+        for _ in 0..8 {
+            mixer.advance(1.0 / 60.0);
+        }
+        assert_eq!(mixer.duck_gain(), 1.0, "back after 0.8 s");
+        for cue in [Cue::Earned, Cue::Goal] {
+            let mut mixer = Mixer::default();
+            assert!(mixer.admit(cue));
+            assert!(mixer.duck_gain() < 1.0);
+        }
+    }
+
+    #[test]
+    fn music_fades_instead_of_cutting() {
+        let frames = |from: f32, audible: bool| {
+            let mut gain = from;
+            let mut count = 0;
+            while gain != if audible { 1.0 } else { 0.0 } {
+                gain = envelope(gain, audible, 1.0 / 60.0);
+                count += 1;
+                assert!(count < 600);
+            }
+            count as f32 / 60.0
+        };
+        let out = frames(1.0, false);
+        let into = frames(0.0, true);
+        assert!((0.5..0.7).contains(&out), "fade out takes {out} s");
+        assert!((0.6..0.8).contains(&into), "fade in takes {into} s");
     }
 
     #[test]
