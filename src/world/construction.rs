@@ -2,7 +2,10 @@ use bevy::{pbr::NotShadowCaster, prelude::*};
 
 use crate::game::{BUILD_TIME, Construction, Game};
 
-use super::{mesh::v, upgrades};
+use super::{
+    mesh::{Batch, Tint, v},
+    upgrades,
+};
 
 const REPLACE_AT: f32 = 0.44;
 
@@ -18,12 +21,50 @@ pub enum Part {
     Structure,
     Scaffold,
     Dust(usize),
+    Confetti(usize),
+}
+
+pub const CONFETTI: usize = 28;
+const CONFETTI_LIFE: f32 = 0.95;
+
+fn confetti_piece(tint: Tint) -> Mesh {
+    let mut b = Batch::default();
+    b.slab(Vec3::ZERO, v(0.13, 0.022, 0.085), tint);
+    b.mesh()
+}
+
+/// Where a confetti piece flies `t` seconds after a building is finished.
+/// Returns `None` before the burst and after the pieces have settled.
+pub fn confetti_pose(i: usize, t: f32) -> Option<Transform> {
+    if !(0.0..CONFETTI_LIFE).contains(&t) {
+        return None;
+    }
+    let (sin, cos) = (i as f32 * 2.399).sin_cos();
+    let spread = 1.0 + (i % 5) as f32 * 0.32;
+    let lift = 4.2 + (i % 3) as f32 * 0.8;
+    let translation = v(
+        cos * spread * 1.5 * t,
+        1.4 + lift * t - 7.5 * t * t,
+        sin * spread * 1.5 * t * 0.8,
+    );
+    let shrink = ((CONFETTI_LIFE - t) / 0.3).clamp(0.0, 1.0);
+    Some(
+        Transform::from_translation(translation)
+            .with_rotation(Quat::from_euler(
+                EulerRot::XYZ,
+                t * (5.0 + (i % 4) as f32),
+                t * 3.0 + i as f32,
+                t * (4.0 + (i % 3) as f32),
+            ))
+            .with_scale(Vec3::splat(shrink)),
+    )
 }
 
 pub struct Parts {
     pub frame: Handle<Mesh>,
     pub chip: Handle<Mesh>,
     pub dust: Handle<StandardMaterial>,
+    pub confetti: [Handle<Mesh>; 5],
 }
 
 impl Parts {
@@ -37,6 +78,14 @@ impl Parts {
                 unlit: true,
                 ..default()
             }),
+            confetti: [
+                [255, 214, 110],
+                [240, 120, 96],
+                [84, 190, 178],
+                [250, 244, 226],
+                [226, 132, 170],
+            ]
+            .map(|tint| meshes.add(confetti_piece(tint))),
         }
     }
 
@@ -67,6 +116,20 @@ impl Parts {
                     at,
                     work,
                     part: Part::Dust(i),
+                },
+                NotShadowCaster,
+            ));
+        }
+        for i in 0..CONFETTI {
+            parent.spawn((
+                Mesh3d(self.confetti[i % self.confetti.len()].clone()),
+                MeshMaterial3d(matte.clone()),
+                Transform::from_translation(at),
+                Visibility::Hidden,
+                Assembly {
+                    at,
+                    work,
+                    part: Part::Confetti(i),
                 },
                 NotShadowCaster,
             ));
@@ -110,6 +173,19 @@ pub fn animate(game: Res<Game>, mut sites: Query<(&Assembly, &mut Transform, &mu
                 let lift = (age * 6.5).clamp(0.02, 1.0);
                 let take_down = ((BUILD_TIME - age) * 3.7).clamp(0.017, 1.0);
                 at.scale.y = lift.min(take_down);
+            }
+            Part::Confetti(i) => {
+                // Only a new building is celebrated, not every upgrade.
+                let pose = (site.work.from == 0)
+                    .then(|| confetti_pose(i, age - 0.62))
+                    .flatten();
+                if let Some(pose) = pose {
+                    *at = pose;
+                    at.translation += site.at;
+                    *visibility = Visibility::Inherited;
+                } else {
+                    *visibility = Visibility::Hidden;
+                }
             }
             Part::Dust(i) => {
                 let t = (age - 0.10 - (i % 4) as f32 * 0.12) / 0.86;
