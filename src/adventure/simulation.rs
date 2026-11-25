@@ -1015,6 +1015,26 @@ impl Island {
         true
     }
 
+    /// True when `lot` is one of the last free coastal plots and a fishery still needs one.
+    pub fn coast_needed(&self, level: Level, lot: usize) -> bool {
+        let fishery = Build::Harbor(Kind::Fishery);
+        if !level.coastal(lot) || !Build::all(level).contains(&fishery) {
+            return false;
+        }
+        let has_fishery = self.lots.iter().flatten().any(|p| p.kind == fishery)
+            || self
+                .construction
+                .iter()
+                .flatten()
+                .any(|site| site.property.kind == fishery);
+        let free_coast = (0..self.lots.len())
+            .filter(|&other| {
+                level.coastal(other) && self.lots[other].is_none() && self.site(other).is_none()
+            })
+            .count();
+        !has_fishery && free_coast <= 2
+    }
+
     pub fn monument_bonus(&self, map: &super::Terrain, lot: usize) -> f32 {
         self.lots
             .iter()

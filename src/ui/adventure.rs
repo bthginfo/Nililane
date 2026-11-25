@@ -1037,14 +1037,8 @@ fn construction_panel(
                 panels::metric(p, hud, "check", "Baumaterial vollständig");
                 construction_bar(p, lot, site.progress(), 320.0);
             } else {
-                label(
-                    p,
-                    hud,
-                    "Freie Bürger holen Baumaterial am Rathaus.",
-                    18.0,
-                    Face::Body,
-                    MUTED,
-                );
+                let (text, color) = construction_blocker(island, level, lot, site);
+                label(p, hud, text, 18.0, Face::Body, color);
             }
             p.spawn(row(8.0)).with_children(|r| {
                 action(
@@ -1122,6 +1116,52 @@ fn construction_panel(
     );
 }
 
+/// Why a site still waits for material, and who brings it.
+fn construction_blocker(
+    island: &Island,
+    level: Level,
+    lot: usize,
+    site: &BuildingSite,
+) -> (String, Color) {
+    let absent: Vec<_> = Good::ALL
+        .into_iter()
+        .filter(|&good| site.missing(good) > 0 && island.amount(good) == 0)
+        .filter(|&good| {
+            !island
+                .builders
+                .iter()
+                .any(|b| b.lot == lot && b.walk.cargo.is_some_and(|load| load.kind == good))
+        })
+        .map(|good| good.name(level.region))
+        .collect();
+    if !absent.is_empty() {
+        return (
+            format!(
+                "Im Lager fehlt: {}. Beschaffe es zuerst.",
+                absent.join(", ")
+            ),
+            WARN,
+        );
+    }
+    if site.crew == 0 {
+        return (
+            "Kein Bautrupp eingeteilt. Erhöhe ihn mit „+“ oder trag das Material selbst."
+                .to_owned(),
+            WARN,
+        );
+    }
+    if island.site_workers(lot) == 0 && island.available_staff() == 0 {
+        return (
+            "Kein Bürger frei. Trag das Material selbst oder stell Bürger frei.".to_owned(),
+            WARN,
+        );
+    }
+    (
+        "Freie Bürger holen Baumaterial am Rathaus.".to_owned(),
+        MUTED,
+    )
+}
+
 fn construction_bar(p: &mut ChildSpawnerCommands, lot: usize, progress: f32, width: f32) {
     p.spawn((
         Node {
@@ -1190,6 +1230,7 @@ fn build_menu(
                 .into_iter()
                 .filter(|plan| plan.page() == a.group)
                 .collect();
+            let coast_needed = island.coast_needed(level, lot);
             for chunk in plans
                 .iter()
                 .skip(usize::from(a.page) * 6)
@@ -1259,6 +1300,16 @@ fn build_menu(
                                 label(tile, hud, message, 15.0, Face::Bold, MUTED);
                             } else {
                                 costs_row(tile, hud, level.region, island, &costs);
+                                if coast_needed && kind != Build::Harbor(Kind::Fishery) {
+                                    label(
+                                        tile,
+                                        hud,
+                                        "Küstenplatz · frei lassen für die Fischerhütte",
+                                        15.0,
+                                        Face::Bold,
+                                        WARN,
+                                    );
+                                }
                                 if kind == Build::Harbor(Kind::Storehouse) {
                                     label(
                                         tile,

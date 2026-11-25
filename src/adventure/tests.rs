@@ -1528,6 +1528,44 @@ fn later_visitors_wait_for_progress_come_back_with_new_events_and_ignored_fires_
 }
 
 #[test]
+fn demolishing_a_home_counts_builders_and_the_coast_stays_free_for_fish() {
+    let mut a = Adventure {
+        book: Book::default(),
+        ..Adventure::default()
+    };
+    a.open(0, true);
+    let mut game = Game::default();
+    let mut save = Campaign::default();
+    let map = a.terrain.clone().unwrap();
+    let home = Build::Harbor(map.level.home());
+    let island = a.active_mut().unwrap();
+    island.lots[0] = Some(Property {
+        kind: home,
+        tier: 1,
+    });
+    for (good, units) in home.cost(1) {
+        island.add(good, units);
+    }
+    assert!(island.plan_build(map.level, 1, home));
+    island.tick_construction(&map, 0.1, None);
+    assert_eq!(island.builders.len(), 1);
+    a.screen = Screen::Demolish(0);
+    act(Command::Remove, &mut a, &mut game, &mut save);
+    assert!(a.active().unwrap().lots[0].is_some());
+
+    let level = Level::at(Region::Nordic as usize * CORE_HARBORS);
+    let mut island = Island::new(level);
+    let coast = level.inland_plots();
+    assert!(island.coast_needed(level, coast));
+    assert!(!island.coast_needed(level, 0));
+    island.lots[coast] = Some(Property {
+        kind: Build::Harbor(crate::model::Kind::Fishery),
+        tier: 1,
+    });
+    assert!(!island.coast_needed(level, coast + 1));
+}
+
+#[test]
 fn original_and_new_outfits_use_independent_bits_and_shared_rewards() {
     use crate::cosmetics::Cosmetic;
     let saved = r#"{"owned":1,"garment":"Sea","head":null}"#;

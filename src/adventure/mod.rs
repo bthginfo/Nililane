@@ -1345,7 +1345,7 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
                 && let Some(property) = island.lots[lot].take()
             {
                 if matches!(property.kind, Build::Harbor(kind) if crate::model::Building::new(kind).residents() > 0)
-                    && island.workers.len() > usize::from(island.staff())
+                    && island.assigned_staff() > usize::from(island.staff())
                 {
                     island.lots[lot] = Some(property);
                     game.adventure_notice(
