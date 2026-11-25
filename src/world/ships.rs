@@ -24,8 +24,11 @@ pub(super) fn berth(quay: f32) -> Vec3 {
     v(quay + 0.86, -0.346, super::landscape::LANDING_EDGE + 1.54)
 }
 
+/// Share of the day after which the ferry may cast off.
+pub(super) const CAST_OFF: f32 = 0.42;
+
 pub(super) fn ferry(quay: f32, day: f32, seconds: f32, swell: f32) -> FerryPose {
-    let travel = (day - 0.42).max(0.0) * (15.0 + swell * 3.3);
+    let travel = (day - CAST_OFF).max(0.0) * (15.0 + swell * 3.3);
     let turning = travel / (travel + 1.0);
     let wave = seconds * (1.1 + swell);
     let yaw = -0.038 - 0.11 * turning + 0.017 * wave.cos();

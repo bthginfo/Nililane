@@ -990,7 +990,23 @@ pub fn animate(
     }
     let ferry_day = match &town.phase {
         Phase::Plan => 0.0,
-        Phase::Open(day) => day.seconds / chapter.day_seconds(),
+        Phase::Open(day) => {
+            // The ferry waits at the landing until its last passenger is ashore.
+            let length = chapter.day_seconds();
+            let ashore = day
+                .visits
+                .iter()
+                .filter(|visit| visit.origin == crate::model::Origin::Ferry)
+                .map(|visit| visit.at / length + 0.02)
+                .fold(ships::CAST_OFF, f32::max)
+                .min(0.97);
+            let now = day.seconds / length;
+            if now <= ashore {
+                now.min(ships::CAST_OFF)
+            } else {
+                ships::CAST_OFF + (now - ashore)
+            }
+        }
         Phase::Report(_) => 1.0,
     };
     let ferry = ships::ferry(quay, ferry_day, t, swell);
