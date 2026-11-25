@@ -151,7 +151,7 @@ pub fn spots(town: &Town, chapter: &Chapter) -> [Option<Spot>; SPOTS] {
             } else {
                 -std::f32::consts::FRAC_PI_2
             },
-            walking: activity.animal() && (age < 0.24 || age > 0.78),
+            walking: activity.animal() && !(0.24..=0.78).contains(&age),
             claimed,
             remaining: (end - fraction) * length,
         })
