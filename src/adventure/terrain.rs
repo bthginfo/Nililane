@@ -5,6 +5,7 @@ use super::{
     Good, Level, Property,
     encounters::SLOTS,
     simulation::{Deposit, Scenery},
+    twists::{FERTILE_SOIL, ORE_VEIN, RICH_WOODS, Twist},
 };
 
 pub const HALL_DOOR: Vec2 = Vec2::new(0.0, 3.2);
@@ -14,6 +15,13 @@ pub struct ResourceZone {
     pub kind: Good,
     pub center: Vec2,
     pub radius: f32,
+}
+
+#[derive(Clone, Copy)]
+enum Reach {
+    Near,
+    Middle,
+    Far,
 }
 
 #[derive(Clone, Copy)]
@@ -153,6 +161,9 @@ impl Terrain {
                 });
             }
         }
+        // Hills and the shrine move only after the node list above is settled, so the
+        // node order of saved islands stays the same.
+        map.vary_landmarks(seed);
         map.outpost = (0..90)
             .map(|n| {
                 let direction = 0.78 + angle * 0.5 + n as f32 * 0.61;
@@ -165,8 +176,69 @@ impl Terrain {
             })
             .unwrap_or(Vec2::new(radius * 0.57, 1.0));
         map.fill_resources();
+        map.enrich();
         map.place_encounters();
         map
+    }
+
+    /// Makes nodes richer where the island's twist says so.
+    fn enrich(&mut self) {
+        match self.level.twist() {
+            Some(Twist::FertileSoil) => {
+                for deposit in self.deposits.iter_mut().filter(|d| d.kind == Good::Food) {
+                    deposit.extra = (deposit.base_units() * FERTILE_SOIL).div_ceil(100);
+                }
+            }
+            Some(Twist::OreVein) => {
+                let center = self.zone(Good::Ore).center;
+                if let Some(vein) = self
+                    .deposits
+                    .iter_mut()
+                    .filter(|d| d.kind == Good::Ore)
+                    .min_by(|a, b| a.at.distance(center).total_cmp(&b.at.distance(center)))
+                {
+                    vein.extra = ORE_VEIN;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Turns the hills and the shrine together around the island and varies the hills a
+    /// little. Keeps the classic layout when no turn leaves the relic high, dry and free.
+    fn vary_landmarks(&mut self, seed: u32) {
+        let classic = (self.hills, self.shrine);
+        let start = unit(seed + 913) * std::f32::consts::TAU;
+        let candidates = (0..10).map(|attempt| start + attempt as f32 * 2.47);
+        for turn in candidates {
+            let rotation = Vec2::from_angle(turn);
+            for (i, hill) in self.hills.iter_mut().enumerate() {
+                let (at, height, width) = classic.0[i];
+                let key = seed + 960 + i as u32 * 37;
+                let reach = 0.94 + unit(key) * 0.12;
+                hill.0 = rotation.rotate(at) * reach;
+                let lift = if i == 0 {
+                    1.0
+                } else {
+                    0.82 + unit(key + 5) * 0.36
+                };
+                hill.1 = height * lift;
+                hill.2 = width * (0.9 + unit(key + 9) * 0.2);
+            }
+            self.shrine = rotation.rotate(classic.1);
+            self.relic = self.hills[0].0;
+            let clear = |at: Vec2, gap: f32| self.plots.iter().all(|p| p.distance(at) > gap);
+            if self.shore(self.shrine) > 4.0
+                && clear(self.shrine, 6.0)
+                && self.shore(self.relic) > 5.0
+                && clear(self.relic, 6.0)
+                && self.height(self.relic) > 3.8
+            {
+                return;
+            }
+        }
+        (self.hills, self.shrine) = classic;
+        self.relic = self.hills[0].0;
     }
 
     fn place_encounters(&mut self) {
@@ -231,24 +303,32 @@ impl Terrain {
     fn fill_resources(&mut self) {
         let seed = self.level.index as u32 * 8763 + 431;
         let legacy = std::mem::take(&mut self.deposits);
+        let layout = self.zone_layout(seed);
+        let settlement = self.plots[..self.level.inland_plots()]
+            .iter()
+            .map(|p| p.length())
+            .fold(0.0, f32::max);
         self.zones = Good::RAW
             .into_iter()
-            .zip([3.0, 0.0, 1.0, 4.2, 5.25, 2.0])
-            .map(|(kind, sector)| {
-                let angle = sector + 0.40 * self.angle;
-                let distance =
-                    self.radius_at(angle) * (0.63 + unit(seed + kind as u32 * 53) * 0.09);
+            .zip(layout)
+            .map(|(kind, (angle, reach))| {
+                let size = match kind {
+                    Good::Wood => 0.27,
+                    Good::Stone => 0.235,
+                    _ => 0.195,
+                };
+                let shore = self.radius_at(angle);
+                let distance = match reach {
+                    Reach::Near => (shore * 0.45).max(settlement + self.radius * size * 0.55),
+                    Reach::Middle => shore * (0.62 + unit(seed + kind as u32 * 53) * 0.08),
+                    Reach::Far => shore * 0.78,
+                };
                 let mut center = Vec2::from_angle(angle) * distance;
                 if self.level.order_count() > 0
                     && center.distance(self.outpost) < self.radius * 0.15
                 {
                     center = Vec2::from_angle(angle - 0.25) * distance;
                 }
-                let size = match kind {
-                    Good::Wood => 0.27,
-                    Good::Stone => 0.235,
-                    _ => 0.195,
-                };
                 ResourceZone {
                     kind,
                     center,
@@ -279,21 +359,75 @@ impl Terrain {
                 .filter(|deposit| deposit.kind == zone.kind)
                 .count();
             for serial in present..desired {
-                let key = seed + (zone.kind as u32 + 1) * 72_901 + serial as u32 * 1_013;
-                let Some((at, variation)) = self.zone_site(zone, key) else {
+                if !self.plant(zone, seed, serial) {
                     break;
-                };
-                let scenery = matches!(zone.kind, Good::Wood | Good::Stone).then(|| Scenery {
-                    seed: variation,
-                    size: 0.70 + unit(variation + 81) * 0.96,
-                });
-                self.deposits.push(Deposit {
-                    kind: zone.kind,
-                    at,
-                    scenery,
-                });
+                }
             }
         }
+        // Extra trees go to the end of the list, so the nodes above keep their order.
+        if self.level.has_twist(Twist::RichWoods) {
+            let zone = self.zone(Good::Wood);
+            let planted = self
+                .deposits
+                .iter()
+                .filter(|d| d.kind == Good::Wood)
+                .count();
+            let more = planted * usize::from(RICH_WOODS) / 100;
+            for serial in planted..planted + more {
+                if !self.plant(zone, seed, serial) {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Adds the node number `serial` of a district; false when the district is full.
+    fn plant(&mut self, zone: ResourceZone, seed: u32, serial: usize) -> bool {
+        let key = seed + (zone.kind as u32 + 1) * 72_901 + serial as u32 * 1_013;
+        let Some((at, variation)) = self.zone_site(zone, key) else {
+            return false;
+        };
+        let scenery = matches!(zone.kind, Good::Wood | Good::Stone).then(|| Scenery {
+            seed: variation,
+            size: 0.70 + unit(variation + 81) * 0.96,
+        });
+        self.deposits.push(Deposit {
+            scenery,
+            ..Deposit::new(zone.kind, at)
+        });
+        true
+    }
+
+    /// Direction and distance of each raw material district, in [`Good::RAW`] order.
+    /// Every island shuffles the six sectors; one district lies close to the
+    /// settlement and one far out.
+    fn zone_layout(&self, seed: u32) -> [(f32, Reach); 6] {
+        use std::f32::consts::TAU;
+        let mut sectors = [0, 1, 2, 3, 4, 5];
+        for i in (1..sectors.len()).rev() {
+            let pick = (unit(seed + 7_177 + i as u32 * 31) * (i + 1) as f32) as usize;
+            sectors.swap(i, pick.min(i));
+        }
+        let turn = unit(seed + 6_101) * TAU;
+        // The first island of a region keeps wood close and the regional goods far out.
+        let (near, far) = if self.level.stage == 0 {
+            (0, 5)
+        } else {
+            let near = (unit(seed + 6_203) * 6.0) as usize % 6;
+            let far = (near + 1 + (unit(seed + 6_211) * 5.0) as usize % 5) % 6;
+            (near, far)
+        };
+        std::array::from_fn(|i| {
+            let jitter = (unit(seed + 6_301 + i as u32 * 13) - 0.5) * 0.3;
+            let reach = if i == near {
+                Reach::Near
+            } else if i == far {
+                Reach::Far
+            } else {
+                Reach::Middle
+            };
+            (turn + sectors[i] as f32 * TAU / 6.0 + jitter, reach)
+        })
     }
 
     pub fn zone(&self, good: Good) -> ResourceZone {
@@ -457,6 +591,23 @@ impl Terrain {
                 .deposits
                 .iter()
                 .all(|deposit| deposit.at.distance_squared(at) > 0.44 * 0.44)
+    }
+
+    /// `at` when someone can stand there, otherwise the closest free spot around it.
+    /// Saves from older layouts may place walkers inside a tree or a rock.
+    pub fn free_spot(&self, at: Vec2, lots: &[Option<Property>]) -> Vec2 {
+        if self.walkable(at, lots) {
+            return at;
+        }
+        (1..=24)
+            .flat_map(|ring| {
+                (0..16).map(move |step| {
+                    at + Vec2::from_angle(step as f32 * std::f32::consts::TAU / 16.0)
+                        * (ring as f32 * 0.3)
+                })
+            })
+            .find(|&spot| self.walkable(spot, lots))
+            .unwrap_or(HALL_DOOR)
     }
 
     pub fn walk(&self, start: Vec2, delta: Vec2, lots: &[Option<Property>]) -> Vec2 {

@@ -1875,3 +1875,274 @@ fn showcase_settlements_for_visual_review() {
     let path = std::path::Path::new(&dir).join("nililane-abenteuer-v1.json");
     std::fs::write(path, serde_json::to_string(&book).unwrap()).unwrap();
 }
+
+#[test]
+fn island_layouts_turn_their_districts_and_hills_and_keep_one_near_and_one_far() {
+    use std::f32::consts::TAU;
+    let sector = |at: Vec2| ((at.to_angle() / TAU * 6.0).round() as i32).rem_euclid(6);
+    let mut wood = std::collections::HashSet::new();
+    let mut relic = std::collections::HashSet::new();
+    for index in 0..LEVELS {
+        let map = Terrain::new(Level::at(index));
+        wood.insert(sector(map.zone(Good::Wood).center));
+        relic.insert(sector(map.relic));
+        let reach: Vec<f32> = Good::RAW
+            .into_iter()
+            .map(|good| map.zone(good).center.length() / map.radius)
+            .collect();
+        let near = reach.iter().copied().fold(f32::MAX, f32::min);
+        assert!(
+            near < 0.6,
+            "{}: kein nahes Gebiet {reach:?}",
+            map.level.name
+        );
+        assert!(
+            Good::RAW.into_iter().any(|good| {
+                let center = map.zone(good).center;
+                center.length() >= map.radius_at(center.to_angle()) * 0.74
+            }),
+            "{}: kein fernes Gebiet",
+            map.level.name
+        );
+        if map.level.stage == 0 {
+            assert!(reach[0] < 0.6, "{}: Holz liegt zu weit weg", map.level.name);
+        }
+    }
+    assert!(wood.len() >= 5, "Holz liegt fast immer gleich: {wood:?}");
+    assert!(
+        relic.len() >= 4,
+        "Die Gipfel liegen fast immer gleich: {relic:?}"
+    );
+}
+
+#[test]
+fn a_saved_island_keeps_its_node_counts_and_frees_anyone_standing_in_a_node() {
+    let index = CORE_HARBORS * 2 + 5;
+    let level = Level::at(index);
+    let map = Terrain::new(level);
+    let mut island = Island::new(level);
+    island.lots[0] = Some(Property {
+        kind: Build::Harbor(level.home()),
+        tier: 3,
+    });
+    island.prepare_logistics(&map);
+    let stone = (0..map.deposits.len())
+        .find(|&id| map.deposits[id].kind == Good::Stone)
+        .unwrap();
+    island.remaining[stone] = 3;
+    assert!(island.assign(Task::Gather(stone), &map));
+    // As if the nodes had moved since the save: Nili and the gatherer stand inside one.
+    island.position = map.deposits[stone].at.to_array();
+    island.hauls[0].position = map.deposits[stone + 1].at.to_array();
+    let mut book = Book::default();
+    book.islands[index] = Some(island);
+    let (mut book, damaged) = Book::parse(&serde_json::to_vec(&book).unwrap());
+    assert!(!damaged);
+    let island = book.islands[index].as_mut().unwrap();
+    assert_eq!(island.remaining.len(), map.deposits.len());
+    assert_eq!(island.remaining[stone], 3);
+    assert_eq!(island.workers, [Task::Gather(stone)]);
+    let nili = Vec2::from_array(island.position);
+    assert!(map.walkable(nili, &island.lots));
+    assert!(nili.distance(map.deposits[stone].at) < 2.0);
+    assert!(map.walkable(Vec2::from_array(island.hauls[0].position), &island.lots));
+    for _ in 0..1500 {
+        island.tick_hauling(&map, 0.1);
+    }
+    assert_eq!(island.remaining[stone], 0);
+    assert!(island.amount(Good::Stone) >= 3);
+}
+
+#[test]
+fn island_twists_vary_skip_first_islands_and_do_what_they_promise() {
+    use super::twists::{BUSY_HANDS, FAIR_WIND};
+    let mut seen = std::collections::HashSet::new();
+    for index in 0..LEVELS {
+        let level = Level::at(index);
+        let map = Terrain::new(level);
+        let twist = level.twist();
+        assert_eq!(twist.is_none(), level.stage == 0, "{}", level.name);
+        let rich: Vec<_> = map.deposits.iter().filter(|d| d.rich()).collect();
+        let Some(twist) = twist else {
+            assert!(map.deposits.iter().all(|d| d.extra == 0));
+            continue;
+        };
+        seen.insert(twist);
+        assert!(!twist.line(level.region).is_empty() && !twist.name().is_empty());
+        if level.stage > 1 {
+            assert_ne!(Level::at(index - 1).twist(), Some(twist), "{}", level.name);
+        }
+        assert_eq!(
+            rich.len(),
+            usize::from(twist == Twist::OreVein),
+            "{}",
+            level.name
+        );
+        match twist {
+            Twist::RichWoods => {
+                let trees = map.deposits.iter().filter(|d| d.kind == Good::Wood).count();
+                assert!(trees * 10 >= (24 + level.stage * 4) * 12, "{}", level.name);
+            }
+            Twist::OreVein => assert_eq!(rich[0].kind, Good::Ore),
+            Twist::FertileSoil => assert!(
+                map.deposits
+                    .iter()
+                    .filter(|d| d.kind == Good::Food)
+                    .all(|d| d.units() > d.base_units())
+            ),
+            Twist::FairWind => {
+                let offer = level.export(Export::Regular).unwrap();
+                assert!((offer.seconds - 21.0 * FAIR_WIND).abs() < 1e-3);
+            }
+            Twist::FestiveMood => {
+                let festival = (0..6)
+                    .filter_map(|round| level.encounter_in(0, round))
+                    .find(|spec| spec.event == Event::Festival)
+                    .unwrap();
+                let usual = 5 + level.stage as u16 / 3;
+                assert_eq!(festival.reward.1, usual + usual.div_ceil(2));
+            }
+            Twist::BusyHands => {
+                let mut island = Island::new(level);
+                island.lots[0] = Some(Property {
+                    kind: Build::Sawmill,
+                    tier: 1,
+                });
+                island.add(Good::Wood, 2);
+                island.add(Good::Food, 1);
+                assert!(island.start_production(&map, 0));
+                let usual = Build::Sawmill.recipe(1, level.region).unwrap().seconds;
+                let duration = island.batch(0).unwrap().duration;
+                assert!((duration - usual / BUSY_HANDS).abs() < 1e-3);
+            }
+        }
+    }
+    assert_eq!(seen.len(), Twist::ALL.len(), "{seen:?}");
+}
+
+#[test]
+fn the_harbor_market_sells_a_load_that_nili_carries_to_a_site_and_the_hall() {
+    let mut a = Adventure {
+        book: Book::default(),
+        ..Adventure::default()
+    };
+    a.open(CORE_HARBORS * 3 + 8, true);
+    a.screen = Screen::Walk;
+    let map = a.terrain.clone().unwrap();
+    let level = map.level;
+    let mut game = Game::default();
+    let mut campaign = Campaign::default();
+    let bricks = level.shop()[0];
+    assert_eq!(bricks.good, Good::Bricks);
+    let island = a.active_mut().unwrap();
+    island.market.marks = bricks.marks + 1;
+    assert!(island.plan_build(level, 1, Build::Forge));
+    let missing = island.site(1).unwrap().missing(Good::Bricks);
+    assert!(missing > 0 && missing < bricks.units);
+    act(Command::Buy(0), &mut a, &mut game, &mut campaign);
+    assert!(a.active().unwrap().cargo.is_none(), "nur am Handelshafen");
+
+    a.active_mut().unwrap().position = map.trade_pier.to_array();
+    act(Command::Buy(0), &mut a, &mut game, &mut campaign);
+    let island = a.active().unwrap();
+    assert_eq!(island.market.marks, 1);
+    assert_eq!(island.cargo.map(|load| load.kind), Some(Good::Bricks));
+    assert_eq!(island.cargo.unwrap().units, bricks.units);
+    assert_eq!(a.waypoint, Some(Target::Plot(1)));
+    act(Command::Buy(1), &mut a, &mut game, &mut campaign);
+    assert_eq!(a.active().unwrap().market.marks, 1, "zu wenig Marken");
+
+    a.active_mut().unwrap().position = (map.plots[1] + Vec2::new(0.0, 2.3)).to_array();
+    act(
+        Command::Use(Target::Plot(1)),
+        &mut a,
+        &mut game,
+        &mut campaign,
+    );
+    let island = a.active().unwrap();
+    assert_eq!(island.site(1).unwrap().missing(Good::Bricks), 0);
+    assert_eq!(island.cargo.unwrap().units, bricks.units - missing);
+    a.active_mut().unwrap().position = terrain::HALL_DOOR.to_array();
+    act(Command::Use(Target::Hall), &mut a, &mut game, &mut campaign);
+    let island = a.active().unwrap();
+    assert_eq!(island.amount(Good::Bricks), bricks.units - missing);
+    assert!(island.cargo.is_none());
+
+    // No region buys back what it ships out.
+    for region in Region::ALL {
+        let level = Level::at(region as usize * CORE_HARBORS + 9);
+        let shipped = Export::ALL.map(|quality| level.export(quality).unwrap().good);
+        for offer in level.shop() {
+            assert!(!shipped.contains(&offer.good), "{:?}", offer.good);
+        }
+    }
+}
+
+#[test]
+fn a_landmark_speeds_up_workshops_within_fourteen_steps() {
+    let level = Level::at(CORE_HARBORS + 9);
+    let map = Terrain::new(level);
+    let mut island = Island::new(level);
+    island.lots[0] = Some(Property {
+        kind: Build::Monument,
+        tier: 2,
+    });
+    let near = (1..map.plots.len())
+        .find(|&lot| map.plots[lot].distance(map.plots[0]) <= LANDMARK_REACH)
+        .unwrap();
+    let far = (1..map.plots.len())
+        .find(|&lot| map.plots[lot].distance(map.plots[0]) > LANDMARK_REACH)
+        .unwrap();
+    assert!((island.monument_bonus(&map, near) - 0.2).abs() < 1e-5);
+    assert_eq!(island.monument_bonus(&map, far), 0.0);
+}
+
+#[test]
+fn the_last_goal_plays_a_fanfare_and_the_summary_opens_after_a_beat() {
+    let mut a = Adventure {
+        book: Book::default(),
+        ..Adventure::default()
+    };
+    a.open(0, true);
+    a.screen = Screen::Walk;
+    let level = a.terrain.as_ref().unwrap().level;
+    let mut game = Game::default();
+    let mut save = Campaign::default();
+    let island = a.active_mut().unwrap();
+    for (lot, goal) in level.goals().enumerate() {
+        assert_eq!(goal.count, 1);
+        island.lots[lot] = Some(Property {
+            kind: goal.kind,
+            tier: goal.tier,
+        });
+    }
+    let (stock, count) = level.reserve();
+    island.add(stock, count);
+    check_victory(&mut a, &mut game, &mut save);
+    assert!(a.active().unwrap().completed);
+    assert_eq!(a.screen, Screen::Walk);
+    assert_eq!(game.note, "Insel abgeschlossen");
+    for _ in 0..8 {
+        process_work(&mut a, &mut game, &mut save, 0.18);
+    }
+    assert_eq!(a.screen, Screen::Walk, "zu früh");
+    for _ in 0..3 {
+        process_work(&mut a, &mut game, &mut save, 0.18);
+    }
+    assert_eq!(a.screen, Screen::Finish);
+    assert_eq!(a.finale, None);
+    act(Command::Close, &mut a, &mut game, &mut save);
+    for _ in 0..12 {
+        process_work(&mut a, &mut game, &mut save, 0.18);
+    }
+    assert_eq!(a.screen, Screen::Walk, "nur einmal");
+
+    // Opening the summary during the beat ends it.
+    a.finale = Some(1.0);
+    act(Command::Summary, &mut a, &mut game, &mut save);
+    act(Command::Close, &mut a, &mut game, &mut save);
+    for _ in 0..12 {
+        process_work(&mut a, &mut game, &mut save, 0.18);
+    }
+    assert_eq!(a.screen, Screen::Walk);
+}

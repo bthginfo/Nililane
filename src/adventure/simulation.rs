@@ -6,12 +6,20 @@ use super::encounters::Encounters;
 use super::levels::{Level, Requirement};
 use super::logistics::{Cargo, Courier, DroppedLoad, Haul};
 use super::port_trade::{Market, monument_name};
+use super::twists::{BUSY_HANDS, Twist};
 use crate::{
     campaign::{CHAPTERS, REGION_SIZE, Region},
     model::Kind,
 };
 
 pub const HALL_STORAGE: u16 = 72;
+/// Workshops within this distance of the landmark work faster.
+pub const LANDMARK_REACH: f32 = 14.0;
+
+/// How much faster workshops near a landmark of `tier` work.
+pub fn landmark_bonus(tier: u8) -> f32 {
+    0.10 + f32::from(tier) * 0.05
+}
 /// Extra work per second while Nili helps on a site or in a workshop.
 pub const HELP_BONUS: f32 = 0.55;
 
@@ -482,6 +490,8 @@ pub struct Deposit {
     pub kind: Good,
     pub at: Vec2,
     pub scenery: Option<Scenery>,
+    /// Units on top of the usual amount, from the island's twist.
+    pub extra: u16,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -496,10 +506,12 @@ impl Deposit {
             kind,
             at,
             scenery: None,
+            extra: 0,
         }
     }
 
-    pub fn units(self) -> u16 {
+    /// The usual amount of this node, before any twist.
+    pub fn base_units(self) -> u16 {
         if let Some(scenery) = self.scenery {
             let amount = match self.kind {
                 Good::Wood => 7,
@@ -513,6 +525,15 @@ impl Deposit {
             Good::Clay => 18,
             _ => 10,
         }
+    }
+
+    pub fn units(self) -> u16 {
+        self.base_units() + self.extra
+    }
+
+    /// A node the island's twist made much larger than usual, like a rich ore vein.
+    pub fn rich(self) -> bool {
+        self.extra >= self.base_units()
     }
 }
 
@@ -1006,7 +1027,12 @@ impl Island {
         }
         let crew = self.assignment(Task::Produce(lot)).max(1);
         let civic = self.monument_bonus(map, lot);
-        let duration = seconds / ((1.0 + 0.48 * (crew - 1) as f32) * (1.0 + civic));
+        let hands = if map.level.has_twist(Twist::BusyHands) {
+            BUSY_HANDS
+        } else {
+            1.0
+        };
+        let duration = seconds / ((1.0 + 0.48 * (crew - 1) as f32) * (1.0 + civic) * hands);
         self.batches[lot] = Some(Production {
             output: Cargo { kind, units },
             duration,
@@ -1061,11 +1087,11 @@ impl Island {
             .enumerate()
             .filter_map(|(index, property)| {
                 let property = property.filter(|property| property.kind == Build::Monument)?;
-                (map.plots[index].distance_squared(map.plots[lot]) <= 10.0_f32.powi(2))
+                (map.plots[index].distance_squared(map.plots[lot]) <= LANDMARK_REACH.powi(2))
                     .then_some(property.tier)
             })
             .max()
-            .map_or(0.0, |tier| 0.03 + f32::from(tier) * 0.02)
+            .map_or(0.0, landmark_bonus)
     }
 
     pub fn room_for_recipe(&self, recipe: &Recipe) -> bool {
