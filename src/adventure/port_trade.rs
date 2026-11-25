@@ -24,6 +24,14 @@ pub struct Offer {
     pub seconds: f32,
 }
 
+/// A ready-made load the harbor market sells for marks. Nili carries it home like imports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Purchase {
+    pub good: Good,
+    pub units: u16,
+    pub marks: u16,
+}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Crossing {
     pub export: Export,
@@ -103,6 +111,20 @@ impl Level {
     }
 }
 
+impl Level {
+    /// The harbor market: two building goods and the regional good. A region never
+    /// buys back what it ships out, so marks cannot turn into more marks.
+    pub fn shop(self) -> [Purchase; 3] {
+        use Good::*;
+        let buy = |good, units, marks| Purchase { good, units, marks };
+        if self.region == Region::Rome {
+            [buy(Boards, 10, 3), buy(Meals, 8, 3), buy(Local, 8, 3)]
+        } else {
+            [buy(Bricks, 8, 3), buy(Tools, 5, 4), buy(Local, 8, 3)]
+        }
+    }
+}
+
 pub fn monument_name(region: Region) -> &'static str {
     match region {
         Region::Greece => "Agora",
@@ -177,6 +199,30 @@ impl Island {
         self.market.marks -= PLAN_PRICE;
         self.market.blueprint = true;
         true
+    }
+
+    /// Buys entry `item` of the harbor market. The goods go into Nili's hands, marked
+    /// for a site that still misses them.
+    pub fn buy_goods(&mut self, level: Level, item: usize) -> Option<Purchase> {
+        let offer = *level.shop().get(item)?;
+        if !level.has_trading()
+            || self.market.marks < offer.marks
+            || self.room_for(offer.good) < offer.units
+        {
+            return None;
+        }
+        self.market.marks -= offer.marks;
+        self.cargo = Some(Cargo {
+            kind: offer.good,
+            units: offer.units + self.cargo.map_or(0, |load| load.units),
+        });
+        self.building_load = self.building_load.or_else(|| {
+            (0..self.lots.len()).find(|&lot| {
+                self.site(lot)
+                    .is_some_and(|site| site.missing(offer.good) > 0)
+            })
+        });
+        Some(offer)
     }
 
     pub fn buy_imports(&mut self, level: Level) -> bool {

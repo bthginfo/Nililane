@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use super::{
     Adventure, Build, Good, IMPORT_PRICE, Island, Level, PLAN_PRICE, Quest, Target, Task, Terrain,
-    port_trade::Export,
+    port_trade::{Export, Purchase},
 };
 use crate::model::Kind;
 
@@ -430,6 +430,13 @@ impl Guide<'_> {
             Good::Imports => return self.earn_marks(depth),
             _ => {}
         }
+        if let Some(offer) = self.market_offer(good) {
+            return Advice::new(
+                "sea_trade",
+                format!("Kauf {} {} im Handelshafen.", offer.units, self.name(good)),
+                Some(Target::TradeHarbor),
+            );
+        }
         if good.uses_storage() && island.free_storage() == 0 {
             return Advice::new("storehouse", FULL_STORE, Some(Target::Hall));
         }
@@ -584,6 +591,22 @@ impl Guide<'_> {
             );
         }
         self.operate(lot, Good::Masterwork, depth)
+    }
+
+    /// A market load of `good` the island can afford. Marks stay saved for the
+    /// landmark where the island asks for one.
+    fn market_offer(&self, good: Good) -> Option<Purchase> {
+        let level = self.level;
+        if !level.has_trading()
+            || good.uses_storage()
+            || level.goals().any(|goal| goal.kind == Build::Monument)
+        {
+            return None;
+        }
+        level
+            .shop()
+            .into_iter()
+            .find(|offer| offer.good == good && self.island.market.marks >= offer.marks)
     }
 
     fn earn_marks(&self, depth: u8) -> Option<Advice> {

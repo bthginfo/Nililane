@@ -2019,3 +2019,80 @@ fn island_twists_vary_skip_first_islands_and_do_what_they_promise() {
     }
     assert_eq!(seen.len(), Twist::ALL.len(), "{seen:?}");
 }
+
+#[test]
+fn the_harbor_market_sells_a_load_that_nili_carries_to_a_site_and_the_hall() {
+    let mut a = Adventure {
+        book: Book::default(),
+        ..Adventure::default()
+    };
+    a.open(CORE_HARBORS * 3 + 8, true);
+    a.screen = Screen::Walk;
+    let map = a.terrain.clone().unwrap();
+    let level = map.level;
+    let mut game = Game::default();
+    let mut campaign = Campaign::default();
+    let bricks = level.shop()[0];
+    assert_eq!(bricks.good, Good::Bricks);
+    let island = a.active_mut().unwrap();
+    island.market.marks = bricks.marks + 1;
+    assert!(island.plan_build(level, 1, Build::Forge));
+    let missing = island.site(1).unwrap().missing(Good::Bricks);
+    assert!(missing > 0 && missing < bricks.units);
+    act(Command::Buy(0), &mut a, &mut game, &mut campaign);
+    assert!(a.active().unwrap().cargo.is_none(), "nur am Handelshafen");
+
+    a.active_mut().unwrap().position = map.trade_pier.to_array();
+    act(Command::Buy(0), &mut a, &mut game, &mut campaign);
+    let island = a.active().unwrap();
+    assert_eq!(island.market.marks, 1);
+    assert_eq!(island.cargo.map(|load| load.kind), Some(Good::Bricks));
+    assert_eq!(island.cargo.unwrap().units, bricks.units);
+    assert_eq!(a.waypoint, Some(Target::Plot(1)));
+    act(Command::Buy(1), &mut a, &mut game, &mut campaign);
+    assert_eq!(a.active().unwrap().market.marks, 1, "zu wenig Marken");
+
+    a.active_mut().unwrap().position = (map.plots[1] + Vec2::new(0.0, 2.3)).to_array();
+    act(
+        Command::Use(Target::Plot(1)),
+        &mut a,
+        &mut game,
+        &mut campaign,
+    );
+    let island = a.active().unwrap();
+    assert_eq!(island.site(1).unwrap().missing(Good::Bricks), 0);
+    assert_eq!(island.cargo.unwrap().units, bricks.units - missing);
+    a.active_mut().unwrap().position = terrain::HALL_DOOR.to_array();
+    act(Command::Use(Target::Hall), &mut a, &mut game, &mut campaign);
+    let island = a.active().unwrap();
+    assert_eq!(island.amount(Good::Bricks), bricks.units - missing);
+    assert!(island.cargo.is_none());
+
+    // No region buys back what it ships out.
+    for region in Region::ALL {
+        let level = Level::at(region as usize * CORE_HARBORS + 9);
+        let shipped = Export::ALL.map(|quality| level.export(quality).unwrap().good);
+        for offer in level.shop() {
+            assert!(!shipped.contains(&offer.good), "{:?}", offer.good);
+        }
+    }
+}
+
+#[test]
+fn a_landmark_speeds_up_workshops_within_fourteen_steps() {
+    let level = Level::at(CORE_HARBORS + 9);
+    let map = Terrain::new(level);
+    let mut island = Island::new(level);
+    island.lots[0] = Some(Property {
+        kind: Build::Monument,
+        tier: 2,
+    });
+    let near = (1..map.plots.len())
+        .find(|&lot| map.plots[lot].distance(map.plots[0]) <= LANDMARK_REACH)
+        .unwrap();
+    let far = (1..map.plots.len())
+        .find(|&lot| map.plots[lot].distance(map.plots[0]) > LANDMARK_REACH)
+        .unwrap();
+    assert!((island.monument_bonus(&map, near) - 0.2).abs() < 1e-5);
+    assert_eq!(island.monument_bonus(&map, far), 0.0);
+}

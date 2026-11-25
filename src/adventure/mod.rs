@@ -28,7 +28,9 @@ pub(crate) use encounters::{Event, Status as EncounterStatus};
 pub(crate) use levels::{LEVELS, Level};
 pub(crate) use logistics::{DroppedLoad, RESOURCE_REACH};
 pub(crate) use port_trade::{Export, IMPORT_PRICE, IMPORT_UNITS, PLAN_PRICE, monument_name};
-pub(crate) use simulation::{Build, Good, HALL_STORAGE, Island, Property, Quest, Task};
+pub(crate) use simulation::{
+    Build, Good, HALL_STORAGE, Island, LANDMARK_REACH, Property, Quest, Task, landmark_bonus,
+};
 pub(crate) use terrain::Terrain;
 pub(crate) use twists::Twist;
 
@@ -92,6 +94,8 @@ pub enum Command {
     SellExport,
     BuyPlan,
     BuyImports,
+    /// Buys one entry of the harbor market.
+    Buy(usize),
     Next,
 }
 
@@ -935,7 +939,8 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
         | Command::UnpackExport
         | Command::SellExport
         | Command::BuyPlan
-        | Command::BuyImports => trade_action(command, adventure, game),
+        | Command::BuyImports
+        | Command::Buy(_) => trade_action(command, adventure, game),
         Command::ReturnEncounter => {
             if adventure.close_enough(Target::Hall)
                 && let Some(island) = adventure.active_mut()
@@ -1511,6 +1516,30 @@ fn trade_action(command: Command, adventure: &mut Adventure, game: &mut Game) {
             island.buy_imports(level),
             "Baustoffe geladen. Trag sie zum Rathaus oder direkt zur Baustelle.",
         ),
+        Buy(item) => {
+            let Some(offer) = island.buy_goods(level, item) else {
+                game.adventure_notice("Dafür fehlen Handelsmarken oder freie Hände.", false);
+                return;
+            };
+            let site = island.building_load;
+            adventure.waypoint = Some(site.map_or(Target::Hall, Target::Plot));
+            let destination = if site.is_some() {
+                "zur Baustelle"
+            } else {
+                "zum Rathaus"
+            };
+            game.adventure_notice(
+                format!(
+                    "{} {} gekauft · {destination}",
+                    offer.units,
+                    offer.good.name(level.region)
+                ),
+                true,
+            );
+            game.dirty = true;
+            adventure.save(game);
+            return;
+        }
         _ => return,
     };
     if success {

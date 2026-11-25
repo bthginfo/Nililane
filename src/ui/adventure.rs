@@ -2,8 +2,8 @@ use super::*;
 use crate::{
     adventure::{
         Adventure, Build, BuildingSite, Command, EncounterStatus, Event, Export, Good,
-        HALL_STORAGE, IMPORT_PRICE, IMPORT_UNITS, Island, Level, MAX_BUILD_CREW, PLAN_PRICE, Quest,
-        Screen, Target, Task, Terrain, monument_name,
+        HALL_STORAGE, IMPORT_PRICE, IMPORT_UNITS, Island, LANDMARK_REACH, Level, MAX_BUILD_CREW,
+        PLAN_PRICE, Quest, Screen, Target, Task, Terrain, landmark_bonus, monument_name,
     },
     campaign::{CORE_HARBORS, Region},
     world::StreetCamera,
@@ -1686,8 +1686,8 @@ fn property_panel(
                     hud,
                     "adventure_tools",
                     format!(
-                        "+{} % Arbeitstempo im Umkreis von zehn Schritten",
-                        3 + property.tier * 2
+                        "+{:.0} % Arbeitstempo im Umkreis von {LANDMARK_REACH:.0} Schritten",
+                        landmark_bonus(property.tier) * 100.0
                     ),
                 );
             } else if let Build::Harbor(kind) = property.kind {
@@ -2782,6 +2782,31 @@ fn trade_panel(
                 || island.room_for(Good::Imports) < IMPORT_UNITS,
         );
     });
+    label(p, hud, "Markt", 18.0, Face::Bold, SAND);
+    p.spawn(Node {
+        flex_wrap: FlexWrap::Wrap,
+        row_gap: Val::Px(5.0),
+        ..row(7.0)
+    })
+    .with_children(|r| {
+        for (item, offer) in level.shop().into_iter().enumerate() {
+            action(
+                r,
+                hud,
+                Command::Buy(item),
+                &format!(
+                    "{} {} · {} Marken",
+                    offer.units,
+                    offer.good.name(level.region),
+                    offer.marks
+                ),
+                offer.good.icon(level.region),
+                "",
+                Style::Quiet,
+                !at_pier || market.marks < offer.marks || island.room_for(offer.good) < offer.units,
+            );
+        }
+    });
     panels::metric(
         p,
         hud,
@@ -2796,7 +2821,12 @@ fn trade_panel(
         },
     );
     let to_hall = imports > 0 || !at_hall && !island.has_cargo();
-    let to_store = !at_pier && market.packed.is_none() && market.marks >= IMPORT_PRICE;
+    let cheapest = level
+        .shop()
+        .iter()
+        .map(|offer| offer.marks)
+        .fold(IMPORT_PRICE, u16::min);
+    let to_store = !at_pier && market.packed.is_none() && market.marks >= cheapest;
     if to_hall || to_store {
         p.spawn(Node {
             flex_wrap: FlexWrap::Wrap,

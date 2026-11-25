@@ -13,6 +13,13 @@ use crate::{
 };
 
 pub const HALL_STORAGE: u16 = 72;
+/// Workshops within this distance of the landmark work faster.
+pub const LANDMARK_REACH: f32 = 14.0;
+
+/// How much faster workshops near a landmark of `tier` work.
+pub fn landmark_bonus(tier: u8) -> f32 {
+    0.10 + f32::from(tier) * 0.05
+}
 /// Extra work per second while Nili helps on a site or in a workshop.
 pub const HELP_BONUS: f32 = 0.55;
 
@@ -1080,11 +1087,11 @@ impl Island {
             .enumerate()
             .filter_map(|(index, property)| {
                 let property = property.filter(|property| property.kind == Build::Monument)?;
-                (map.plots[index].distance_squared(map.plots[lot]) <= 10.0_f32.powi(2))
+                (map.plots[index].distance_squared(map.plots[lot]) <= LANDMARK_REACH.powi(2))
                     .then_some(property.tier)
             })
             .max()
-            .map_or(0.0, |tier| 0.03 + f32::from(tier) * 0.02)
+            .map_or(0.0, landmark_bonus)
     }
 
     pub fn room_for_recipe(&self, recipe: &Recipe) -> bool {
