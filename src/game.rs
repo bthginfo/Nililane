@@ -281,8 +281,9 @@ pub struct Game {
     /// The main cue of this frame. A later assignment replaces an earlier one,
     /// so a specific result sound wins over the generic confirm click.
     cue: Option<Cue>,
-    /// Harbor, day and objectives already complete, to announce newly finished goals.
-    goal_marks: Option<(usize, u32, u64)>,
+    /// Harbor, day, objectives already complete and stars already secured, to announce
+    /// newly finished goals and the moment three stars are certain.
+    goal_marks: Option<(usize, u32, u64, u8)>,
     /// Cues that play alongside the main one, optionally delayed.
     sounds: Vec<Sound>,
     /// Whether the current toast reports a failure.
@@ -1378,17 +1379,38 @@ fn goal_news(game: &mut Game, town: &Town) {
     }
     let chapter = &CHAPTERS[town.chapter];
     let met = town.goals_met(chapter);
-    if let Some((island, day, before)) = game.goal_marks
+    let mut stars = town.secured_stars(chapter);
+    if let Some((island, day, before, secured)) = game.goal_marks
         && (island, day) == (town.chapter, town.day)
-        && let Some((_, goal)) = chapter
+    {
+        let finale = stars == 3 && secured < 3;
+        let reached = chapter
             .objectives(town.chapter)
             .enumerate()
-            .find(|&(index, _)| (met & !before) & 1 << index.min(63) != 0)
-    {
-        game.message(format!("Ziel erreicht: {}", goal.label()), Cue::Earned);
-        game.dirty = true;
+            .find(|&(index, _)| (met & !before) & 1 << index.min(63) != 0);
+        if let Some((_, goal)) = reached {
+            // The last goal and the third star arrive together: one toast for both.
+            game.message(
+                if finale {
+                    "Alle Ziele erreicht · Drei Sterne sind dir sicher".to_owned()
+                } else {
+                    format!("Ziel erreicht: {}", goal.label())
+                },
+                Cue::Earned,
+            );
+            game.dirty = true;
+        } else if finale && game.note_left <= 0.0 {
+            game.message("Drei Sterne sind dir sicher", Cue::Earned);
+            game.dirty = true;
+        } else if finale {
+            // Another toast is still showing; celebrate once it is gone.
+            stars = secured;
+        }
+        if finale && stars == 3 {
+            game.play_later(Cue::Star, 0.35, None);
+        }
     }
-    game.goal_marks = Some((town.chapter, town.day, met));
+    game.goal_marks = Some((town.chapter, town.day, met, stars));
 }
 
 fn day_feedback(town: &Town) -> Option<(f32, u32, u32)> {
@@ -2478,5 +2500,46 @@ mod tests {
         assert_eq!(route.delivery, crate::errands::Stop::Parcel(2));
         assert_eq!(nili.position, [0.0, 0.10]);
         assert!(matches!(nili.stage, ManualStage::Pickup));
+    }
+
+    #[test]
+    fn the_third_star_is_celebrated_once_and_never_over_another_toast() {
+        let chapter = &CHAPTERS[0];
+        let mut town = Town::new(0, chapter);
+        town.totals.served[model::Service::Bread as usize] = 15;
+        town.totals.reputation = 18;
+        town.totals.favors = chapter.favor_goal;
+        let mut game = Game::default();
+        goal_news(&mut game, &town);
+        assert!(game.note.is_empty());
+        // The last goal and the third star share one toast.
+        assert!(town.build(chapter, 2, Kind::Bakery));
+        goal_news(&mut game, &town);
+        assert_eq!(
+            game.note,
+            "Alle Ziele erreicht · Drei Sterne sind dir sicher"
+        );
+        game.note.clear();
+        goal_news(&mut game, &town);
+        assert!(game.note.is_empty());
+
+        // Here the last request decides, while a reward toast is still showing.
+        let mut town = Town::new(0, chapter);
+        town.totals.served[model::Service::Bread as usize] = 15;
+        town.totals.reputation = 18;
+        town.totals.favors = chapter.favor_goal - 1;
+        assert!(town.build(chapter, 2, Kind::Bakery));
+        let mut game = Game::default();
+        goal_news(&mut game, &town);
+        town.totals.favors += 1;
+        game.message("Bitte erfüllt", Cue::Aid);
+        goal_news(&mut game, &town);
+        assert_eq!(game.note, "Bitte erfüllt");
+        game.note_left = 0.0;
+        goal_news(&mut game, &town);
+        assert_eq!(game.note, "Drei Sterne sind dir sicher");
+        game.note.clear();
+        goal_news(&mut game, &town);
+        assert!(game.note.is_empty());
     }
 }

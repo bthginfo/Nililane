@@ -3325,6 +3325,30 @@ impl Town {
             .fold(0, |met, (index, _)| met | 1 << index.min(63))
     }
 
+    /// Stars the evening report will award for sure, counting the running day. A share of
+    /// happy guests can still drop before dusk, so only an earlier day's best counts for it.
+    pub fn secured_stars(&self, chapter: &Chapter) -> u8 {
+        if matches!(self.phase, Phase::Report(_)) {
+            return 0;
+        }
+        let complete = chapter.objectives(self.chapter).all(|goal| {
+            let (value, need) = match goal {
+                Goal::GuestCare(..) => self.goal(goal),
+                _ => self.live_goal(goal),
+            };
+            value >= need
+        });
+        if !complete {
+            return 0;
+        }
+        let favors = self.totals.favors
+            + match &self.phase {
+                Phase::Open(day) => day.tally.favors,
+                _ => 0,
+            };
+        1 + u8::from(self.day <= chapter.par) + u8::from(favors >= chapter.favor_goal)
+    }
+
     fn sale_progress(&self) -> SalesProgress {
         match &self.phase {
             Phase::Open(day) => day.sales,
@@ -5001,6 +5025,69 @@ mod tests {
             assert!(town.open(&chapter));
             assert!(town.bell_ready(&chapter, 8), "a new day, a new call");
         }
+    }
+
+    #[test]
+    fn three_stars_are_secured_once_every_goal_is_met_but_care_waits_for_dusk() {
+        let index = 1;
+        let base = {
+            let mut chapter = CHAPTERS[index];
+            chapter.ferry = 0;
+            chapter.locals = &[Service::Bread];
+            chapter.favor_goal = 0;
+            chapter
+        };
+        let goals = [
+            [
+                Goal::Serve(Service::Bread, 1),
+                Goal::Earn(1),
+                Goal::Renown(1),
+            ],
+            [
+                Goal::GuestCare(Age::Adult, 1, 50),
+                Goal::Earn(1),
+                Goal::Renown(1),
+            ],
+        ];
+        for goals in goals {
+            let chapter = Chapter { goals, ..base };
+            let care = matches!(goals[0], Goal::GuestCare(..));
+            let mut town = Town::new(index, &chapter);
+            town.lots.fill(None);
+            town.coins = 200;
+            assert!(town.build(&chapter, 1, House));
+            assert!(town.build(&chapter, 2, Bakery));
+            assert!(town.build(&chapter, 8, Well));
+            assert_eq!(town.secured_stars(&chapter), 0);
+            assert!(town.open(&chapter));
+            while town.live_goal(goals[1]).0 == 0 {
+                assert!(!town.tick(&chapter, 0.5), "a bread sale before dusk");
+            }
+            assert_eq!(town.goals_met(&chapter), 0b111);
+            if care {
+                // Shown as reached, but a few unhappy guests could still undo it.
+                assert_eq!(town.secured_stars(&chapter), 0);
+                continue;
+            }
+            assert_eq!(town.secured_stars(&chapter), 3);
+            assert!(town.tick(&chapter, chapter.day_seconds()));
+            let Phase::Report(report) = &town.phase else {
+                unreachable!()
+            };
+            assert_eq!(report.stars, 3);
+            assert_eq!(town.secured_stars(&chapter), 0, "the report shows them now");
+        }
+        // Past the time bonus the third star is gone.
+        let chapter = Chapter {
+            goals: goals[0],
+            par: 0,
+            ..base
+        };
+        let mut town = Town::new(index, &chapter);
+        town.totals.served[Service::Bread as usize] = 1;
+        town.totals.income = 1;
+        town.totals.reputation = 1;
+        assert_eq!(town.secured_stars(&chapter), 2);
     }
 
     #[test]
