@@ -210,6 +210,8 @@ pub struct Game {
     preview_oasis: Town,
     checkpoint: f32,
     cue: Option<Cue>,
+    /// Harbor, day and objectives already complete, to announce newly finished goals.
+    goal_marks: Option<(usize, u32, u64)>,
 }
 
 impl Default for Game {
@@ -347,6 +349,7 @@ impl Default for Game {
             preview_oasis,
             checkpoint: 0.0,
             cue: None,
+            goal_marks: None,
         }
     }
 }
@@ -694,6 +697,9 @@ pub fn frame(
         }
         if let (Some(before), Some(town)) = (pulse_before, save.active_town()) {
             harbor_news(&mut game, town, before);
+        }
+        if let Some(town) = save.active_town() {
+            goal_news(&mut game, town);
         }
         if after.is_some() {
             game.checkpoint += real_dt;
@@ -1160,7 +1166,6 @@ fn delivery_notice(game: &mut Game, save: &Campaign, route: Route) {
 /// A snapshot of the running day, compared before and after each simulation step.
 #[derive(Clone, Copy)]
 struct HarborPulse {
-    goals: u64,
     streak: u16,
     seconds: f32,
 }
@@ -1170,13 +1175,12 @@ fn harbor_pulse(town: &Town) -> Option<HarborPulse> {
         return None;
     };
     Some(HarborPulse {
-        goals: town.goals_met(&CHAPTERS[town.chapter]),
         streak: day.streak,
         seconds: day.seconds,
     })
 }
 
-/// Toasts for what just happened on the street. The most important news is posted last.
+/// Toasts for what the last simulation step brought to the street.
 fn harbor_news(game: &mut Game, town: &Town, before: HarborPulse) {
     let (Some(after), Phase::Open(day)) = (harbor_pulse(town), &town.phase) else {
         return;
@@ -1194,22 +1198,38 @@ fn harbor_news(game: &mut Game, town: &Town, before: HarborPulse) {
             Cue::Ferry,
         );
     }
+    // A streak is nice to know but never hides a toast that is still on screen.
     let step = model::STREAK_STEP;
-    if after.streak > before.streak && after.streak / step > before.streak / step {
+    if after.streak > before.streak
+        && after.streak / step > before.streak / step
+        && game.note_left <= 0.0
+    {
         game.message(
             format!("Serie ×{} · +1 Ansehen", after.streak - after.streak % step),
             Cue::Aid,
         );
     }
-    let finished = after.goals & !before.goals;
-    if let Some((_, goal)) = chapter
-        .objectives(town.chapter)
-        .enumerate()
-        .find(|&(index, _)| finished & 1 << index.min(63) != 0)
+}
+
+/// Announces each objective the moment it is reached, whether by building in the morning
+/// or by sales, a tour, the bell or help in the street during the day.
+fn goal_news(game: &mut Game, town: &Town) {
+    if matches!(town.phase, Phase::Report(_)) {
+        return;
+    }
+    let chapter = &CHAPTERS[town.chapter];
+    let met = town.goals_met(chapter);
+    if let Some((island, day, before)) = game.goal_marks
+        && (island, day) == (town.chapter, town.day)
+        && let Some((_, goal)) = chapter
+            .objectives(town.chapter)
+            .enumerate()
+            .find(|&(index, _)| (met & !before) & 1 << index.min(63) != 0)
     {
         game.message(format!("Ziel erreicht: {}", goal.label()), Cue::Earned);
         game.dirty = true;
     }
+    game.goal_marks = Some((town.chapter, town.day, met));
 }
 
 fn day_feedback(town: &Town) -> Option<(f32, u32, u32)> {

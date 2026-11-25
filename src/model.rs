@@ -4906,6 +4906,27 @@ mod tests {
     }
 
     #[test]
+    fn live_goals_count_the_running_day_before_it_closes() {
+        let chapter = &CHAPTERS[0];
+        let mut town = Town::new(0, chapter);
+        assert!(town.build(chapter, 2, Bakery));
+        assert!(town.set_price(2, Price::Fair));
+        let serve = Goal::Serve(Service::Bread, 15);
+        assert_eq!(town.goals_met(chapter), 0b001);
+        assert!(town.open(chapter));
+        assert!(!town.tick(chapter, chapter.day_seconds() * 0.6));
+        assert_eq!(town.goal(serve).0, 0);
+        let (sold, _) = town.live_goal(serve);
+        assert!(sold > 0);
+        assert!(town.tick(chapter, chapter.day_seconds()));
+        assert_eq!(
+            town.goal(serve).0,
+            town.totals.served[Service::Bread as usize]
+        );
+        assert!(town.goal(serve).0 >= sold);
+    }
+
+    #[test]
     fn longer_shifts_allow_more_tours() {
         assert_eq!(Job::limit(0), 3);
         let longest = (0..CHAPTERS.len())
