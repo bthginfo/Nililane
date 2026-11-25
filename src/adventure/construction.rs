@@ -198,6 +198,40 @@ impl Island {
         true
     }
 
+    /// Moves walkers, dropped loads and Nili out of a finished building, so nobody is
+    /// trapped inside walls that went up around them.
+    pub(super) fn evict(&mut self, map: &Terrain, lot: usize) {
+        let Some(&plot) = map.plots.get(lot) else {
+            return;
+        };
+        if self.lots.get(lot).copied().flatten().is_none() {
+            return;
+        }
+        let lots = self.lots.clone();
+        let exit = |at: [f32; 2]| {
+            let at = Vec2::from_array(at);
+            Terrain::inside_building(at - plot).then(|| map.way_out(plot, at, &lots))
+        };
+        for walk in self
+            .hauls
+            .iter_mut()
+            .chain(self.builders.iter_mut().map(|builder| &mut builder.walk))
+            .chain(self.courier.iter_mut().map(|courier| &mut courier.walk))
+        {
+            if let Some(at) = exit(walk.position) {
+                walk.relocate(at);
+            }
+        }
+        for pile in self.dropped.iter_mut().flatten() {
+            if let Some(at) = exit(pile.position) {
+                pile.position = at.to_array();
+            }
+        }
+        if let Some(at) = exit(self.position) {
+            self.position = at.to_array();
+        }
+    }
+
     pub(super) fn prepare_construction(&mut self, map: &Terrain) {
         self.construction.resize_with(self.lots.len(), || None);
         for builder in &mut self.builders {
@@ -260,6 +294,7 @@ impl Island {
                 if site.work >= site.seconds() {
                     self.lots[lot] = Some(site.property);
                     self.construction[lot] = None;
+                    self.evict(map, lot);
                     completed.push(lot);
                     changed = true;
                     continue;

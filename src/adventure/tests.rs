@@ -519,10 +519,9 @@ impl Expedition {
                 .1,
             [lot]
         );
-        let offset = Vec2::from_array(self.island.position) - at;
-        if Terrain::inside_building(offset) {
-            self.island.position = (at + Terrain::just_outside(offset)).to_array();
-        }
+        assert!(!Terrain::inside_building(
+            Vec2::from_array(self.island.position) - at
+        ));
         lot
     }
 
@@ -1343,6 +1342,75 @@ fn an_older_island_keeps_stored_material_when_the_inventory_grows() {
 }
 
 #[test]
+fn a_finished_building_pushes_walkers_out_and_the_courier_still_delivers() {
+    let mut run = Expedition::start(CORE_HARBORS + 1);
+    let level = run.terrain.level;
+    run.build(Build::Harbor(level.home()), None);
+    run.build(Build::Harbor(level.home()), None);
+    let lot = run.island.lots.iter().position(Option::is_none).unwrap();
+    let plot = run.terrain.plots[lot];
+    let home = Build::Harbor(level.home());
+    assert!(run.island.plan_build(level, lot, home));
+    assert!(run.island.with_crew(lot, -1));
+    for (good, count) in home.cost(1) {
+        run.island.cargo = Some(logistics::Cargo {
+            kind: good,
+            units: count,
+        });
+        assert!(run.island.drop_building_load(lot).is_some());
+    }
+    let order = level.order(0).unwrap();
+    for (good, count) in order.goods {
+        assert_eq!(run.island.add(good, count), count);
+    }
+    assert!(run.island.send_courier(level));
+    let gatherer = Task::Gather(0);
+    assert!(run.island.assign(gatherer, &run.terrain));
+    // Everybody stands on the unfinished site, which is still open ground.
+    let inside = (plot + Vec2::new(0.3, -0.2)).to_array();
+    run.island.courier.as_mut().unwrap().walk.position = plot.to_array();
+    run.island.hauls[0].position = inside;
+    run.island.position = inside;
+    run.island.drop_load(logistics::DroppedLoad {
+        cargo: logistics::Cargo {
+            kind: Good::Stone,
+            units: 3,
+        },
+        position: plot.to_array(),
+    });
+    let seconds = run.island.site(lot).unwrap().seconds();
+    let (_, completed) = run
+        .island
+        .tick_construction(&run.terrain, seconds + 0.03, Some(lot));
+    assert_eq!(completed, [lot]);
+    let lots = run.island.lots.clone();
+    let terrain = run.terrain.clone();
+    let outside = |at: [f32; 2]| {
+        let at = Vec2::from_array(at);
+        !Terrain::inside_building(at - plot) && terrain.walkable(at, &lots)
+    };
+    assert!(outside(run.island.courier.as_ref().unwrap().walk.position));
+    assert!(outside(run.island.hauls[0].position));
+    assert!(outside(run.island.position));
+    assert!(outside(run.island.dropped_load(0).unwrap().position));
+    for _ in 0..2400 {
+        run.island.tick_courier(&run.terrain, 0.12);
+        if run.island.courier.is_none() {
+            break;
+        }
+    }
+    assert_eq!(run.island.orders_delivered, 1);
+    assert!(run.island.courier.is_none());
+
+    // Saves from before the fix are repaired when the island is loaded.
+    run.island.hauls[0].position = plot.to_array();
+    let mut restored: Island =
+        serde_json::from_slice(&serde_json::to_vec(&run.island).unwrap()).unwrap();
+    restored.prepare_logistics(&run.terrain);
+    assert!(outside(restored.hauls[0].position));
+}
+
+#[test]
 fn original_and_new_outfits_use_independent_bits_and_shared_rewards() {
     use crate::cosmetics::Cosmetic;
     let saved = r#"{"owned":1,"garment":"Sea","head":null}"#;
@@ -1369,4 +1437,54 @@ fn original_and_new_outfits_use_independent_bits_and_shared_rewards() {
     assert!(!save.equip(item));
     save.reward_adventure(milestone + 1);
     assert!(save.equip(item));
+}
+
+/// Writes developed settlements for visual checks:
+/// `NILILANE_SHOWCASE_DIR=/tmp/x cargo test --release showcase -- --ignored`
+#[test]
+#[ignore]
+fn showcase_settlements_for_visual_review() {
+    let Some(dir) = std::env::var_os("NILILANE_SHOWCASE_DIR") else {
+        return;
+    };
+    let mut book = Book::default();
+    let picks: Vec<usize> = std::env::var("NILILANE_SHOWCASE_ISLANDS")
+        .ok()
+        .map(|list| list.split(',').filter_map(|i| i.parse().ok()).collect())
+        .unwrap_or_else(|| vec![5]);
+    for &index in &picks {
+        let mut run = Expedition::start(index);
+        let level = run.terrain.level;
+        run.requirements(2);
+        if level.stage >= 1 {
+            run.build(Build::Harbor(crate::model::Kind::Storehouse), None);
+        }
+        run.requirements(3);
+        for goal in level.goals() {
+            if goal.kind == Build::Monument {
+                continue;
+            }
+            while run.island.progress(goal) < goal.count {
+                let slot = run
+                    .island
+                    .lots
+                    .iter()
+                    .position(|p| p.is_some_and(|p| p.kind == goal.kind && p.tier < goal.tier));
+                run.build(goal.kind, slot);
+            }
+        }
+        run.island.position = (terrain::HALL_DOOR + Vec2::new(1.5, 2.5)).to_array();
+        for earlier in 0..index {
+            if book.islands[earlier].is_none() {
+                let mut done = Island::new(Level::at(earlier));
+                done.completed = true;
+                book.islands[earlier] = Some(done);
+            }
+        }
+        book.islands[index] = Some(run.island);
+        book.last = Some(index);
+    }
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = std::path::Path::new(&dir).join("nililane-abenteuer-v1.json");
+    std::fs::write(path, serde_json::to_string(&book).unwrap()).unwrap();
 }

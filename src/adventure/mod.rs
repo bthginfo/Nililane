@@ -1852,11 +1852,6 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
             .scene_changes
             .retain(|&(_, start)| now - start < 1.3);
         for &lot in &completed {
-            let plot = terrain.plots[lot];
-            let offset = Vec2::from_array(island.position) - plot;
-            if Terrain::inside_building(offset) {
-                island.position = (plot + Terrain::just_outside(offset)).to_array();
-            }
             if adventure.building == Some(lot) {
                 adventure.building = None;
             }

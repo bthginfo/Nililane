@@ -68,6 +68,12 @@ impl Haul {
         }
     }
 
+    pub(super) fn relocate(&mut self, at: Vec2) {
+        self.position = at.to_array();
+        self.path.clear();
+        self.retry = 0.0;
+    }
+
     pub(super) fn reset_site(&mut self, site: Option<usize>) {
         self.site = site;
         self.work = 0.0;
@@ -135,6 +141,10 @@ impl Island {
             && !map.accessible(Vec2::from_array(courier.walk.position))
         {
             courier.walk = Haul::default();
+        }
+        // Older saves may hold walkers who stood on a site while it was finished.
+        for lot in 0..self.lots.len() {
+            self.evict(map, lot);
         }
     }
 
