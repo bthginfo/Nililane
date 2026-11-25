@@ -586,6 +586,26 @@ pub fn sync(
                                     Transform::from_translation(japan::BELL_HOOK),
                                 ));
                             }
+                            // An offering at the shrine or the herald's call at the forum
+                            // sends a burst of petals or ribbons over the building.
+                            if matches!(kind, Kind::Shrine | Kind::Forum) {
+                                for piece in 0..construction::CONFETTI {
+                                    let parts = &art.work.confetti;
+                                    let shade = if kind == Kind::Shrine {
+                                        [0, 3, 4][piece % 3]
+                                    } else {
+                                        [0, 1][piece % 2]
+                                    };
+                                    model.spawn((
+                                        CallBurst { lot: i, piece },
+                                        Mesh3d(parts[shade].clone()),
+                                        MeshMaterial3d(art.matte.clone()),
+                                        Transform::default(),
+                                        Visibility::Hidden,
+                                        bevy::pbr::NotShadowCaster,
+                                    ));
+                                }
+                            }
                             if kind == Kind::House && region == Region::Greece {
                                 model.spawn((
                                     SceneRoot(art.house.clone()),
@@ -647,6 +667,33 @@ pub(crate) fn haze(clear: Res<ClearColor>, mut fog: Query<&mut bevy::pbr::Distan
         let target = sky.with_alpha(0.58);
         if fog.color.to_srgba() != target {
             fog.color = target.into();
+        }
+    }
+}
+
+#[derive(Component)]
+pub(crate) struct CallBurst {
+    lot: usize,
+    piece: usize,
+}
+
+pub(crate) fn animate_calls(
+    game: Res<Game>,
+    mut pieces: Query<(&CallBurst, &mut Transform, &mut Visibility)>,
+) {
+    for (burst, mut transform, mut visibility) in &mut pieces {
+        let pose = game
+            .bell_action
+            .filter(|(lot, _)| *lot == burst.lot)
+            .and_then(|(_, since)| {
+                construction::confetti_pose(burst.piece, (game.clock - since - 0.25) * 0.8)
+            });
+        if let Some(pose) = pose {
+            *transform = pose;
+            transform.translation.y += 0.6;
+            *visibility = Visibility::Inherited;
+        } else if *visibility != Visibility::Hidden {
+            *visibility = Visibility::Hidden;
         }
     }
 }
