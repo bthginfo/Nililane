@@ -1285,10 +1285,10 @@ pub(crate) fn animate(
     if let Ok((mut sun, mut light)) = sun.single_mut() {
         sun.rotation = Quat::from_euler(EulerRot::YXZ, -0.65 + phase.sin() * 0.38, -0.81, 0.0);
         light.illuminance = 11_200.0 - night * 8_900.0;
-        light.color = Color::srgb(1.0 - night * 0.36, 0.93 - night * 0.18, 0.79 + night * 0.14);
+        light.color = Color::srgb(1.0 - night * 0.50, 0.93 - night * 0.28, 0.79 + night * 0.21);
     }
     ambient.brightness = 360.0 - night * 70.0;
-    ambient.color = Color::srgb(0.94 - night * 0.23, 0.93 - night * 0.11, 1.0);
+    ambient.color = Color::srgb(0.94 - night * 0.38, 0.93 - night * 0.22, 1.0);
     clear.0 = Color::srgb(
         0.40 - night * 0.24,
         0.61 - night * 0.32,
