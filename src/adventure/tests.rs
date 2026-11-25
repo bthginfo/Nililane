@@ -1370,3 +1370,53 @@ fn original_and_new_outfits_use_independent_bits_and_shared_rewards() {
     save.reward_adventure(milestone + 1);
     assert!(save.equip(item));
 }
+
+/// Writes developed settlements for visual checks:
+/// `NILILANE_SHOWCASE_DIR=/tmp/x cargo test --release showcase -- --ignored`
+#[test]
+#[ignore]
+fn showcase_settlements_for_visual_review() {
+    let Some(dir) = std::env::var_os("NILILANE_SHOWCASE_DIR") else {
+        return;
+    };
+    let mut book = Book::default();
+    let picks: Vec<usize> = std::env::var("NILILANE_SHOWCASE_ISLANDS")
+        .ok()
+        .map(|list| list.split(',').filter_map(|i| i.parse().ok()).collect())
+        .unwrap_or_else(|| vec![5]);
+    for &index in &picks {
+        let mut run = Expedition::start(index);
+        let level = run.terrain.level;
+        run.requirements(2);
+        if level.stage >= 1 {
+            run.build(Build::Harbor(crate::model::Kind::Storehouse), None);
+        }
+        run.requirements(3);
+        for goal in level.goals() {
+            if goal.kind == Build::Monument {
+                continue;
+            }
+            while run.island.progress(goal) < goal.count {
+                let slot = run
+                    .island
+                    .lots
+                    .iter()
+                    .position(|p| p.is_some_and(|p| p.kind == goal.kind && p.tier < goal.tier));
+                run.build(goal.kind, slot);
+            }
+        }
+        run.island.position = (terrain::HALL_DOOR + Vec2::new(1.5, 2.5)).to_array();
+        for earlier in 0..index {
+            if book.islands[earlier].is_none() {
+                let mut done = Island::new(Level::at(earlier));
+                done.completed = true;
+                book.islands[earlier] = Some(done);
+            }
+        }
+        book.islands[index] = Some(run.island);
+        book.last = Some(index);
+    }
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = std::path::Path::new(&dir).join("nililane-abenteuer-v1.json");
+    std::fs::write(path, serde_json::to_string(&book).unwrap()).unwrap();
+}

@@ -12,7 +12,7 @@ use crate::{
     },
     campaign::Region,
     game::{Game, Panel, View},
-    model::Kind,
+    model::{Kind, Weather},
 };
 
 use super::{
@@ -169,15 +169,14 @@ pub(crate) fn sync(
                         NoFrustumCulling,
                         NotShadowCaster,
                     ));
-                    let water = materials.add(StandardMaterial {
-                        base_color: Color::srgb_u8(59, 142, 159),
-                        perceptual_roughness: 0.42,
-                        metallic: 0.08,
-                        ..default()
-                    });
                     root.spawn((
-                        Mesh3d(meshes.add(sea(terrain.radius))),
-                        MeshMaterial3d(water),
+                        Mesh3d(meshes.add(sea(terrain))),
+                        MeshMaterial3d(art.island_sea.clone()),
+                        NotShadowCaster,
+                    ));
+                    root.spawn((
+                        Mesh3d(meshes.add(surf(terrain))),
+                        MeshMaterial3d(art.island_sea.clone()),
                         NotShadowCaster,
                     ));
                     if !terrain.fishing.is_empty() {
@@ -1021,6 +1020,8 @@ pub(crate) fn animate(
     mut clear: ResMut<ClearColor>,
     mut civic_lights: Query<&mut PointLight, With<CivicLight>>,
     mut sun: Query<(&mut Transform, &mut DirectionalLight), With<Sun>>,
+    art: Res<Art>,
+    mut waters: ResMut<Assets<super::water::Water>>,
     mut scene: ParamSet<(
         Query<(&mut Transform, &mut Projection), (With<StreetCamera>, Without<Sun>)>,
         Query<&mut Transform, (With<Hippo>, Without<Sun>)>,
@@ -1270,6 +1271,16 @@ pub(crate) fn animate(
     for mut lamp in &mut civic_lights {
         lamp.intensity = night * 9800.0;
     }
+    let dusk = night / 0.86;
+    let sea = super::water::Settings::calm(Vec3::ONE.lerp(v(0.44, 0.58, 0.80), dusk), 0.05)
+        .weather((Weather::Clear, Weather::Clear, 1.0), dusk);
+    if waters
+        .get(&art.island_sea)
+        .is_some_and(|water| (water.settings.tint - sea.tint).length() > 0.004)
+        && let Some(water) = waters.get_mut(&art.island_sea)
+    {
+        water.settings = sea;
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1464,31 +1475,73 @@ fn landscape(terrain: &Terrain, colors: Palette) -> Mesh {
     b.mesh()
 }
 
-fn sea(radius: f32) -> Mesh {
+fn sea(terrain: &Terrain) -> Mesh {
+    const CELL: f32 = 3.2;
+    const SHALLOW: [f32; 3] = [102.0, 198.0, 194.0];
+    const DEEP: [f32; 3] = [36.0, 108.0, 142.0];
     let mut b = Batch::default();
-    let span = (radius * 2.2 / 9.0).ceil() as i32;
+    let span = (terrain.radius * 2.2 / CELL).ceil() as i32;
+    let tint = |q: Vec2, seed: u32| -> Tint {
+        // Turquoise over the sand, darker blue where the shelf drops away.
+        let depth = (-terrain.shore(q) / 15.0).clamp(0.0, 1.0).powf(0.7);
+        let jitter = (unit(seed) - 0.5) * 9.0;
+        std::array::from_fn(|i| (SHALLOW[i] + (DEEP[i] - SHALLOW[i]) * depth + jitter) as u8)
+    };
     for row in -span..span {
         for col in -span..span {
-            let p = v(col as f32 * 9.0, -1.18, row as f32 * 9.0);
-            let t = unit((row + 100) as u32 * 29 + (col + 100) as u32 * 901);
-            let color = shift([124, 193, 200], (t * 29.0) as i16 - 12);
-            b.face(&[p, p + Vec3::Z * 9.0, p + v(9.0, 0.0, 9.0)], color);
-            b.face(
-                &[p, p + v(9.0, 0.0, 9.0), p + Vec3::X * 9.0],
-                shift(color, -8),
-            );
-            if t > 0.48 {
-                let rip = p + v(t * 7.0, 0.012, (1.0 - t) * 8.2);
-                b.face(
-                    &[
-                        rip,
-                        rip + v(-0.60, 0.0, 0.090),
-                        rip + v(2.44, 0.0, 0.17),
-                        rip + v(2.90, 0.0, 0.102),
-                    ],
-                    [152, 207, 202],
-                );
+            let p = Vec2::new(col as f32, row as f32) * CELL;
+            let middle = p + Vec2::splat(CELL * 0.5);
+            if terrain.shore(middle) > CELL * 1.2 {
+                continue;
             }
+            let seed = (row + 400) as u32 * 7919 + (col + 400) as u32 * 104_729;
+            let corner = |dx: f32, dz: f32| v(p.x + dx * CELL, -1.18, p.y + dz * CELL);
+            b.face(
+                &[corner(0.0, 0.0), corner(0.0, 1.0), corner(1.0, 1.0)],
+                tint(p + Vec2::new(0.33, 0.66) * CELL, seed),
+            );
+            b.face(
+                &[corner(0.0, 0.0), corner(1.0, 1.0), corner(1.0, 0.0)],
+                tint(p + Vec2::new(0.66, 0.33) * CELL, seed + 1),
+            );
+        }
+    }
+    b.mesh()
+}
+
+/// Two bands of surf that follow the coastline and ride on the swell.
+fn surf(terrain: &Terrain) -> Mesh {
+    let mut b = Batch::default();
+    let steps = (terrain.radius * 4.2) as usize;
+    let rim = |angle: f32, inset: f32| {
+        let direction = Vec2::from_angle(angle);
+        let radius = terrain.shore(direction) + 1.0;
+        let p = direction * (radius - inset);
+        (p, direction)
+    };
+    for (lane, inset, width, tint, y) in [
+        (0_u32, 0.10, 0.46, [226, 244, 236], -1.145),
+        (1, -0.85, 0.20, [170, 226, 218], -1.152),
+    ] {
+        for i in 0..steps {
+            let seed = i as u32 * 31 + lane * 977 + terrain.level.index as u32 * 13;
+            if lane == 1 && unit(seed) < 0.38 {
+                continue;
+            }
+            let a0 = i as f32 / steps as f32 * std::f32::consts::TAU;
+            let a1 = (i + 1) as f32 / steps as f32 * std::f32::consts::TAU;
+            let wobble = |s: u32| (unit(s) - 0.5) * 0.16;
+            let (p0, d0) = rim(a0, inset + wobble(seed));
+            let (p1, d1) = rim(a1, inset + wobble(seed + 1));
+            let half = width * (0.75 + unit(seed + 2) * 0.5) * 0.5;
+            let quad = [
+                p0 - d0 * half,
+                p1 - d1 * half,
+                p1 + d1 * half,
+                p0 + d0 * half,
+            ]
+            .map(|q| v(q.x, y, q.y));
+            b.face(&quad, shift(tint, (unit(seed + 3) * 10.0) as i16 - 5));
         }
     }
     b.mesh()

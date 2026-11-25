@@ -55,7 +55,7 @@ pub fn run() {
             use_gpu_instance_buffer_builder: false,
             ..default()
         });
-    app.add_plugins(plugins);
+    app.add_plugins((plugins, world::water::plugin()));
 
     embed_assets(&app);
     let mut campaign = Campaign::load();
@@ -227,6 +227,7 @@ fn embed_assets(app: &App) {
         "nacht-0", "nacht-1", "nacht-2", "nacht-3", "nacht-4",
     );
     add!(
+        "shaders/water.wgsl",
         "fonts/DMSans-Bold.ttf",
         "fonts/DMSans-Medium.ttf",
         "fonts/DMSerifText-Regular.ttf",

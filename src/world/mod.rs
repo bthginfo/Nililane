@@ -36,6 +36,7 @@ mod roman;
 mod ships;
 mod sky;
 mod upgrades;
+pub(crate) mod water;
 mod work;
 
 use std::collections::HashMap;
@@ -116,7 +117,8 @@ pub(crate) struct TempleBell(usize);
 pub struct Art {
     matte: Handle<StandardMaterial>,
     sea: Handle<StandardMaterial>,
-    water: Handle<StandardMaterial>,
+    water: Handle<water::Water>,
+    pub(crate) island_sea: Handle<water::Water>,
     sea_mix: Option<(Weather, Weather, f32, bool)>,
     gold: Handle<StandardMaterial>,
     kinds: HashMap<(Region, Kind, u8), (Handle<Mesh>, f32)>,
@@ -149,6 +151,7 @@ pub fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     assets: Res<AssetServer>,
     mut bind_poses: ResMut<Assets<SkinnedMeshInverseBindposes>>,
+    mut waters: ResMut<Assets<water::Water>>,
 ) {
     commands
         .spawn((
@@ -222,9 +225,11 @@ pub fn setup(
     let art = Art {
         matte,
         sea,
-        water: materials.add(StandardMaterial {
-            unlit: true,
-            ..default()
+        water: waters.add(water::Water {
+            settings: water::Settings::calm(Vec3::ONE, 0.024),
+        }),
+        island_sea: waters.add(water::Water {
+            settings: water::Settings::calm(Vec3::ONE, 0.05),
         }),
         sea_mix: None,
         gold,
@@ -370,6 +375,7 @@ pub fn sync(
     parcels: Query<Entity, With<Parcels>>,
     mut props: Query<(Option<&Boat>, Option<&Sail>, &mut Mesh3d), Or<(With<Boat>, With<Sail>)>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut waters: ResMut<Assets<water::Water>>,
 ) {
     let town = game.visible_town(&save);
     let ch = &CHAPTERS[town.chapter];
@@ -389,7 +395,7 @@ pub fn sync(
     );
     if art.sea_mix != Some(sea_mix) {
         art.sea_mix = Some(sea_mix);
-        if let Some(material) = materials.get_mut(&art.water) {
+        if let Some(material) = waters.get_mut(&art.water) {
             let tint = |weather| match weather {
                 Weather::Storm => v(0.56, 0.71, 0.87),
                 Weather::Rain => v(0.69, 0.81, 0.90),
@@ -403,8 +409,9 @@ pub fn sync(
             } else {
                 Vec3::ONE
             };
-            let [r, g, b] = (tint(weather.0).lerp(tint(weather.1), weather.2) * moon).to_array();
-            material.base_color = Color::srgb(r, g, b);
+            let color = tint(weather.0).lerp(tint(weather.1), weather.2) * moon;
+            material.settings = water::Settings::calm(color, 0.024)
+                .weather(weather, if sea_mix.3 { 1.0 } else { 0.0 });
         }
         if let Some(material) = materials.get_mut(&art.sea) {
             material.base_color = if sea_mix.3 {
