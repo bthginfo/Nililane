@@ -1875,3 +1875,80 @@ fn showcase_settlements_for_visual_review() {
     let path = std::path::Path::new(&dir).join("nililane-abenteuer-v1.json");
     std::fs::write(path, serde_json::to_string(&book).unwrap()).unwrap();
 }
+
+#[test]
+fn island_layouts_turn_their_districts_and_hills_and_keep_one_near_and_one_far() {
+    use std::f32::consts::TAU;
+    let sector = |at: Vec2| ((at.to_angle() / TAU * 6.0).round() as i32).rem_euclid(6);
+    let mut wood = std::collections::HashSet::new();
+    let mut relic = std::collections::HashSet::new();
+    for index in 0..LEVELS {
+        let map = Terrain::new(Level::at(index));
+        wood.insert(sector(map.zone(Good::Wood).center));
+        relic.insert(sector(map.relic));
+        let reach: Vec<f32> = Good::RAW
+            .into_iter()
+            .map(|good| map.zone(good).center.length() / map.radius)
+            .collect();
+        let near = reach.iter().copied().fold(f32::MAX, f32::min);
+        assert!(
+            near < 0.6,
+            "{}: kein nahes Gebiet {reach:?}",
+            map.level.name
+        );
+        assert!(
+            Good::RAW.into_iter().any(|good| {
+                let center = map.zone(good).center;
+                center.length() >= map.radius_at(center.to_angle()) * 0.74
+            }),
+            "{}: kein fernes Gebiet",
+            map.level.name
+        );
+        if map.level.stage == 0 {
+            assert!(reach[0] < 0.6, "{}: Holz liegt zu weit weg", map.level.name);
+        }
+    }
+    assert!(wood.len() >= 5, "Holz liegt fast immer gleich: {wood:?}");
+    assert!(
+        relic.len() >= 4,
+        "Die Gipfel liegen fast immer gleich: {relic:?}"
+    );
+}
+
+#[test]
+fn a_saved_island_keeps_its_node_counts_and_frees_anyone_standing_in_a_node() {
+    let index = CORE_HARBORS * 2 + 5;
+    let level = Level::at(index);
+    let map = Terrain::new(level);
+    let mut island = Island::new(level);
+    island.lots[0] = Some(Property {
+        kind: Build::Harbor(level.home()),
+        tier: 3,
+    });
+    island.prepare_logistics(&map);
+    let stone = (0..map.deposits.len())
+        .find(|&id| map.deposits[id].kind == Good::Stone)
+        .unwrap();
+    island.remaining[stone] = 3;
+    assert!(island.assign(Task::Gather(stone), &map));
+    // As if the nodes had moved since the save: Nili and the gatherer stand inside one.
+    island.position = map.deposits[stone].at.to_array();
+    island.hauls[0].position = map.deposits[stone + 1].at.to_array();
+    let mut book = Book::default();
+    book.islands[index] = Some(island);
+    let (mut book, damaged) = Book::parse(&serde_json::to_vec(&book).unwrap());
+    assert!(!damaged);
+    let island = book.islands[index].as_mut().unwrap();
+    assert_eq!(island.remaining.len(), map.deposits.len());
+    assert_eq!(island.remaining[stone], 3);
+    assert_eq!(island.workers, [Task::Gather(stone)]);
+    let nili = Vec2::from_array(island.position);
+    assert!(map.walkable(nili, &island.lots));
+    assert!(nili.distance(map.deposits[stone].at) < 2.0);
+    assert!(map.walkable(Vec2::from_array(island.hauls[0].position), &island.lots));
+    for _ in 0..1500 {
+        island.tick_hauling(&map, 0.1);
+    }
+    assert_eq!(island.remaining[stone], 0);
+    assert!(island.amount(Good::Stone) >= 3);
+}

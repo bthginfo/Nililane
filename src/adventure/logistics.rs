@@ -148,6 +148,23 @@ impl Island {
         for lot in 0..self.lots.len() {
             self.evict(map, lot);
         }
+        // Resource nodes may have moved since the save; nobody stays stuck inside one.
+        let lots = self.lots.clone();
+        for walk in self
+            .hauls
+            .iter_mut()
+            .chain(self.builders.iter_mut().map(|builder| &mut builder.walk))
+            .chain(self.courier.iter_mut().map(|courier| &mut courier.walk))
+        {
+            let at = Vec2::from_array(walk.position);
+            let free = map.free_spot(at, &lots);
+            if free != at {
+                walk.relocate(free);
+            }
+        }
+        self.position = map
+            .free_spot(Vec2::from_array(self.position), &lots)
+            .to_array();
     }
 
     pub fn send_courier(&mut self, level: Level) -> bool {
