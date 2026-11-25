@@ -1645,23 +1645,34 @@ fn sea(terrain: &Terrain) -> Mesh {
         let jitter = (unit(seed) - 0.5) * 9.0;
         std::array::from_fn(|i| (SHALLOW[i] + (DEEP[i] - SHALLOW[i]) * depth + jitter) as u8)
     };
-    for row in -span..span {
-        for col in -span..span {
-            let p = Vec2::new(col as f32, row as f32) * CELL;
-            let middle = p + Vec2::splat(CELL * 0.5);
-            if terrain.shore(middle) > CELL * 1.2 {
+    // Fine facets along the coast, broad ones on the open sea where they read the same.
+    let quad = |b: &mut Batch, p: Vec2, size: f32, seed: u32| {
+        let corner = |dx: f32, dz: f32| v(p.x + dx * size, -1.18, p.y + dz * size);
+        b.face(
+            &[corner(0.0, 0.0), corner(0.0, 1.0), corner(1.0, 1.0)],
+            tint(p + Vec2::new(0.33, 0.66) * size, seed),
+        );
+        b.face(
+            &[corner(0.0, 0.0), corner(1.0, 1.0), corner(1.0, 0.0)],
+            tint(p + Vec2::new(0.66, 0.33) * size, seed + 1),
+        );
+    };
+    let blocks = span / 3 + 1;
+    for row in -blocks..blocks {
+        for col in -blocks..blocks {
+            let corner = Vec2::new(col as f32, row as f32) * CELL * 3.0;
+            let seed = (row + 400) as u32 * 7919 + (col + 400) as u32 * 104_729;
+            if terrain.shore(corner + Vec2::splat(CELL * 1.5)) < -(CELL * 2.2 + 13.0) {
+                quad(&mut b, corner, CELL * 3.0, seed);
                 continue;
             }
-            let seed = (row + 400) as u32 * 7919 + (col + 400) as u32 * 104_729;
-            let corner = |dx: f32, dz: f32| v(p.x + dx * CELL, -1.18, p.y + dz * CELL);
-            b.face(
-                &[corner(0.0, 0.0), corner(0.0, 1.0), corner(1.0, 1.0)],
-                tint(p + Vec2::new(0.33, 0.66) * CELL, seed),
-            );
-            b.face(
-                &[corner(0.0, 0.0), corner(1.0, 1.0), corner(1.0, 0.0)],
-                tint(p + Vec2::new(0.66, 0.33) * CELL, seed + 1),
-            );
+            for k in 0..9 {
+                let p = corner + Vec2::new((k % 3) as f32, (k / 3) as f32) * CELL;
+                if terrain.shore(p + Vec2::splat(CELL * 0.5)) > CELL * 1.2 {
+                    continue;
+                }
+                quad(&mut b, p, CELL, seed + k * 2);
+            }
         }
     }
     b.mesh()
@@ -1780,7 +1791,7 @@ fn woods(terrain: &Terrain, colors: Palette) -> impl Iterator<Item = Mesh> {
         colors.flag,
         [226, 146, 168],
     ];
-    for i in 0..(760 + terrain.level.stage as u32 * 60) {
+    for i in 0..(560 + terrain.level.stage as u32 * 36) {
         let n = seed ^ (i * 2_654_435_761);
         let near = unit(n) < 0.62;
         let p = if near {
@@ -1807,24 +1818,23 @@ fn woods(terrain: &Terrain, colors: Palette) -> impl Iterator<Item = Mesh> {
         let kind = unit(n + 3);
         if kind < 0.5 {
             let color = blossoms[(unit(n + 4) * 4.0) as usize % 4];
-            for k in 0..(5 + (unit(n + 5) * 5.0) as u32) {
+            for k in 0..(4 + (unit(n + 5) * 4.0) as u32) {
                 let m = n + 40 + k * 3;
                 let q = at + v((unit(m) - 0.5) * 1.0, 0.0, (unit(m + 1) - 0.5) * 0.8);
                 let h = 0.12 + unit(m + 2) * 0.14;
-                b.gem(
-                    q + Vec3::Y * 0.06,
-                    0.12,
-                    0.07,
-                    0.12,
-                    m as f32,
+                // Few triangles per blossom: these fill whole meadows on phones too.
+                let spin = unit(m + 3) * std::f32::consts::TAU;
+                let leaf = v(spin.cos(), 0.0, spin.sin()) * 0.13;
+                b.face(
+                    &[q - leaf, q + leaf, q + Vec3::Y * (h * 0.8)],
                     shift(colors.leaves, -4),
                 );
-                b.gem(
-                    q + Vec3::Y * h,
-                    0.13,
-                    0.075,
-                    0.13,
-                    m as f32,
+                b.frustum(
+                    q + Vec3::Y * (h - 0.03),
+                    0.12,
+                    0.0,
+                    0.08,
+                    4,
                     shift(color, (k as i16) * 3),
                 );
             }
@@ -1844,19 +1854,17 @@ fn woods(terrain: &Terrain, colors: Palette) -> impl Iterator<Item = Mesh> {
                 );
             }
         } else {
-            for k in 0..(1 + (unit(n + 4) * 3.0) as u32) {
+            for k in 0..(1 + (unit(n + 4) * 2.0) as u32) {
                 let m = n + 70 + k * 5;
                 let r = 0.10 + unit(m) * 0.13;
-                b.gem(
+                b.block(
                     at + v(
                         (unit(m + 1) - 0.5) * 0.6,
-                        r * 0.25,
+                        r * 0.2,
                         (unit(m + 2) - 0.5) * 0.6,
                     ),
-                    r,
-                    r * 0.6,
-                    r * 0.85,
-                    m as f32,
+                    v(r * 1.3, r * 0.7, r),
+                    Quat::from_euler(EulerRot::YXZ, m as f32, 0.25, 0.18),
                     shift(colors.rock, (unit(m + 3) * 24.0) as i16 - 6),
                 );
             }
@@ -2536,6 +2544,23 @@ fn workshop(region: Region, kind: Build, tier: u8) -> Mesh {
 mod tests {
     use super::*;
     use bevy::render::mesh::VertexAttributeValues;
+
+    #[test]
+    fn island_scenery_stays_within_a_phone_vertex_budget() {
+        for index in 0..crate::adventure::LEVELS {
+            let terrain = Terrain::new(crate::adventure::Level::at(index));
+            let colors = palette(terrain.level.region);
+            let ground = landscape(&terrain, colors).count_vertices();
+            let plants: usize = woods(&terrain, colors).map(|m| m.count_vertices()).sum();
+            let water = sea(&terrain).count_vertices() + surf(&terrain).count_vertices();
+            let total = ground + plants + water;
+            assert!(
+                total < 200_000,
+                "{}: {ground} Boden, {plants} Pflanzen, {water} Wasser",
+                terrain.level.name
+            );
+        }
+    }
 
     #[test]
     fn all_ninety_workshop_models_have_distinct_tiers_and_clear_the_paths() {
