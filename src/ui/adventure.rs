@@ -687,6 +687,41 @@ fn walk(
                     ));
                 });
             });
+        } else if let Some(lot) = a.building.filter(|&lot| a.close_enough(Target::Plot(lot))) {
+            let node = frame_node(Val::Px(258.0), 6.0, 10.0);
+            let (art, title, progress) = if let Some(site) = island.site(lot) {
+                ("hammer", "Nili baut mit …", (WorkProgress::Construction(lot), site.progress()))
+            } else {
+                let batch = island.batch(lot);
+                let art = batch.map_or("adventure_tools", |batch| batch.output.kind.icon(level.region));
+                let done = batch.map_or(0.0, |batch| batch.progress());
+                (art, "Nili hilft mit …", (WorkProgress::Production(lot), done))
+            };
+            card(corner, node, INK).with_children(|chip| {
+                chip.spawn(row(8.0)).with_children(|line| {
+                    panels::metric(line, hud, art, title);
+                    action(line, hud, Command::Use(Target::Plot(lot)), "Pause", "pause", "A", Style::Quiet, false);
+                });
+                chip.spawn((
+                    Node {
+                        height: Val::Px(6.0),
+                        width: Val::Percent(100.0),
+                        ..default()
+                    },
+                    BackgroundColor(CARD),
+                ))
+                .with_children(|bar| {
+                    bar.spawn((
+                        progress.0,
+                        Node {
+                            width: Val::Percent(progress.1 * 100.0),
+                            height: Val::Percent(100.0),
+                            ..default()
+                        },
+                        BackgroundColor(GOLD),
+                    ));
+                });
+            });
         } else if let Some(target) = a.target {
             corner.spawn(row(8.0)).with_children(|r| {
                 if matches!(target, Target::Deposit(_)) {
@@ -722,6 +757,8 @@ fn walk(
                     }
                 } else if let Target::Plot(lot) = target && island.site(lot).is_some() {
                     action(r, hud, Command::Inspect(target), "Baustelle", "hammer", "R3", Style::Quiet, false);
+                } else if let Target::Plot(lot) = target && island.can_help(lot) {
+                    action(r, hud, Command::Inspect(target), "Gebäude", "house", "R3", Style::Quiet, false);
                 }
                 let mut disabled = false;
                 let (label, art) = match target {
@@ -768,6 +805,7 @@ fn walk(
                         }
                     }
                     Target::Plot(lot) if island.lots[lot].is_none() => ("Bauen", "hammer"),
+                    Target::Plot(lot) if island.can_help(lot) => ("Mitarbeiten", "adventure_tools"),
                     Target::Plot(_) => ("Gebäude ansehen", "house"),
                     Target::Hall if island.cargo.is_some() => ("Fracht abladen", "storehouse"),
                     Target::Hall if a.delivery_action() == Some(Command::PackOrder) => {
@@ -1522,7 +1560,28 @@ fn property_panel(
                     );
                 }
                 team(p, hud, island, Task::Produce(lot));
-                if !fishing {
+                if island.can_help(lot) {
+                    p.spawn(row(10.0)).with_children(|r| {
+                        action(
+                            r,
+                            hud,
+                            Command::Work(lot),
+                            "Mitarbeiten",
+                            "adventure_tools",
+                            "",
+                            Style::Primary,
+                            false,
+                        );
+                        label(
+                            r,
+                            hud,
+                            "Nili packt mit an. Der Arbeitsgang läuft schneller.",
+                            16.0,
+                            Face::Body,
+                            MUTED,
+                        );
+                    });
+                } else if !fishing {
                     action(
                         p,
                         hud,

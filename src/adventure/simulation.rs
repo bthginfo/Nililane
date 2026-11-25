@@ -12,6 +12,8 @@ use crate::{
 };
 
 pub const HALL_STORAGE: u16 = 72;
+/// Extra work per second while Nili helps on a site or in a workshop.
+pub const HELP_BONUS: f32 = 0.55;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Good {
@@ -1012,6 +1014,24 @@ impl Island {
             fishing: school,
             paused: false,
         });
+        true
+    }
+
+    /// True while a batch runs that Nili can speed up by working along.
+    pub fn can_help(&self, lot: usize) -> bool {
+        self.batch(lot)
+            .is_some_and(|batch| batch.working() && batch.fishing.is_none())
+    }
+
+    /// Nili works along at a running batch, like the build help at a construction site.
+    pub fn help_production(&mut self, lot: usize, dt: f32) -> bool {
+        if !self.can_help(lot) {
+            return false;
+        }
+        let Some(Some(batch)) = self.batches.get_mut(lot) else {
+            return false;
+        };
+        batch.left = (batch.left - dt * HELP_BONUS).max(0.0);
         true
     }
 

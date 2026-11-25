@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     Build, Good, Island, Level, Property, Terrain,
     logistics::{Cargo, Haul},
-    simulation::load_goods,
+    simulation::{HELP_BONUS, load_goods},
     terrain::HALL_DOOR,
 };
 
@@ -290,7 +290,7 @@ impl Island {
                 + usize::from(nili == Some(lot));
             if ready && working > 0 {
                 let site = self.construction[lot].as_mut().unwrap();
-                site.work += dt * (1.0 + 0.55 * (working - 1) as f32);
+                site.work += dt * (1.0 + HELP_BONUS * (working - 1) as f32);
                 if site.work >= site.seconds() {
                     self.lots[lot] = Some(site.property);
                     self.construction[lot] = None;

@@ -1163,6 +1163,10 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
                     close(game, adventure, Screen::Walk);
                     game.adventure_notice("Lieferung angekommen", true);
                 }
+                Target::Plot(lot) if island.can_help(lot) => {
+                    lend_a_hand(adventure, game, lot, true);
+                    return;
+                }
                 Target::Hall | Target::Plot(_) | Target::Outpost => {
                     act(Command::Inspect(target), adventure, game, save);
                     return;
@@ -1410,6 +1414,15 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
                 }
             }
         }
+        Command::Work(lot)
+            if adventure
+                .active()
+                .is_some_and(|island| island.can_help(lot)) =>
+        {
+            if adventure.close_enough(Target::Plot(lot)) {
+                lend_a_hand(adventure, game, lot, false);
+            }
+        }
         Command::Work(lot) => {
             if adventure.close_enough(Target::Plot(lot))
                 && adventure.hand_clock <= 0.0
@@ -1427,6 +1440,21 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
         }
     }
     check_victory(adventure, game, save);
+}
+
+/// Starts Nili's help at a running workshop batch, or stops it when `toggle` is set.
+fn lend_a_hand(adventure: &mut Adventure, game: &mut Game, lot: usize, toggle: bool) {
+    let Some((terrain, island)) = adventure.terrain.as_ref().zip(adventure.active()) else {
+        return;
+    };
+    let at = terrain.plots[lot] - Vec2::from_array(island.position);
+    adventure.heading = at.x.atan2(at.y);
+    let helping = adventure.building == Some(lot);
+    adventure.building = (!helping || !toggle).then_some(lot);
+    close(game, adventure, Screen::Walk);
+    if !helping && adventure.building.is_some() {
+        game.adventure_notice("Nili hilft mit. Der Arbeitsgang läuft schneller.", true);
+    }
 }
 
 fn trade_action(command: Command, adventure: &mut Adventure, game: &mut Game) {
@@ -1890,26 +1918,44 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
     let before = island.stores;
     if let Some(harvest) = harvested {
         game.dirty = true;
-        if let Some(load) = island.carry_resource(terrain, harvest.site) {
+        let kind = terrain.deposits[harvest.site].kind;
+        let here = Vec2::from_array(island.position);
+        // A citizen may have emptied the node meanwhile; the next one in reach will do.
+        let site = Some(harvest.site)
+            .filter(|&site| island.remaining(terrain, site) > 0)
+            .or_else(|| {
+                island
+                    .available_near(terrain, kind, here)
+                    .filter(|&id| terrain.deposits[id].at.distance(here) <= RESOURCE_REACH + 0.9)
+            });
+        if let Some(load) = site.and_then(|site| island.carry_resource(terrain, site)) {
+            let carried = island.cargo.map_or(load.units, |cargo| cargo.units);
+            let room = island.room_for(kind);
+            let name = kind.name(terrain.level.region);
             let building = (0..island.lots.len()).find(|&lot| {
                 island
                     .site(lot)
                     .is_some_and(|site| site.missing(load.kind) > 0)
             });
-            adventure.waypoint = Some(building.map_or(Target::Hall, Target::Plot));
-            let destination = if building.is_some() {
-                "zur Baustelle"
+            let site_covered = building
+                .and_then(|lot| island.site(lot))
+                .is_some_and(|site| site.missing(kind) <= carried);
+            let more = (room > 0 && !site_covered)
+                .then(|| island.available_near(terrain, kind, here))
+                .flatten()
+                .filter(|&id| terrain.deposits[id].at.distance(here) <= 8.0);
+            if let Some(next) = more {
+                adventure.waypoint = Some(Target::Deposit(next));
+                game.adventure_notice(format!("{carried} {name} · Platz für {room}"), true);
             } else {
-                "zum Rathaus"
-            };
-            game.adventure_notice(
-                format!(
-                    "{} {} geladen · {destination}",
-                    load.units,
-                    load.kind.name(terrain.level.region)
-                ),
-                true,
-            );
+                adventure.waypoint = Some(building.map_or(Target::Hall, Target::Plot));
+                let destination = if building.is_some() {
+                    "zur Baustelle"
+                } else {
+                    "zum Rathaus"
+                };
+                game.adventure_notice(format!("{carried} {name} geladen · {destination}"), true);
+            }
         } else {
             adventure.waypoint = None;
             game.adventure_notice("Diese Rohstoffstelle ist erschöpft.", false);
@@ -1918,6 +1964,7 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
     let outside_before = island.overflow_total();
     game.dirty |= island.tick_hauling(terrain, dt);
     let overflowed = island.overflow_total() > outside_before;
+    let helping = building.is_some_and(|lot| island.help_production(lot, dt));
     game.dirty |= island.tick_production(terrain, dt);
     let delivered_before = island.orders_delivered;
     let courier_changed = island.tick_courier(terrain, dt);
@@ -1935,6 +1982,18 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
         adventure.waypoint = None;
         game.dirty = true;
         game.adventure_notice("Die markierte Rohstoffstelle ist erschöpft.", false);
+    }
+    if let Some(lot) = adventure.building
+        && island.site(lot).is_none()
+        && !island.can_help(lot)
+        && !(helping
+            && island.assignment(Task::Produce(lot)) > 0
+            && island
+                .recipe_for(terrain.level, lot)
+                .is_some_and(|recipe| island.ready(&recipe.need)))
+    {
+        adventure.building = None;
+        game.dirty = true;
     }
     if let Some(&last) = completed.last() {
         let now = game.clock;

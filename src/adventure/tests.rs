@@ -1566,6 +1566,77 @@ fn demolishing_a_home_counts_builders_and_the_coast_stays_free_for_fish() {
 }
 
 #[test]
+fn nili_tops_up_at_a_nearby_node_and_helps_in_a_running_workshop() {
+    let mut a = Adventure {
+        book: Book::default(),
+        ..Adventure::default()
+    };
+    a.open(CORE_HARBORS + 4, false);
+    a.screen = Screen::Walk;
+    let mut game = Game::default();
+    let mut save = Campaign::default();
+    let map = a.terrain.clone().unwrap();
+    let (first, second) = (0..map.deposits.len())
+        .filter(|&id| map.deposits[id].kind == Good::Wood && map.deposits[id].units() < 10)
+        .find_map(|id| {
+            let near = (0..map.deposits.len()).find(|&other| {
+                other != id
+                    && map.deposits[other].kind == Good::Wood
+                    && map.deposits[other].at.distance(map.deposits[id].at) < 5.0
+            })?;
+            Some((id, near))
+        })
+        .unwrap();
+    let start = map.deposits[first].at + Vec2::new(0.0, 1.2);
+    a.active_mut().unwrap().position = start.to_array();
+    act(
+        Command::Use(Target::Deposit(first)),
+        &mut a,
+        &mut game,
+        &mut save,
+    );
+    assert!(a.harvesting.is_some());
+    for _ in 0..20 {
+        process_work(&mut a, &mut game, &mut save, 0.17);
+    }
+    let island = a.active().unwrap();
+    let carried = island.cargo.unwrap().units;
+    assert!(carried < island.capacity());
+    let Some(Target::Deposit(next)) = a.waypoint else {
+        panic!("{:?}", a.waypoint);
+    };
+    assert_eq!(map.deposits[next].kind, Good::Wood);
+    assert!(next == second || map.deposits[next].at.distance(start) <= 8.0);
+    assert!(game.note.contains("Platz für"), "{}", game.note);
+
+    // Working along shortens a running batch.
+    let island = a.active_mut().unwrap();
+    island.cargo = None;
+    island.lots[0] = Some(Property {
+        kind: Build::Harbor(map.level.home()),
+        tier: 1,
+    });
+    island.lots[1] = Some(Property {
+        kind: Build::Sawmill,
+        tier: 1,
+    });
+    island.add(Good::Wood, 4);
+    island.add(Good::Food, 2);
+    assert!(island.assign(Task::Produce(1), &map));
+    assert!(island.start_production(&map, 1));
+    island.position = (map.plots[1] + Vec2::new(0.0, 2.3)).to_array();
+    let mut alone = island.clone();
+    a.waypoint = None;
+    act(Command::Use(Target::Plot(1)), &mut a, &mut game, &mut save);
+    assert_eq!(a.building, Some(1));
+    process_work(&mut a, &mut game, &mut save, 0.15);
+    alone.tick_production(&map, 0.15);
+    let helped = a.active().unwrap().batch(1).unwrap().left;
+    let solo = alone.batch(1).unwrap().left;
+    assert!(helped < solo - 0.05, "{helped} {solo}");
+}
+
+#[test]
 fn original_and_new_outfits_use_independent_bits_and_shared_rewards() {
     use crate::cosmetics::Cosmetic;
     let saved = r#"{"owned":1,"garment":"Sea","head":null}"#;
