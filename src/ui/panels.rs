@@ -2880,6 +2880,23 @@ fn day_plan(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
                 if weather == Weather::Feast {
                     metric(day, hud, "budget", "Größere Budgets");
                 }
+                if chapter.region == Region::Oasis
+                    && matches!(weather, Weather::Wind | Weather::Storm)
+                {
+                    metric(
+                        day,
+                        hud,
+                        "budget",
+                        if weather == Weather::Storm {
+                            "Sandsturm: größere Budgets"
+                        } else {
+                            "Flugsand: größere Budgets"
+                        },
+                    );
+                }
+                if let Some(festival) = town.festival_ahead(chapter, index) {
+                    metric(day, hud, festival.icon(), festival.title(chapter.region));
+                }
                 if chapter.region == Region::Nordic
                     && matches!(weather, Weather::Wind | Weather::Storm)
                 {

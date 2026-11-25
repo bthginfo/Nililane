@@ -1515,6 +1515,10 @@ pub enum DayEvent {
     Wedding,
     SchoolTrip,
     Pilgrims,
+    /// Japan's feast day: neighbours come to the lantern festival in the evening.
+    Matsuri,
+    /// The North's feast day: the elders meet for the Thing and stay to eat.
+    Thing,
 }
 
 /// Guests one day event brings at most.
@@ -1523,12 +1527,32 @@ pub const EVENT_GUESTS: usize = 3;
 pub const STREAK_STEP: u16 = 5;
 
 impl DayEvent {
-    pub const ALL: [Self; 4] = [
+    /// Every event, so the tests can check that each one turns up.
+    #[cfg(test)]
+    pub const ALL: [Self; 6] = [
+        Self::TradeShip,
+        Self::Wedding,
+        Self::SchoolTrip,
+        Self::Pilgrims,
+        Self::Matsuri,
+        Self::Thing,
+    ];
+    /// The groups that can turn up on any day; festivals keep to their feast days.
+    const VISITS: [Self; 4] = [
         Self::TradeShip,
         Self::Wedding,
         Self::SchoolTrip,
         Self::Pilgrims,
     ];
+
+    /// A region's own festival, which takes the place of other groups on its feast days.
+    fn festival(region: Region, weather: Weather) -> Option<Self> {
+        match (region, weather) {
+            (Region::Japan, Weather::Feast) => Some(Self::Matsuri),
+            (Region::Nordic, Weather::Feast) => Some(Self::Thing),
+            _ => None,
+        }
+    }
 
     pub fn title(self, region: Region) -> &'static str {
         use Region::*;
@@ -1547,6 +1571,8 @@ impl DayEvent {
             (Self::Pilgrims, Japan) => "Pilger auf dem Weg nach Ise",
             (Self::Pilgrims, Nordic) => "Pilger auf dem Weg nach Nidaros",
             (Self::Pilgrims, Oasis) => "Pilger auf dem Weg zur Quelle",
+            (Self::Matsuri, _) => "Matsuri mit Laternen",
+            (Self::Thing, _) => "Thing der Ältesten",
         }
     }
 
@@ -1556,6 +1582,8 @@ impl DayEvent {
             Self::Wedding => "Die Hochzeitsgäste feiern und suchen etwas zu essen.",
             Self::SchoolTrip => "Eine Schulklasse kommt mit der Fähre.",
             Self::Pilgrims => "Ältere Reisende suchen Ruhe und Rast.",
+            Self::Matsuri => "Am Abend kommen die Nachbarn zum Laternenfest.",
+            Self::Thing => "Die Ältesten kommen zur Versammlung und bleiben zum Essen.",
         }
     }
 
@@ -1565,6 +1593,21 @@ impl DayEvent {
             Self::Wedding => "house",
             Self::SchoolTrip => Age::Child.icon(),
             Self::Pilgrims => Age::Senior.icon(),
+            Self::Matsuri => "lampion",
+            Self::Thing => "longhouse",
+        }
+    }
+
+    /// The group walks over from the houses instead of coming with the ferry.
+    fn walks_over(self) -> bool {
+        matches!(self, Self::Wedding | Self::Matsuri)
+    }
+
+    /// Share of the day after which the group arrives.
+    fn arrival(self) -> f32 {
+        match self {
+            Self::Matsuri => 0.68,
+            _ => 0.42,
         }
     }
 
@@ -1578,10 +1621,10 @@ impl DayEvent {
 
     fn age(self, guest: usize, island: usize) -> Age {
         match self {
-            Self::TradeShip => Age::guest(guest + island),
+            Self::TradeShip | Self::Matsuri => Age::guest(guest + island),
             Self::Wedding => Age::Adult,
             Self::SchoolTrip => Age::Child,
-            Self::Pilgrims => Age::Senior,
+            Self::Pilgrims | Self::Thing => Age::Senior,
         }
         .on_island(island)
     }
@@ -1594,6 +1637,8 @@ impl DayEvent {
             Self::Wedding => &[Meze, HearthMeal, Rice, Bread, Honey, Tea, Oil],
             Self::SchoolTrip => &[Honey, Bread, Lantern, Pottery, Glass, Textiles],
             Self::Pilgrims => &[Prayer, Offering, Bath, Shade, Tea, Incense],
+            Self::Matsuri => &[Lantern, Tea, Rice, Prayer, Textiles, Pottery],
+            Self::Thing => &[HearthMeal, Textiles, Casks, Bed],
         }
     }
 }
@@ -1951,16 +1996,33 @@ impl Town {
             Phase::Open(day) => day.event,
             Phase::Report(_) => None,
             Phase::Plan => {
-                self.planned_event()?;
+                self.planned_event(chapter)?;
                 self.day_plan(chapter, &self.production(chapter)).event
             }
         }
     }
 
-    fn planned_event(&self) -> Option<DayEvent> {
-        let stage = harbor_stage(self.chapter);
-        if stage < 2 || self.day < 2 || (self.chapter < crate::coach::ISLANDS && self.day <= 2) {
+    fn events_allowed(&self, day: u32) -> bool {
+        harbor_stage(self.chapter) >= 2
+            && day >= 2
+            && (self.chapter >= crate::coach::ISLANDS || day > 2)
+    }
+
+    /// The regional festival a feast day brings, today (0) or in a few days.
+    pub fn festival_ahead(&self, chapter: &Chapter, days: usize) -> Option<DayEvent> {
+        let day = self.day + days as u32;
+        if !self.events_allowed(day) {
             return None;
+        }
+        DayEvent::festival(chapter.region, self.weather_ahead(chapter, days))
+    }
+
+    fn planned_event(&self, chapter: &Chapter) -> Option<DayEvent> {
+        if !self.events_allowed(self.day) {
+            return None;
+        }
+        if let Some(festival) = self.festival_ahead(chapter, 0) {
+            return Some(festival);
         }
         let seed =
             self.day.wrapping_mul(0x2c1b_3c6d) ^ (self.chapter as u32).wrapping_mul(0x297a_2d39);
@@ -1969,7 +2031,7 @@ impl Town {
         if !seed.is_multiple_of(3) {
             return None;
         }
-        let options: Vec<_> = DayEvent::ALL
+        let options: Vec<_> = DayEvent::VISITS
             .into_iter()
             .filter(|event| event.fits(self.chapter))
             .collect();
@@ -2014,12 +2076,13 @@ impl Town {
             .collect();
         let closing = chapter.day_seconds();
         let slot = (self.day as usize * 7 + self.chapter * 3) % 5;
-        let arrival = closing * (0.42 + slot as f32 * 0.05);
+        let arrival = closing * (event.arrival() + slot as f32 * 0.05);
         let mut guests = Vec::new();
         for n in 0..EVENT_GUESTS {
-            let origin = match (event, homes.is_empty()) {
-                (DayEvent::Wedding, false) => Origin::Home(homes[n % homes.len()]),
-                _ => Origin::Ferry,
+            let origin = if event.walks_over() && !homes.is_empty() {
+                Origin::Home(homes[n % homes.len()])
+            } else {
+                Origin::Ferry
             };
             let mut visit = Visit {
                 origin,
@@ -2716,6 +2779,9 @@ impl Town {
                 });
             }
         }
+        // Who crosses the desert in a sandstorm comes with a full purse.
+        let sandstorm =
+            chapter.region == Region::Oasis && matches!(weather, Weather::Wind | Weather::Storm);
         for n in 0..usize::from(ferry) {
             let budget = if weather == Weather::Feast || n % 3 == 1 {
                 Price::Fine
@@ -2723,6 +2789,11 @@ impl Town {
                 Price::Fair
             } else {
                 Price::Regular
+            };
+            let budget = match budget {
+                Price::Fair if sandstorm => Price::Regular,
+                _ if sandstorm => Price::Fine,
+                budget => budget,
             };
             visitors.push(Visit {
                 origin: Origin::Ferry,
@@ -2936,7 +3007,7 @@ impl Town {
             streak: 0,
             favor_rushed: false,
         };
-        if let Some(event) = self.planned_event() {
+        if let Some(event) = self.planned_event(chapter) {
             let guests = self.event_guests(chapter, event, &day);
             if let Some(first) = guests.first() {
                 day.event = Some(Gathering {
@@ -5401,6 +5472,95 @@ mod tests {
         }
         let share = seen.len() as f32 / (CHAPTERS.len() * 7) as f32;
         assert!((0.15..0.45).contains(&share), "{share}");
+    }
+
+    #[test]
+    fn feast_days_bring_each_region_its_own_festival() {
+        use crate::campaign::Region;
+
+        let mut festivals = 0;
+        for (index, chapter) in CHAPTERS.iter().enumerate() {
+            let mut town = Town::new(index, chapter);
+            for day in 1..=10 {
+                town.day = day;
+                let festival = town.festival_ahead(chapter, 0);
+                if day > 1 {
+                    let mut yesterday = town.clone();
+                    yesterday.day -= 1;
+                    assert_eq!(yesterday.festival_ahead(chapter, 1), festival);
+                }
+                let feast = town.weather(chapter) == Weather::Feast;
+                let expected = match chapter.region {
+                    Region::Japan if feast => Some(DayEvent::Matsuri),
+                    Region::Nordic if feast => Some(DayEvent::Thing),
+                    _ => None,
+                };
+                let allowed = harbor_stage(index) >= 2
+                    && day >= 2
+                    && (index >= crate::coach::ISLANDS || day > 2);
+                assert_eq!(
+                    festival,
+                    expected.filter(|_| allowed),
+                    "{}",
+                    chapter.district
+                );
+                let Some(gathering) = town.day_event(chapter) else {
+                    continue;
+                };
+                if let Some(festival) = festival {
+                    assert_eq!(gathering.event, festival);
+                    festivals += 1;
+                    let planned = town.planned_visits(chapter);
+                    let group = &planned[planned.len() - usize::from(gathering.guests)..];
+                    if festival == DayEvent::Matsuri {
+                        // The lanterns are lit in the evening.
+                        assert!(gathering.at >= chapter.day_seconds() * 0.68);
+                    } else if Age::Senior.available(index) {
+                        assert!(group.iter().all(|v| v.age == Some(Age::Senior)));
+                    }
+                } else {
+                    assert!(!matches!(
+                        gathering.event,
+                        DayEvent::Matsuri | DayEvent::Thing
+                    ));
+                }
+            }
+        }
+        assert!(festivals > 10, "{festivals}");
+    }
+
+    #[test]
+    fn a_sandstorm_in_the_oasis_only_raises_ferry_budgets() {
+        use crate::campaign::{OASIS_START, Region};
+
+        for index in [OASIS_START + 6, 7] {
+            let windy = Chapter {
+                weather: &[Weather::Wind, Weather::Wind],
+                ..CHAPTERS[index]
+            };
+            let calm = Chapter {
+                weather: &[Weather::Cloud, Weather::Cloud],
+                ..CHAPTERS[index]
+            };
+            let ferry = |chapter: &Chapter| -> Vec<Price> {
+                Town::new(index, chapter)
+                    .visit_plan(chapter)
+                    .into_iter()
+                    .filter(|visit| visit.origin == Origin::Ferry)
+                    .map(|visit| visit.budget)
+                    .collect()
+            };
+            let (stormy, quiet) = (ferry(&windy), ferry(&calm));
+            assert!(!stormy.is_empty() && stormy.len() <= quiet.len());
+            let pairs = stormy.iter().zip(&quiet);
+            if windy.region == Region::Oasis {
+                assert!(pairs.clone().all(|(wind, calm)| *wind as u8 >= *calm as u8));
+                assert!(pairs.clone().any(|(wind, calm)| *wind as u8 > *calm as u8));
+                assert!(!stormy.contains(&Price::Fair));
+            } else {
+                assert!(pairs.clone().all(|(wind, calm)| wind == calm));
+            }
+        }
     }
 
     #[test]
