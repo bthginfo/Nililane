@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Build, Good, Island, Level, NILI_CAPACITY, Property, Terrain,
+    Build, Good, Island, Level, Property, Terrain,
     logistics::{Cargo, Haul},
     simulation::load_goods,
     terrain::HALL_DOOR,
@@ -141,7 +141,7 @@ impl Island {
         if self.has_cargo() {
             return None;
         }
-        let load = self.take_site_supply(lot, NILI_CAPACITY)?;
+        let load = self.take_site_supply(lot, self.capacity())?;
         self.cargo = Some(load);
         self.building_load = Some(lot);
         Some(load)

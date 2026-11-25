@@ -1,9 +1,11 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::{Good, Island, Level, Task, Terrain, terrain::HALL_DOOR};
+use super::{Build, Good, Island, Level, Task, Terrain, terrain::HALL_DOOR};
+use crate::model::Kind;
 
 pub const NILI_CAPACITY: u16 = 10;
+const MAX_CAPACITY: u16 = 20;
 const CITIZEN_CAPACITY: u16 = 6;
 pub const RESOURCE_REACH: f32 = 2.05;
 
@@ -257,11 +259,25 @@ impl Island {
         {
             return 0;
         }
+        let capacity = self.capacity();
         match self.cargo {
-            None => NILI_CAPACITY,
-            Some(load) if load.kind == kind => NILI_CAPACITY.saturating_sub(load.units),
+            None => capacity,
+            Some(load) if load.kind == kind => capacity.saturating_sub(load.units),
             Some(_) => 0,
         }
+    }
+
+    /// Nili carries more once the island has a storehouse with carrying frames.
+    pub fn capacity(&self) -> u16 {
+        let best = self
+            .lots
+            .iter()
+            .flatten()
+            .filter(|property| property.kind == Build::Harbor(Kind::Storehouse))
+            .map(|property| u16::from(property.tier))
+            .max()
+            .unwrap_or(0);
+        (NILI_CAPACITY + 2 * best).min(MAX_CAPACITY)
     }
 
     pub(super) fn drop_load(&mut self, pile: DroppedLoad) {

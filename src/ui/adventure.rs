@@ -2,8 +2,8 @@ use super::*;
 use crate::{
     adventure::{
         Adventure, Build, BuildingSite, Command, EncounterStatus, Event, Export, Good,
-        HALL_STORAGE, IMPORT_PRICE, IMPORT_UNITS, Island, Level, MAX_BUILD_CREW, NILI_CAPACITY,
-        PLAN_PRICE, Quest, Screen, Target, Task, Terrain, monument_name,
+        HALL_STORAGE, IMPORT_PRICE, IMPORT_UNITS, Island, Level, MAX_BUILD_CREW, PLAN_PRICE, Quest,
+        Screen, Target, Task, Terrain, monument_name,
     },
     campaign::{CORE_HARBORS, Region},
     world::StreetCamera,
@@ -633,7 +633,7 @@ fn walk(
                             "{} {}/{}",
                             load.kind.name(level.region),
                             load.units,
-                            NILI_CAPACITY
+                            island.capacity()
                         ),
                         18.0,
                         Face::Bold,

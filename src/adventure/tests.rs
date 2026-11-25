@@ -278,7 +278,7 @@ impl Expedition {
         }
         if Good::RAW.contains(&good) {
             while self.island.amount(good) < target {
-                while self.island.free_storage() < NILI_CAPACITY {
+                while self.island.free_storage() < self.island.capacity() {
                     let surplus = Good::ALL
                         .into_iter()
                         .filter(|&kind| {
@@ -932,7 +932,7 @@ fn nili_finishes_the_work_animation_then_unloads_once() {
     }
     let island = adventure.active().unwrap();
     assert_eq!(island.amount(Good::Wood), 0);
-    assert_eq!(island.cargo.unwrap().units, NILI_CAPACITY);
+    assert_eq!(island.cargo.unwrap().units, logistics::NILI_CAPACITY);
     assert!(adventure.target_position(target).is_none());
     act(
         Command::Use(Target::Hall),
@@ -957,7 +957,7 @@ fn nili_finishes_the_work_animation_then_unloads_once() {
     assert!(adventure.active().unwrap().cargo.is_none());
     assert_eq!(
         adventure.active().unwrap().amount(Good::Wood),
-        NILI_CAPACITY
+        logistics::NILI_CAPACITY
     );
 }
 

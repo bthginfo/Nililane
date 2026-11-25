@@ -23,7 +23,7 @@ use crate::{
 pub(crate) use construction::{BuildingSite, MAX_BUILD_CREW};
 pub(crate) use encounters::{Event, Status as EncounterStatus};
 pub(crate) use levels::{LEVELS, Level};
-pub(crate) use logistics::{DroppedLoad, NILI_CAPACITY, RESOURCE_REACH};
+pub(crate) use logistics::{DroppedLoad, RESOURCE_REACH};
 pub(crate) use port_trade::{Export, IMPORT_PRICE, IMPORT_UNITS, PLAN_PRICE, monument_name};
 pub(crate) use simulation::{Build, Good, HALL_STORAGE, Island, Property, Quest, Task};
 pub(crate) use terrain::Terrain;
