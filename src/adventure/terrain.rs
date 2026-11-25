@@ -5,6 +5,7 @@ use super::{
     Good, Level, Property,
     encounters::SLOTS,
     simulation::{Deposit, Scenery},
+    twists::{FERTILE_SOIL, ORE_VEIN, RICH_WOODS, Twist},
 };
 
 pub const HALL_DOOR: Vec2 = Vec2::new(0.0, 3.2);
@@ -175,8 +176,32 @@ impl Terrain {
             })
             .unwrap_or(Vec2::new(radius * 0.57, 1.0));
         map.fill_resources();
+        map.enrich();
         map.place_encounters();
         map
+    }
+
+    /// Makes nodes richer where the island's twist says so.
+    fn enrich(&mut self) {
+        match self.level.twist() {
+            Some(Twist::FertileSoil) => {
+                for deposit in self.deposits.iter_mut().filter(|d| d.kind == Good::Food) {
+                    deposit.extra = (deposit.base_units() * FERTILE_SOIL).div_ceil(100);
+                }
+            }
+            Some(Twist::OreVein) => {
+                let center = self.zone(Good::Ore).center;
+                if let Some(vein) = self
+                    .deposits
+                    .iter_mut()
+                    .filter(|d| d.kind == Good::Ore)
+                    .min_by(|a, b| a.at.distance(center).total_cmp(&b.at.distance(center)))
+                {
+                    vein.extra = ORE_VEIN;
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Turns the hills and the shrine together around the island and varies the hills a
@@ -334,20 +359,43 @@ impl Terrain {
                 .filter(|deposit| deposit.kind == zone.kind)
                 .count();
             for serial in present..desired {
-                let key = seed + (zone.kind as u32 + 1) * 72_901 + serial as u32 * 1_013;
-                let Some((at, variation)) = self.zone_site(zone, key) else {
+                if !self.plant(zone, seed, serial) {
                     break;
-                };
-                let scenery = matches!(zone.kind, Good::Wood | Good::Stone).then(|| Scenery {
-                    seed: variation,
-                    size: 0.70 + unit(variation + 81) * 0.96,
-                });
-                self.deposits.push(Deposit {
-                    scenery,
-                    ..Deposit::new(zone.kind, at)
-                });
+                }
             }
         }
+        // Extra trees go to the end of the list, so the nodes above keep their order.
+        if self.level.has_twist(Twist::RichWoods) {
+            let zone = self.zone(Good::Wood);
+            let planted = self
+                .deposits
+                .iter()
+                .filter(|d| d.kind == Good::Wood)
+                .count();
+            let more = planted * usize::from(RICH_WOODS) / 100;
+            for serial in planted..planted + more {
+                if !self.plant(zone, seed, serial) {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Adds the node number `serial` of a district; false when the district is full.
+    fn plant(&mut self, zone: ResourceZone, seed: u32, serial: usize) -> bool {
+        let key = seed + (zone.kind as u32 + 1) * 72_901 + serial as u32 * 1_013;
+        let Some((at, variation)) = self.zone_site(zone, key) else {
+            return false;
+        };
+        let scenery = matches!(zone.kind, Good::Wood | Good::Stone).then(|| Scenery {
+            seed: variation,
+            size: 0.70 + unit(variation + 81) * 0.96,
+        });
+        self.deposits.push(Deposit {
+            scenery,
+            ..Deposit::new(zone.kind, at)
+        });
+        true
     }
 
     /// Direction and distance of each raw material district, in [`Good::RAW`] order.

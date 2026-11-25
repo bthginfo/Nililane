@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{Good, Island, Level};
+use super::{Good, Island, Level, Twist};
 
 pub const SLOTS: usize = 3;
 
@@ -388,6 +388,10 @@ impl Level {
                 (Tools, count + 2),
             ),
         };
+        let mut reward = reward;
+        if event == Festival && self.has_twist(Twist::FestiveMood) {
+            reward.1 += reward.1.div_ceil(2);
+        }
         Some(Encounter {
             event,
             title,

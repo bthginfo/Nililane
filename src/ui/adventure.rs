@@ -33,6 +33,7 @@ pub(super) fn draw(root: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, a: &
                 level.region.icon(),
                 |p| {
                     label(p, hud, level.theme, 21.0, Face::Body, SAND);
+                    twist_note(p, hud, level, 18.0);
                     let (art, hint) = match level.stage {
                         1 => (
                             "storehouse",
@@ -403,6 +404,9 @@ fn atlas(root: &mut ChildSpawnerCommands, hud: &Hud, a: &Adventure) {
                     picture(c, hud, &cover, Val::Percent(100.0), Val::Px(103.0));
                     label(c, hud, level.name, 25.0, Face::Serif, SAND);
                     label(c, hud, level.theme, 16.0, Face::Body, MUTED);
+                    if let Some(twist) = level.twist() {
+                        panels::metric(c, hud, twist.icon(), twist.name());
+                    }
                     c.spawn(row(13.0)).with_children(|m| {
                         panels::metric(m, hud, "hammer", format!("{} Bauplätze", level.plots()));
                         panels::metric(m, hud, "check", format!("{complete} / {CORE_HARBORS}"));
@@ -2047,6 +2051,12 @@ fn map(
                             pins.push((Target::Deposit(id), terrain.deposits[id].at));
                         }
                     }
+                    if let Some(vein) = (0..terrain.deposits.len()).find(|&id| {
+                        terrain.deposits[id].rich() && island.remaining(terrain, id) > 0
+                    }) && !pins.contains(&(Target::Deposit(vein), terrain.deposits[vein].at))
+                    {
+                        pins.push((Target::Deposit(vein), terrain.deposits[vein].at));
+                    }
                     pins.extend(island.dropped.iter().enumerate().filter_map(|(id, pile)| {
                         Some((
                             Target::Dropped(id),
@@ -2135,6 +2145,7 @@ fn map(
                         });
                     }
                     line(c, LINE);
+                    twist_note(c, hud, level, 16.0);
                     label(
                         c,
                         hud,
@@ -3262,6 +3273,7 @@ fn finish(
                     }
                 });
             }
+            twist_note(p, hud, level, 17.0);
             if let Some(next) = next {
                 let destination = if next.region != level.region {
                     format!("{} · {}", next.region.name(), next.name)
@@ -3425,6 +3437,33 @@ fn goal(
     });
 }
 
+/// The island's twist as one short line with its name.
+fn twist_note(p: &mut ChildSpawnerCommands, hud: &Hud, level: Level, size: f32) {
+    let Some(twist) = level.twist() else {
+        return;
+    };
+    p.spawn(row(8.0)).with_children(|r| {
+        icon(r, hud, twist.icon(), size + 9.0);
+        r.spawn(Node {
+            flex_grow: 1.0,
+            flex_shrink: 1.0,
+            min_width: Val::Px(0.0),
+            ..column(0.0)
+        })
+        .with_children(|c| {
+            label(c, hud, twist.name(), size, Face::Bold, GOLD);
+            label(
+                c,
+                hud,
+                twist.line(level.region),
+                size - 1.0,
+                Face::Body,
+                SAND,
+            );
+        });
+    });
+}
+
 fn stock(p: &mut ChildSpawnerCommands, hud: &Hud, good: Good, n: u16, region: Region) {
     p.spawn(row(3.0)).with_children(|r| {
         icon(r, hud, good.icon(region), 25.0);
@@ -3576,6 +3615,7 @@ fn target_name(target: Target, a: &Adventure) -> &'static str {
     let terrain = a.terrain.as_ref().unwrap();
     match target {
         Target::TradeHarbor => "Handelshafen",
+        Target::Deposit(id) if terrain.deposits[id].rich() => "Erzader",
         Target::Deposit(id) => terrain.deposits[id].kind.name(terrain.level.region),
         Target::Dropped(id) => a
             .active()

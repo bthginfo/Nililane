@@ -6,6 +6,7 @@ use super::encounters::Encounters;
 use super::levels::{Level, Requirement};
 use super::logistics::{Cargo, Courier, DroppedLoad, Haul};
 use super::port_trade::{Market, monument_name};
+use super::twists::{BUSY_HANDS, Twist};
 use crate::{
     campaign::{CHAPTERS, REGION_SIZE, Region},
     model::Kind,
@@ -482,6 +483,8 @@ pub struct Deposit {
     pub kind: Good,
     pub at: Vec2,
     pub scenery: Option<Scenery>,
+    /// Units on top of the usual amount, from the island's twist.
+    pub extra: u16,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -496,10 +499,12 @@ impl Deposit {
             kind,
             at,
             scenery: None,
+            extra: 0,
         }
     }
 
-    pub fn units(self) -> u16 {
+    /// The usual amount of this node, before any twist.
+    pub fn base_units(self) -> u16 {
         if let Some(scenery) = self.scenery {
             let amount = match self.kind {
                 Good::Wood => 7,
@@ -513,6 +518,15 @@ impl Deposit {
             Good::Clay => 18,
             _ => 10,
         }
+    }
+
+    pub fn units(self) -> u16 {
+        self.base_units() + self.extra
+    }
+
+    /// A node the island's twist made much larger than usual, like a rich ore vein.
+    pub fn rich(self) -> bool {
+        self.extra >= self.base_units()
     }
 }
 
@@ -1006,7 +1020,12 @@ impl Island {
         }
         let crew = self.assignment(Task::Produce(lot)).max(1);
         let civic = self.monument_bonus(map, lot);
-        let duration = seconds / ((1.0 + 0.48 * (crew - 1) as f32) * (1.0 + civic));
+        let hands = if map.level.has_twist(Twist::BusyHands) {
+            BUSY_HANDS
+        } else {
+            1.0
+        };
+        let duration = seconds / ((1.0 + 0.48 * (crew - 1) as f32) * (1.0 + civic) * hands);
         self.batches[lot] = Some(Production {
             output: Cargo { kind, units },
             duration,

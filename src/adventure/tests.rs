@@ -1952,3 +1952,70 @@ fn a_saved_island_keeps_its_node_counts_and_frees_anyone_standing_in_a_node() {
     assert_eq!(island.remaining[stone], 0);
     assert!(island.amount(Good::Stone) >= 3);
 }
+
+#[test]
+fn island_twists_vary_skip_first_islands_and_do_what_they_promise() {
+    use super::twists::{BUSY_HANDS, FAIR_WIND};
+    let mut seen = std::collections::HashSet::new();
+    for index in 0..LEVELS {
+        let level = Level::at(index);
+        let map = Terrain::new(level);
+        let twist = level.twist();
+        assert_eq!(twist.is_none(), level.stage == 0, "{}", level.name);
+        let rich: Vec<_> = map.deposits.iter().filter(|d| d.rich()).collect();
+        let Some(twist) = twist else {
+            assert!(map.deposits.iter().all(|d| d.extra == 0));
+            continue;
+        };
+        seen.insert(twist);
+        assert!(!twist.line(level.region).is_empty() && !twist.name().is_empty());
+        if level.stage > 1 {
+            assert_ne!(Level::at(index - 1).twist(), Some(twist), "{}", level.name);
+        }
+        assert_eq!(
+            rich.len(),
+            usize::from(twist == Twist::OreVein),
+            "{}",
+            level.name
+        );
+        match twist {
+            Twist::RichWoods => {
+                let trees = map.deposits.iter().filter(|d| d.kind == Good::Wood).count();
+                assert!(trees * 10 >= (24 + level.stage * 4) * 12, "{}", level.name);
+            }
+            Twist::OreVein => assert_eq!(rich[0].kind, Good::Ore),
+            Twist::FertileSoil => assert!(
+                map.deposits
+                    .iter()
+                    .filter(|d| d.kind == Good::Food)
+                    .all(|d| d.units() > d.base_units())
+            ),
+            Twist::FairWind => {
+                let offer = level.export(Export::Regular).unwrap();
+                assert!((offer.seconds - 21.0 * FAIR_WIND).abs() < 1e-3);
+            }
+            Twist::FestiveMood => {
+                let festival = (0..6)
+                    .filter_map(|round| level.encounter_in(0, round))
+                    .find(|spec| spec.event == Event::Festival)
+                    .unwrap();
+                let usual = 5 + level.stage as u16 / 3;
+                assert_eq!(festival.reward.1, usual + usual.div_ceil(2));
+            }
+            Twist::BusyHands => {
+                let mut island = Island::new(level);
+                island.lots[0] = Some(Property {
+                    kind: Build::Sawmill,
+                    tier: 1,
+                });
+                island.add(Good::Wood, 2);
+                island.add(Good::Food, 1);
+                assert!(island.start_production(&map, 0));
+                let usual = Build::Sawmill.recipe(1, level.region).unwrap().seconds;
+                let duration = island.batch(0).unwrap().duration;
+                assert!((duration - usual / BUSY_HANDS).abs() < 1e-3);
+            }
+        }
+    }
+    assert_eq!(seen.len(), Twist::ALL.len(), "{seen:?}");
+}

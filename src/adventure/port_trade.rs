@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::campaign::Region;
 
 use super::logistics::Cargo;
+use super::twists::{FAIR_WIND, Twist};
 use super::{Good, Island, Level};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,12 +77,17 @@ impl Level {
             Region::Nordic => (Cloth, Craft),
             Region::Oasis => (Perfume, Craft),
         };
+        let wind = if self.has_twist(Twist::FairWind) {
+            FAIR_WIND
+        } else {
+            1.0
+        };
         Some(match quality {
             Export::Regular => Offer {
                 good: regular,
                 units: 6,
                 marks: 4,
-                seconds: 21.0,
+                seconds: 21.0 * wind,
             },
             Export::Artisan => Offer {
                 good: if self.work_order().is_some() {
@@ -91,7 +97,7 @@ impl Level {
                 },
                 units: 4,
                 marks: 6,
-                seconds: 27.0,
+                seconds: 27.0 * wind,
             },
         })
     }
