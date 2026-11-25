@@ -134,6 +134,7 @@ pub fn run() {
                     world::animate_pets,
                     world::glow::animate,
                     world::critters::animate,
+                    world::animate_confetti,
                     world::haze,
                 )
                     .chain(),

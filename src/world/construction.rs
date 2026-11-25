@@ -25,6 +25,29 @@ pub enum Part {
 }
 
 pub const CONFETTI: usize = 28;
+
+/// A confetti piece over a finished adventure building; `when` is the game clock
+/// at which the building was completed.
+#[derive(Component)]
+pub(crate) struct Confetti {
+    pub(crate) piece: usize,
+    pub(crate) when: f32,
+}
+
+pub(crate) fn animate_confetti(
+    game: Res<Game>,
+    mut pieces: Query<(&Confetti, &mut Transform, &mut Visibility)>,
+) {
+    for (confetti, mut piece, mut visibility) in &mut pieces {
+        let age = game.clock - confetti.when - 0.62;
+        if let Some(pose) = confetti_pose(confetti.piece, age) {
+            *piece = pose;
+            *visibility = Visibility::Inherited;
+        } else if *visibility != Visibility::Hidden {
+            *visibility = Visibility::Hidden;
+        }
+    }
+}
 const CONFETTI_LIFE: f32 = 0.95;
 
 fn confetti_piece(tint: Tint) -> Mesh {

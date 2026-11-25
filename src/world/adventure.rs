@@ -93,12 +93,6 @@ pub(crate) struct BuildLift {
     base: f32,
 }
 
-#[derive(Component)]
-pub(crate) struct Confetti {
-    piece: usize,
-    when: f32,
-}
-
 #[derive(Resource, Default)]
 pub(crate) struct Scene {
     chapter: Option<usize>,
@@ -627,7 +621,7 @@ pub(crate) fn sync(
                                 for piece in 0..super::construction::CONFETTI {
                                     let parts = &art.work.confetti;
                                     spot.spawn((
-                                        Confetti { piece, when },
+                                        super::construction::Confetti { piece, when },
                                         Mesh3d(parts[piece % parts.len()].clone()),
                                         MeshMaterial3d(art.matte.clone()),
                                         Transform::default(),
@@ -1054,7 +1048,6 @@ pub(crate) fn animate(
     art: Res<Art>,
     mut waters: ResMut<Assets<super::water::Water>>,
     mut civic_glow: Query<&mut super::glow::Halo, With<CivicGlow>>,
-    mut confetti: Query<(&Confetti, &mut Transform, &mut Visibility), Without<Sun>>,
     mut scene: ParamSet<(
         Query<(&mut Transform, &mut Projection), (With<StreetCamera>, Without<Sun>)>,
         Query<&mut Transform, (With<Hippo>, Without<Sun>)>,
@@ -1281,15 +1274,6 @@ pub(crate) fn animate(
     for (entity, pose) in poses {
         if let Ok(mut transform) = scene.p7().get_mut(entity) {
             *transform = pose;
-        }
-    }
-    for (confetti, mut piece, mut visibility) in &mut confetti {
-        let age = game.clock - confetti.when - 0.62;
-        if let Some(pose) = super::construction::confetti_pose(confetti.piece, age) {
-            *piece = pose;
-            *visibility = Visibility::Inherited;
-        } else if *visibility != Visibility::Hidden {
-            *visibility = Visibility::Hidden;
         }
     }
     for (lift, mut building) in &mut scene.p6() {

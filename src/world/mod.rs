@@ -637,6 +637,7 @@ fn model(region: Region, kind: Kind, level: u8) -> Mesh {
 }
 
 pub use construction::animate as animate_construction;
+pub(crate) use construction::animate_confetti;
 
 /// Keeps the haze in the colour of the sky behind the scene.
 pub(crate) fn haze(clear: Res<ClearColor>, mut fog: Query<&mut bevy::pbr::DistanceFog>) {
