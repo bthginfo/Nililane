@@ -12,6 +12,8 @@ use crate::{
 };
 
 pub const HALL_STORAGE: u16 = 72;
+/// Extra work per second while Nili helps on a site or in a workshop.
+pub const HELP_BONUS: f32 = 0.55;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Good {
@@ -1013,6 +1015,44 @@ impl Island {
             paused: false,
         });
         true
+    }
+
+    /// True while a batch runs that Nili can speed up by working along.
+    pub fn can_help(&self, lot: usize) -> bool {
+        self.batch(lot)
+            .is_some_and(|batch| batch.working() && batch.fishing.is_none())
+    }
+
+    /// Nili works along at a running batch, like the build help at a construction site.
+    pub fn help_production(&mut self, lot: usize, dt: f32) -> bool {
+        if !self.can_help(lot) {
+            return false;
+        }
+        let Some(Some(batch)) = self.batches.get_mut(lot) else {
+            return false;
+        };
+        batch.left = (batch.left - dt * HELP_BONUS).max(0.0);
+        true
+    }
+
+    /// True when `lot` is one of the last free coastal plots and a fishery still needs one.
+    pub fn coast_needed(&self, level: Level, lot: usize) -> bool {
+        let fishery = Build::Harbor(Kind::Fishery);
+        if !level.coastal(lot) || !Build::all(level).contains(&fishery) {
+            return false;
+        }
+        let has_fishery = self.lots.iter().flatten().any(|p| p.kind == fishery)
+            || self
+                .construction
+                .iter()
+                .flatten()
+                .any(|site| site.property.kind == fishery);
+        let free_coast = (0..self.lots.len())
+            .filter(|&other| {
+                level.coastal(other) && self.lots[other].is_none() && self.site(other).is_none()
+            })
+            .count();
+        !has_fishery && free_coast <= 2
     }
 
     pub fn monument_bonus(&self, map: &super::Terrain, lot: usize) -> f32 {

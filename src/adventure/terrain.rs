@@ -417,13 +417,32 @@ impl Terrain {
         offset.abs().cmple(Self::FOOTPRINT).all()
     }
 
-    pub fn just_outside(offset: Vec2) -> Vec2 {
-        let clearance = Self::FOOTPRINT - offset.abs();
-        if clearance.x < clearance.y {
-            Vec2::new((Self::FOOTPRINT.x + 0.07).copysign(offset.x), offset.y)
-        } else {
-            Vec2::new(offset.x, (Self::FOOTPRINT.y + 0.07).copysign(offset.y))
-        }
+    /// The nearest walkable spot outside the footprint of the building on `plot`.
+    pub fn way_out(&self, plot: Vec2, at: Vec2, lots: &[Option<Property>]) -> Vec2 {
+        let offset = at - plot;
+        let mut exits: Vec<Vec2> = [0.07, 0.5, 1.2]
+            .into_iter()
+            .flat_map(|margin| {
+                let edge = Self::FOOTPRINT + margin;
+                let near = edge * Vec2::new(1.0f32.copysign(offset.x), 1.0f32.copysign(offset.y));
+                [
+                    Vec2::new(near.x, offset.y),
+                    Vec2::new(offset.x, near.y),
+                    Vec2::new(-near.x, offset.y),
+                    Vec2::new(offset.x, -near.y),
+                    near,
+                    Vec2::new(-near.x, near.y),
+                    Vec2::new(near.x, -near.y),
+                    -near,
+                ]
+            })
+            .map(|exit| plot + exit)
+            .collect();
+        exits.sort_by(|a, b| a.distance_squared(at).total_cmp(&b.distance_squared(at)));
+        exits
+            .into_iter()
+            .find(|&exit| self.walkable(exit, lots))
+            .unwrap_or(HALL_DOOR)
     }
 
     pub fn walkable(&self, at: Vec2, lots: &[Option<Property>]) -> bool {

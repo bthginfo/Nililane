@@ -2,9 +2,9 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Build, Good, Island, Level, NILI_CAPACITY, Property, Terrain,
+    Build, Good, Island, Level, Property, Terrain,
     logistics::{Cargo, Haul},
-    simulation::load_goods,
+    simulation::{HELP_BONUS, load_goods},
     terrain::HALL_DOOR,
 };
 
@@ -141,7 +141,7 @@ impl Island {
         if self.has_cargo() {
             return None;
         }
-        let load = self.take_site_supply(lot, NILI_CAPACITY)?;
+        let load = self.take_site_supply(lot, self.capacity())?;
         self.cargo = Some(load);
         self.building_load = Some(lot);
         Some(load)
@@ -196,6 +196,40 @@ impl Island {
             builder.walk.reset_site(None);
         }
         true
+    }
+
+    /// Moves walkers, dropped loads and Nili out of a finished building, so nobody is
+    /// trapped inside walls that went up around them.
+    pub(super) fn evict(&mut self, map: &Terrain, lot: usize) {
+        let Some(&plot) = map.plots.get(lot) else {
+            return;
+        };
+        if self.lots.get(lot).copied().flatten().is_none() {
+            return;
+        }
+        let lots = self.lots.clone();
+        let exit = |at: [f32; 2]| {
+            let at = Vec2::from_array(at);
+            Terrain::inside_building(at - plot).then(|| map.way_out(plot, at, &lots))
+        };
+        for walk in self
+            .hauls
+            .iter_mut()
+            .chain(self.builders.iter_mut().map(|builder| &mut builder.walk))
+            .chain(self.courier.iter_mut().map(|courier| &mut courier.walk))
+        {
+            if let Some(at) = exit(walk.position) {
+                walk.relocate(at);
+            }
+        }
+        for pile in self.dropped.iter_mut().flatten() {
+            if let Some(at) = exit(pile.position) {
+                pile.position = at.to_array();
+            }
+        }
+        if let Some(at) = exit(self.position) {
+            self.position = at.to_array();
+        }
     }
 
     pub(super) fn prepare_construction(&mut self, map: &Terrain) {
@@ -256,10 +290,11 @@ impl Island {
                 + usize::from(nili == Some(lot));
             if ready && working > 0 {
                 let site = self.construction[lot].as_mut().unwrap();
-                site.work += dt * (1.0 + 0.55 * (working - 1) as f32);
+                site.work += dt * (1.0 + HELP_BONUS * (working - 1) as f32);
                 if site.work >= site.seconds() {
                     self.lots[lot] = Some(site.property);
                     self.construction[lot] = None;
+                    self.evict(map, lot);
                     completed.push(lot);
                     changed = true;
                     continue;

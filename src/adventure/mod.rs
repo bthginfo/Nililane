@@ -1,3 +1,4 @@
+mod advice;
 mod construction;
 mod encounters;
 mod levels;
@@ -20,10 +21,11 @@ use crate::{
     ui::{self, Hud},
 };
 
+pub(crate) use advice::Advice;
 pub(crate) use construction::{BuildingSite, MAX_BUILD_CREW};
 pub(crate) use encounters::{Event, Status as EncounterStatus};
 pub(crate) use levels::{LEVELS, Level};
-pub(crate) use logistics::{DroppedLoad, NILI_CAPACITY, RESOURCE_REACH};
+pub(crate) use logistics::{DroppedLoad, RESOURCE_REACH};
 pub(crate) use port_trade::{Export, IMPORT_PRICE, IMPORT_UNITS, PLAN_PRICE, monument_name};
 pub(crate) use simulation::{Build, Good, HALL_STORAGE, Island, Property, Quest, Task};
 pub(crate) use terrain::Terrain;
@@ -149,7 +151,12 @@ pub struct Adventure {
     pointer: Option<ui::WalkPointer>,
     supply_for: Option<usize>,
     pub moved: bool,
+    milestones: Option<Milestones>,
+    /// Islands the campaign save remembers as finished, one bit each.
+    cleared: std::sync::atomic::AtomicU64,
 }
+
+const _: () = assert!(LEVELS <= 64);
 
 #[derive(Clone, Copy)]
 pub struct Harvest {
@@ -158,40 +165,103 @@ pub struct Harvest {
     pub duration: f32,
 }
 
-impl Default for Adventure {
-    fn default() -> Self {
-        let path = crate::save::path().with_file_name("nililane-abenteuer-v1.json");
-        let mut book = fs::File::open(path)
-            .ok()
-            .and_then(|file| serde_json::from_reader::<_, Book>(file).ok())
-            .filter(|book| book.version == 1)
-            .unwrap_or_default();
-        book.islands.resize(LEVELS, None);
-        for (index, stored) in book.islands.iter_mut().enumerate() {
+const BOOK_FILE: &str = "nililane-abenteuer-v1.json";
+
+fn book_path() -> std::path::PathBuf {
+    crate::save::path().with_file_name(BOOK_FILE)
+}
+
+impl Book {
+    /// Reads every island on its own, so one damaged entry cannot reset the whole campaign.
+    /// The flag reports whether anything had to be thrown away.
+    fn parse(bytes: &[u8]) -> (Self, bool) {
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+            return (Self::default(), true);
+        };
+        if value.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
+            return (Self::default(), true);
+        }
+        let mut book = Self {
+            last: value
+                .get("last")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|last| usize::try_from(last).ok()),
+            ..Self::default()
+        };
+        let Some(entries) = value.get("islands").and_then(serde_json::Value::as_array) else {
+            return (book, true);
+        };
+        let mut damaged = false;
+        for (index, entry) in entries.iter().enumerate() {
+            if entry.is_null() {
+                continue;
+            }
+            match Island::deserialize(entry) {
+                Ok(island) if index < LEVELS => book.islands[index] = Some(island),
+                _ => damaged = true,
+            }
+        }
+        damaged |= book.repair();
+        (book, damaged)
+    }
+
+    /// Fixes what can be fixed and drops islands that no longer fit their map.
+    fn repair(&mut self) -> bool {
+        let mut damaged = false;
+        self.islands.resize(LEVELS, None);
+        for (index, stored) in self.islands.iter_mut().enumerate() {
             let Some(island) = stored else { continue };
             let level = Level::at(index);
             let terrain = Terrain::new(level);
             if island.index != index
                 || !(level.inland_plots()..=level.plots()).contains(&island.lots.len())
-                || !terrain.accessible(Vec2::from_array(island.position))
-                || !island.phase.is_finite()
                 || island.lots.iter().flatten().any(|property| {
                     !(1..=crate::model::MAX_LEVEL).contains(&property.tier)
                         || !Build::all(level).contains(&property.kind)
                 })
             {
                 *stored = None;
-            } else {
-                island.lots.resize(level.plots(), None);
-                let max = usize::from(island.staff());
-                island.validate_workers(&terrain, max);
-                island.prepare_logistics(&terrain);
-                island.prepare_production(&terrain);
+                damaged = true;
+                continue;
+            }
+            if !terrain.accessible(Vec2::from_array(island.position)) {
+                island.position = terrain::HALL_DOOR.to_array();
+            }
+            if !island.phase.is_finite() {
+                island.phase = 0.36;
+            }
+            island.lots.resize(level.plots(), None);
+            let max = usize::from(island.staff());
+            island.validate_workers(&terrain, max);
+            island.prepare_logistics(&terrain);
+            island.prepare_production(&terrain);
+        }
+        self.last = self
+            .last
+            .filter(|&i| i < LEVELS && self.islands[i].is_some());
+        damaged
+    }
+
+    fn load(path: &std::path::Path) -> Self {
+        let Ok(bytes) = fs::read(path) else {
+            return Self::default();
+        };
+        let (book, damaged) = Self::parse(&bytes);
+        if damaged {
+            // Keep the unreadable original, the next save would overwrite it.
+            let backup = path.with_extension("bak");
+            match fs::write(&backup, &bytes) {
+                Ok(()) => warn!("Nililane Abenteuer: beschädigte Inseln, Kopie in {backup:?}"),
+                Err(error) => warn!("Nililane Abenteuer: {error}"),
             }
         }
-        book.last = book
-            .last
-            .filter(|&i| i < LEVELS && book.islands[i].is_some());
+        book
+    }
+}
+
+impl Default for Adventure {
+    fn default() -> Self {
+        let book = Book::load(&book_path());
         let selected = book.last.unwrap_or(0);
         Self {
             book,
@@ -216,6 +286,8 @@ impl Default for Adventure {
             pointer: None,
             supply_for: None,
             moved: false,
+            milestones: None,
+            cleared: Default::default(),
         }
     }
 }
@@ -252,7 +324,12 @@ impl Adventure {
     }
 
     pub fn unlocked(&self, index: usize) -> bool {
-        index < LEVELS && (index == 0 || self.completed(index - 1))
+        index < LEVELS && (index == 0 || self.completed(index - 1) || self.rewarded(index - 1))
+    }
+
+    fn rewarded(&self, index: usize) -> bool {
+        let cleared = self.cleared.load(std::sync::atomic::Ordering::Relaxed);
+        index < LEVELS && cleared & (1 << index) != 0
     }
 
     pub fn practice(&self) -> bool {
@@ -282,6 +359,7 @@ impl Adventure {
         self.harvesting = None;
         self.building = None;
         self.supply_for = None;
+        self.milestones = None;
         self.scene_changes.clear();
         self.walkthrough = level.stage == 0 || practice;
     }
@@ -292,7 +370,7 @@ impl Adventure {
             return;
         }
         let result = (|| -> io::Result<()> {
-            let path = crate::save::path().with_file_name("nililane-abenteuer-v1.json");
+            let path = book_path();
             if let Some(dir) = path.parent() {
                 fs::create_dir_all(dir)?;
             }
@@ -308,6 +386,8 @@ impl Adventure {
         }
     }
 
+    /// Syncs finished islands both ways: stars for islands finished in the book, and
+    /// unlocked successors for islands the campaign remembers even if their save got lost.
     pub fn restore_rewards(&self, campaign: &mut Campaign) -> bool {
         let mut changed = false;
         for (index, island) in self.book.islands.iter().enumerate() {
@@ -315,6 +395,17 @@ impl Adventure {
                 changed |= campaign.reward_adventure(index);
             }
         }
+        let rewarded = serde_json::to_value(&*campaign)
+            .ok()
+            .and_then(|save| save.get("adventures").cloned())
+            .and_then(|list| serde_json::from_value::<Vec<usize>>(list).ok())
+            .unwrap_or_default();
+        let mask = rewarded
+            .into_iter()
+            .filter(|&index| index < LEVELS)
+            .fold(0u64, |mask, index| mask | 1 << index);
+        self.cleared
+            .fetch_or(mask, std::sync::atomic::Ordering::Relaxed);
         changed
     }
 
@@ -340,7 +431,7 @@ impl Adventure {
             }
             Target::EncounterSource(slot) => {
                 let island = self.active()?;
-                let spec = terrain.level.encounter(slot)?;
+                let spec = island.encounter(terrain.level, slot)?;
                 if island.encounters.visits[slot].status != EncounterStatus::Seeking {
                     return None;
                 }
@@ -359,6 +450,10 @@ impl Adventure {
             Target::Relic => Some(terrain.relic),
             Target::Outpost => (terrain.level.order_count() > 0).then_some(terrain.outpost),
         }
+    }
+
+    pub fn encounter_spec(&self, slot: usize) -> Option<encounters::Encounter> {
+        self.active()?.encounter(self.terrain.as_ref()?.level, slot)
     }
 
     pub fn encounter_well(&self, slot: usize) -> Option<usize> {
@@ -448,7 +543,7 @@ impl Adventure {
         let island = self.active()?;
         if let Some(preferred) = self
             .waypoint
-            .or_else(|| self.tutorial().map(|(_, _, target)| target))
+            .or_else(|| self.walkthrough_step().map(|(_, _, target)| target))
             && self.close_enough(preferred)
         {
             return Some(preferred);
@@ -524,7 +619,29 @@ impl Adventure {
         })
     }
 
-    pub fn tutorial(&self) -> Option<(&'static str, &'static str, Target)> {
+    /// What the HUD suggests next: the walkthrough on the first island, then the advice.
+    /// The flag is true for walkthrough steps.
+    pub fn guide(&self) -> Option<(Advice, bool)> {
+        if let Some((icon, text, target)) = self.walkthrough_step() {
+            return Some((
+                Advice {
+                    icon,
+                    text: text.to_owned(),
+                    target: Some(target),
+                },
+                true,
+            ));
+        }
+        self.advice().map(|advice| (advice, false))
+    }
+
+    /// The guided target with its hint, used for markers and the route button.
+    pub fn tutorial(&self) -> Option<(&'static str, String, Target)> {
+        let (advice, _) = self.guide()?;
+        Some((advice.icon, advice.text, advice.target?))
+    }
+
+    fn walkthrough_step(&self) -> Option<(&'static str, &'static str, Target)> {
         let terrain = self.terrain.as_ref()?;
         let island = self.active()?;
         if terrain.level.stage != 0 || !self.walkthrough || island.completed {
@@ -1073,6 +1190,10 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
                     close(game, adventure, Screen::Walk);
                     game.adventure_notice("Lieferung angekommen", true);
                 }
+                Target::Plot(lot) if island.can_help(lot) => {
+                    lend_a_hand(adventure, game, lot, true);
+                    return;
+                }
                 Target::Hall | Target::Plot(_) | Target::Outpost => {
                     act(Command::Inspect(target), adventure, game, save);
                     return;
@@ -1255,7 +1376,7 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
                 && let Some(property) = island.lots[lot].take()
             {
                 if matches!(property.kind, Build::Harbor(kind) if crate::model::Building::new(kind).residents() > 0)
-                    && island.workers.len() > usize::from(island.staff())
+                    && island.assigned_staff() > usize::from(island.staff())
                 {
                     island.lots[lot] = Some(property);
                     game.adventure_notice(
@@ -1320,6 +1441,15 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
                 }
             }
         }
+        Command::Work(lot)
+            if adventure
+                .active()
+                .is_some_and(|island| island.can_help(lot)) =>
+        {
+            if adventure.close_enough(Target::Plot(lot)) {
+                lend_a_hand(adventure, game, lot, false);
+            }
+        }
         Command::Work(lot) => {
             if adventure.close_enough(Target::Plot(lot))
                 && adventure.hand_clock <= 0.0
@@ -1337,6 +1467,21 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
         }
     }
     check_victory(adventure, game, save);
+}
+
+/// Starts Nili's help at a running workshop batch, or stops it when `toggle` is set.
+fn lend_a_hand(adventure: &mut Adventure, game: &mut Game, lot: usize, toggle: bool) {
+    let Some((terrain, island)) = adventure.terrain.as_ref().zip(adventure.active()) else {
+        return;
+    };
+    let at = terrain.plots[lot] - Vec2::from_array(island.position);
+    adventure.heading = at.x.atan2(at.y);
+    let helping = adventure.building == Some(lot);
+    adventure.building = (!helping || !toggle).then_some(lot);
+    close(game, adventure, Screen::Walk);
+    if !helping && adventure.building.is_some() {
+        game.adventure_notice("Nili hilft mit. Der Arbeitsgang läuft schneller.", true);
+    }
 }
 
 fn trade_action(command: Command, adventure: &mut Adventure, game: &mut Game) {
@@ -1392,7 +1537,7 @@ fn help_encounter(target: Target, adventure: &mut Adventure, game: &mut Game, sa
         return;
     };
     let level = Level::at(island.index);
-    let Some(spec) = level.encounter(slot) else {
+    let Some(spec) = island.encounter(level, slot) else {
         return;
     };
     let status = island.encounters.visits[slot].status;
@@ -1493,6 +1638,117 @@ fn check_victory(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign
             game.adventure_complete();
         }
     }
+    celebrate(adventure, game);
+}
+
+/// What the player has reached so far, compared between updates to cheer for progress.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Milestones {
+    reached: u32,
+    rows: u32,
+    staff: u16,
+    capacity: u16,
+    reserve_left: u16,
+}
+
+impl Milestones {
+    fn of(island: &Island, level: Level) -> Self {
+        let (stock, count) = level.reserve();
+        let rows = milestone_rows(island, level).count();
+        Self {
+            reached: milestone_rows(island, level)
+                .enumerate()
+                .filter(|(_, (_, done))| *done)
+                .fold(0, |mask, (row, _)| mask | 1 << row),
+            rows: (1 << rows) - 1,
+            staff: island.staff(),
+            capacity: island.capacity(),
+            reserve_left: count.saturating_sub(island.amount(stock)),
+        }
+    }
+}
+
+/// Every goal row except the reserve, which rises and falls with production.
+fn milestone_rows(island: &Island, level: Level) -> impl Iterator<Item = (String, bool)> + '_ {
+    let region = level.region;
+    level
+        .goals()
+        .map(move |goal| {
+            let name = goal.kind.name(region);
+            let title = if goal.tier > 1 {
+                format!("{name} Stufe {}", goal.tier)
+            } else {
+                name.to_owned()
+            };
+            (title, island.progress(goal) >= goal.count)
+        })
+        .chain(level.plan().map(|_| {
+            (
+                "Bauplan gefunden".to_owned(),
+                island.quest == Quest::Finished,
+            )
+        }))
+        .chain((level.order_count() > 0).then(|| {
+            (
+                "Alle Lieferungen".to_owned(),
+                island.orders_delivered >= level.order_count(),
+            )
+        }))
+}
+
+fn celebrate(adventure: &mut Adventure, game: &mut Game) {
+    let Some((terrain, island)) = adventure.terrain.as_ref().zip(adventure.active()) else {
+        return;
+    };
+    let level = terrain.level;
+    let now = Milestones::of(island, level);
+    let was = adventure.milestones;
+    if was == Some(now) {
+        return;
+    }
+    let cheers = was
+        .filter(|_| !island.completed)
+        .map(|was| cheers(island, level, was, now))
+        .unwrap_or_default();
+    adventure.milestones = Some(now);
+    for cheer in cheers {
+        game.adventure_toast(cheer, true);
+    }
+}
+
+fn cheers(island: &Island, level: Level, was: Milestones, now: Milestones) -> Vec<String> {
+    let mut cheers = Vec::new();
+    let fresh = now.reached & !was.reached;
+    if fresh != 0 {
+        let (met, total) = island.milestones(level);
+        let reached = milestone_rows(island, level)
+            .enumerate()
+            .filter(|(row, _)| fresh & (1 << row) != 0)
+            .map(|(_, (title, _))| title)
+            .last()
+            .unwrap_or_default();
+        cheers.push(format!("Inselziel {met}/{total} · {reached}"));
+    }
+    if now.staff > was.staff {
+        let new = now.staff - was.staff;
+        let verb = if new == 1 { "zieht" } else { "ziehen" };
+        cheers.push(format!("+{new} Bürger {verb} ein"));
+    }
+    if now.capacity > was.capacity {
+        cheers.push(format!("Nili trägt jetzt bis zu {} Waren", now.capacity));
+    }
+    let (stock, count) = level.reserve();
+    // Count down the stock goal once it is the last thing missing.
+    if now.reserve_left < was.reserve_left && now.reached == now.rows {
+        let name = stock.name(level.region);
+        let crossed = |mark: u16| was.reserve_left > mark && now.reserve_left <= mark;
+        if now.reserve_left == 0 {
+            cheers.push(format!("Vorrat komplett · {count} {name}"));
+        } else if crossed(count / 2) || crossed(count / 4) || crossed(5) {
+            cheers.push(format!("Nur noch {} {name}", now.reserve_left));
+        }
+    }
+    cheers
 }
 
 pub(crate) fn first(a: &Adventure) -> Option<Action> {
@@ -1800,26 +2056,44 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
     let before = island.stores;
     if let Some(harvest) = harvested {
         game.dirty = true;
-        if let Some(load) = island.carry_resource(terrain, harvest.site) {
+        let kind = terrain.deposits[harvest.site].kind;
+        let here = Vec2::from_array(island.position);
+        // A citizen may have emptied the node meanwhile; the next one in reach will do.
+        let site = Some(harvest.site)
+            .filter(|&site| island.remaining(terrain, site) > 0)
+            .or_else(|| {
+                island
+                    .available_near(terrain, kind, here)
+                    .filter(|&id| terrain.deposits[id].at.distance(here) <= RESOURCE_REACH + 0.9)
+            });
+        if let Some(load) = site.and_then(|site| island.carry_resource(terrain, site)) {
+            let carried = island.cargo.map_or(load.units, |cargo| cargo.units);
+            let room = island.room_for(kind);
+            let name = kind.name(terrain.level.region);
             let building = (0..island.lots.len()).find(|&lot| {
                 island
                     .site(lot)
                     .is_some_and(|site| site.missing(load.kind) > 0)
             });
-            adventure.waypoint = Some(building.map_or(Target::Hall, Target::Plot));
-            let destination = if building.is_some() {
-                "zur Baustelle"
+            let site_covered = building
+                .and_then(|lot| island.site(lot))
+                .is_some_and(|site| site.missing(kind) <= carried);
+            let more = (room > 0 && !site_covered)
+                .then(|| island.available_near(terrain, kind, here))
+                .flatten()
+                .filter(|&id| terrain.deposits[id].at.distance(here) <= 8.0);
+            if let Some(next) = more {
+                adventure.waypoint = Some(Target::Deposit(next));
+                game.adventure_notice(format!("{carried} {name} · Platz für {room}"), true);
             } else {
-                "zum Rathaus"
-            };
-            game.adventure_notice(
-                format!(
-                    "{} {} geladen · {destination}",
-                    load.units,
-                    load.kind.name(terrain.level.region)
-                ),
-                true,
-            );
+                adventure.waypoint = Some(building.map_or(Target::Hall, Target::Plot));
+                let destination = if building.is_some() {
+                    "zur Baustelle"
+                } else {
+                    "zum Rathaus"
+                };
+                game.adventure_notice(format!("{carried} {name} geladen · {destination}"), true);
+            }
         } else {
             adventure.waypoint = None;
             game.adventure_notice("Diese Rohstoffstelle ist erschöpft.", false);
@@ -1828,6 +2102,7 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
     let outside_before = island.overflow_total();
     game.dirty |= island.tick_hauling(terrain, dt);
     let overflowed = island.overflow_total() > outside_before;
+    let helping = building.is_some_and(|lot| island.help_production(lot, dt));
     game.dirty |= island.tick_production(terrain, dt);
     let delivered_before = island.orders_delivered;
     let courier_changed = island.tick_courier(terrain, dt);
@@ -1846,17 +2121,24 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
         game.dirty = true;
         game.adventure_notice("Die markierte Rohstoffstelle ist erschöpft.", false);
     }
+    if let Some(lot) = adventure.building
+        && island.site(lot).is_none()
+        && !island.can_help(lot)
+        && !(helping
+            && island.assignment(Task::Produce(lot)) > 0
+            && island
+                .recipe_for(terrain.level, lot)
+                .is_some_and(|recipe| island.ready(&recipe.need)))
+    {
+        adventure.building = None;
+        game.dirty = true;
+    }
     if let Some(&last) = completed.last() {
         let now = game.clock;
         adventure
             .scene_changes
             .retain(|&(_, start)| now - start < 1.3);
         for &lot in &completed {
-            let plot = terrain.plots[lot];
-            let offset = Vec2::from_array(island.position) - plot;
-            if Terrain::inside_building(offset) {
-                island.position = (plot + Terrain::just_outside(offset)).to_array();
-            }
             if adventure.building == Some(lot) {
                 adventure.building = None;
             }
@@ -1874,13 +2156,29 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
         game.adventure_toast(
             format!(
                 "Neue Begegnung · {}",
-                terrain.level.encounter(slot).unwrap().title
+                island.encounter(terrain.level, slot).unwrap().title
             ),
             true,
         );
     }
+    for &slot in &encounter_changes.burned_out {
+        let spec = island.encounter(terrain.level, slot).unwrap();
+        game.adventure_toast(
+            format!(
+                "{} · Das Feuer ist von selbst erloschen. Kein Lohn.",
+                spec.title
+            ),
+            false,
+        );
+        if matches!(
+            adventure.waypoint,
+            Some(Target::Encounter(id) | Target::EncounterSource(id)) if id == slot
+        ) {
+            adventure.waypoint = None;
+        }
+    }
     for &slot in &encounter_changes.finished {
-        let spec = terrain.level.encounter(slot).unwrap();
+        let spec = island.encounter(terrain.level, slot).unwrap();
         game.adventure_toast(
             format!(
                 "{} erledigt · +{} {}",
@@ -1899,7 +2197,8 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
     }
     let market_or_encounters_changed = market_credit.is_some()
         || !encounter_changes.offered.is_empty()
-        || !encounter_changes.finished.is_empty();
+        || !encounter_changes.finished.is_empty()
+        || !encounter_changes.burned_out.is_empty();
     game.dirty |= market_or_encounters_changed;
     if before != island.stores || delivered || !completed.is_empty() {
         game.dirty = true;

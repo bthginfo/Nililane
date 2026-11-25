@@ -377,7 +377,7 @@ pub(crate) fn sync(
             .spawn((Transform::default(), Visibility::Inherited))
             .with_children(|top| {
                 for slot in 0..map.level.encounter_count() {
-                    let spec = map.level.encounter(slot).unwrap();
+                    let spec = island.encounter(map.level, slot).unwrap();
                     let status = island.encounters.visits[slot].status;
                     if status == EncounterStatus::Hidden {
                         continue;
@@ -598,7 +598,7 @@ pub(crate) fn animate(
             if island.encounters.visits[slot].status == EncounterStatus::Working {
                 1.0 - island
                     .encounters
-                    .progress(slot, map.level.encounter(slot).unwrap())
+                    .progress(slot, island.encounter(map.level, slot).unwrap())
             } else {
                 1.0
             }
@@ -642,7 +642,7 @@ pub(crate) fn animate(
             Motion::Frame { slot } => {
                 let lift = island
                     .encounters
-                    .progress(slot, map.level.encounter(slot).unwrap());
+                    .progress(slot, island.encounter(map.level, slot).unwrap());
                 t.scale = v(1.0, lift.max(0.05), 1.0);
             }
         }

@@ -84,7 +84,16 @@ pub enum Status {
 pub struct Visit {
     pub status: Status,
     pub since: f32,
+    /// Counts how often this place had a visitor; each round brings another event.
+    #[serde(default)]
+    pub round: u8,
 }
+
+/// A finished place gets a new visitor after this many seconds.
+const REARM_SECONDS: f32 = 240.0;
+/// A fire nobody answers goes out on its own after this many seconds.
+const BURN_SECONDS: f32 = 150.0;
+const FIRST_VISIT: [f32; SLOTS] = [24.0, 88.0, 156.0];
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Encounters {
@@ -103,6 +112,7 @@ impl Encounters {
         self.visits[slot] = Visit {
             status,
             since: self.elapsed,
+            round: self.visits[slot].round,
         };
     }
 
@@ -115,9 +125,15 @@ impl Encounters {
 pub struct Changes {
     pub offered: Vec<usize>,
     pub finished: Vec<usize>,
+    pub burned_out: Vec<usize>,
 }
 
 impl Island {
+    /// The event currently waiting at `slot`, which changes from round to round.
+    pub fn encounter(&self, level: Level, slot: usize) -> Option<Encounter> {
+        level.encounter_in(slot, self.encounters.visits.get(slot)?.round)
+    }
+
     pub fn update_encounters(&mut self, level: Level, dt: f32) -> Changes {
         let mut changes = Changes::default();
         if level.encounter_count() == 0 {
@@ -125,22 +141,48 @@ impl Island {
         }
         self.encounters.elapsed += dt;
         let built = self.lots.iter().flatten().count();
-        for slot in 0..level.encounter_count() {
-            let spec = level.encounter(slot).unwrap();
+        let goals = level.goals().count();
+        let met = level
+            .goals()
+            .filter(|goal| self.progress(*goal) >= goal.count)
+            .count();
+        for (slot, first) in FIRST_VISIT
+            .into_iter()
+            .enumerate()
+            .take(level.encounter_count())
+        {
+            let spec = self.encounter(level, slot).unwrap();
             let visit = self.encounters.visits[slot];
+            let waited = self.encounters.elapsed - visit.since;
             match visit.status {
+                // Later visitors wait until the island has grown: slot k needs k/3 of the goals.
                 Status::Hidden
-                    if built >= [1, 3, 5][slot]
-                        && self.encounters.elapsed
-                            >= [24.0, 88.0, 156.0][slot] + level.stage as f32 * 2.0 =>
+                    if built >= 1
+                        && met * SLOTS >= goals * slot
+                        && self.encounters.elapsed >= first + level.stage as f32 * 2.0 =>
                 {
                     self.encounters.changed(slot, Status::Offered);
                     changes.offered.push(slot);
+                }
+                Status::Offered | Status::Seeking
+                    if spec.event == Event::Fire && waited >= BURN_SECONDS =>
+                {
+                    self.encounters.changed(slot, Status::Finished);
+                    changes.burned_out.push(slot);
                 }
                 Status::Working if self.encounters.progress(slot, spec) >= 1.0 => {
                     self.encounters.changed(slot, Status::Finished);
                     self.add(spec.reward.0, spec.reward.1);
                     changes.finished.push(slot);
+                }
+                Status::Finished if waited >= REARM_SECONDS => {
+                    let round = self.next_round(level, slot);
+                    self.encounters.visits[slot] = Visit {
+                        status: Status::Offered,
+                        since: self.encounters.elapsed,
+                        round,
+                    };
+                    changes.offered.push(slot);
                 }
                 _ => {}
             }
@@ -148,8 +190,26 @@ impl Island {
         changes
     }
 
+    /// The next round whose event differs from the last one here and from the other places.
+    fn next_round(&self, level: Level, slot: usize) -> u8 {
+        let previous = self.encounter(level, slot).map(|spec| spec.event);
+        let others: Vec<_> = (0..level.encounter_count())
+            .filter(|&other| other != slot)
+            .filter_map(|other| self.encounter(level, other).map(|spec| spec.event))
+            .collect();
+        let round = self.encounters.visits[slot].round;
+        (1..=6)
+            .map(|step| round.wrapping_add(step))
+            .find(|&next| {
+                level.encounter_in(slot, next).is_some_and(|spec| {
+                    Some(spec.event) != previous && !others.contains(&spec.event)
+                })
+            })
+            .unwrap_or(round.wrapping_add(1))
+    }
+
     pub fn encounter_pickup(&mut self, level: Level, slot: usize) -> bool {
-        let Some(spec) = level.encounter(slot) else {
+        let Some(spec) = self.encounter(level, slot) else {
             return false;
         };
         if self.encounters.visits[slot].status != Status::Seeking || self.has_cargo() {
@@ -169,7 +229,7 @@ impl Island {
         let Some(slot) = self.encounters.carrying() else {
             return false;
         };
-        if let Some((good, count)) = level.encounter(slot).and_then(|spec| spec.cargo) {
+        if let Some((good, count)) = self.encounter(level, slot).and_then(|spec| spec.cargo) {
             if good.uses_storage() && count > self.free_storage() {
                 return false;
             }
@@ -190,15 +250,21 @@ impl Level {
         }
     }
 
+    /// The first visitor at `slot`; later rounds come from [`Island::encounter`].
+    #[cfg(test)]
     pub fn encounter(self, slot: usize) -> Option<Encounter> {
+        self.encounter_in(slot, 0)
+    }
+
+    pub fn encounter_in(self, slot: usize, round: u8) -> Option<Encounter> {
         use Event::*;
         use Good::*;
         if slot >= self.encounter_count() {
             return None;
         }
         let region = self.region as usize;
-        let event =
-            [Arrival, Festival, Fire, Fever, Ruin, Relic][(self.stage + region * 2 + slot * 2) % 6];
+        let event = [Arrival, Festival, Fire, Fever, Ruin, Relic]
+            [(self.stage + region * 2 + slot * 2 + usize::from(round)) % 6];
         let count = 4 + (self.stage / 3) as u16;
         let (title, author, request, cargo, reward) = match event {
             Arrival => (
