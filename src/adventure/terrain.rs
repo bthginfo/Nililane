@@ -228,11 +228,14 @@ impl Terrain {
             self.shrine = rotation.rotate(classic.1);
             self.relic = self.hills[0].0;
             let clear = |at: Vec2, gap: f32| self.plots.iter().all(|p| p.distance(at) > gap);
+            // No hill may rise into the settlement or crowd its edge.
+            let hills_clear = self.hills.iter().all(|hill| clear(hill.0, hill.2 + 4.0));
             if self.shore(self.shrine) > 4.0
                 && clear(self.shrine, 6.0)
                 && self.shore(self.relic) > 5.0
                 && clear(self.relic, 6.0)
                 && self.height(self.relic) > 3.8
+                && hills_clear
             {
                 return;
             }

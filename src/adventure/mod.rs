@@ -175,7 +175,7 @@ pub struct Harvest {
 
 const BOOK_FILE: &str = "nililane-abenteuer-v1.json";
 /// The beat between the completion fanfare and the summary.
-const FINALE_SECONDS: f32 = 1.7;
+pub(crate) const FINALE_SECONDS: f32 = 1.7;
 
 fn book_path() -> std::path::PathBuf {
     crate::save::path().with_file_name(BOOK_FILE)

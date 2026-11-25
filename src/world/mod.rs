@@ -6,9 +6,10 @@ pub(crate) use activity::{
     Scene as ActivityScene, animate as animate_activity, sync as activity_scene,
 };
 pub(crate) use adventure::{
-    Scene as AdventureScene, animate as adventure_animate, fishing_visuals as adventure_fishing,
-    logistics_visuals as adventure_logistics, merchant_visuals as adventure_merchant,
-    position as adventure_position, sync as adventure_scene,
+    Scene as AdventureScene, animate as adventure_animate, fireworks as adventure_fireworks,
+    fishing_visuals as adventure_fishing, logistics_visuals as adventure_logistics,
+    merchant_visuals as adventure_merchant, position as adventure_position,
+    sync as adventure_scene,
 };
 mod architecture;
 mod buildings;

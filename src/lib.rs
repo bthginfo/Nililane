@@ -135,6 +135,7 @@ pub fn run() {
                     world::glow::animate,
                     world::critters::animate,
                     world::animate_confetti,
+                    world::adventure_fireworks,
                     world::haze,
                 )
                     .chain(),

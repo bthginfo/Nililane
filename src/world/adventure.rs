@@ -55,6 +55,37 @@ pub(crate) struct CivicLight;
 #[derive(Component)]
 pub(crate) struct CivicGlow;
 
+/// Confetti that bursts over the council hall when the island is won.
+#[derive(Component)]
+pub(crate) struct Fireworks {
+    burst: usize,
+    piece: usize,
+    at: Vec3,
+}
+
+pub(crate) fn fireworks(
+    adventure: Res<Adventure>,
+    mut pieces: Query<(&Fireworks, &mut Transform, &mut Visibility)>,
+) {
+    // The finale counts down from its full length while the fanfare plays.
+    let elapsed = adventure
+        .finale
+        .map(|left| crate::adventure::FINALE_SECONDS - left);
+    for (spark, mut transform, mut visibility) in &mut pieces {
+        let pose = elapsed.and_then(|age| {
+            super::construction::confetti_pose(spark.piece, (age - spark.burst as f32 * 0.38) * 0.9)
+        });
+        if let Some(pose) = pose {
+            *transform = pose;
+            transform.translation = spark.at + pose.translation * 1.7;
+            transform.scale *= 1.6;
+            *visibility = Visibility::Inherited;
+        } else if *visibility != Visibility::Hidden {
+            *visibility = Visibility::Hidden;
+        }
+    }
+}
+
 #[derive(Component)]
 pub(crate) struct ResourceModel {
     site: usize,
@@ -250,6 +281,25 @@ pub(crate) fn sync(
                         },
                         Transform::from_xyz(0.0, terrain.height(Vec2::ZERO) + 1.6, 1.8),
                     ));
+                    let hall_top = v(0.0, terrain.height(Vec2::ZERO) + 2.6, 0.0);
+                    for burst in 0..3 {
+                        for piece in 0..super::construction::CONFETTI {
+                            let parts = &art.work.confetti;
+                            root.spawn((
+                                Fireworks {
+                                    burst,
+                                    piece,
+                                    at: hall_top
+                                        + v((burst as f32 - 1.0) * 1.6, burst as f32 * 0.4, 0.0),
+                                },
+                                Mesh3d(parts[(piece + burst) % parts.len()].clone()),
+                                MeshMaterial3d(art.matte.clone()),
+                                Transform::from_translation(hall_top),
+                                Visibility::Hidden,
+                                NotShadowCaster,
+                            ));
+                        }
+                    }
                     for (x, size) in [(-0.95, 2.2), (0.95, 2.2), (0.0, 3.6)] {
                         let at = v(x, terrain.height(Vec2::ZERO) + 1.35, 1.95);
                         root.spawn((CivicGlow, super::glow::halo(&art.glow, at, size, x * 3.0)));
@@ -320,14 +370,25 @@ pub(crate) fn sync(
                             Good::Ore => Some(("resource_crystal", 0.71)),
                             _ => None,
                         };
+                        let rich = deposit.rich();
                         model.with_children(|model| {
                             if let Some((filename, scale)) = source {
                                 let path = format!("embedded://models/waldwinkel/{filename}.glb");
+                                // A rich vein is a bigger mound that catches the light.
+                                let scale = if rich { scale * 1.45 } else { scale };
                                 model.spawn((
                                     SceneRoot(
                                         assets.load(GltfAssetLabel::Scene(0).from_asset(path)),
                                     ),
                                     Transform::from_scale(Vec3::splat(scale)),
+                                ));
+                            }
+                            if rich {
+                                model.spawn(super::glow::halo(
+                                    &art.glow,
+                                    v(0.0, 0.75, 0.0),
+                                    1.5,
+                                    site as f32,
                                 ));
                             }
                             model.spawn((
