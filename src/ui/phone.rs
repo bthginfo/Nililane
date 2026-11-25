@@ -512,6 +512,11 @@ pub(super) fn expedition(
             28.0,
         );
         label(r, hud, level.name, 24.0, Face::Serif, SAND);
+        if !island.completed {
+            let (met, total) = island.milestones(level);
+            icon(r, hud, "book", 22.0);
+            label(r, hud, format!("{met}/{total}"), 19.0, Face::Bold, GOLD);
+        }
     });
     pocket(p, hud, game, false, |menu| {
         let (command, title, art) = if island.completed {

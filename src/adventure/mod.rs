@@ -1,3 +1,4 @@
+mod advice;
 mod construction;
 mod encounters;
 mod levels;
@@ -20,6 +21,7 @@ use crate::{
     ui::{self, Hud},
 };
 
+pub(crate) use advice::Advice;
 pub(crate) use construction::{BuildingSite, MAX_BUILD_CREW};
 pub(crate) use encounters::{Event, Status as EncounterStatus};
 pub(crate) use levels::{LEVELS, Level};
@@ -149,6 +151,7 @@ pub struct Adventure {
     pointer: Option<ui::WalkPointer>,
     supply_for: Option<usize>,
     pub moved: bool,
+    milestones: Option<Milestones>,
     /// Islands the campaign save remembers as finished, one bit each.
     cleared: std::sync::atomic::AtomicU64,
 }
@@ -283,6 +286,7 @@ impl Default for Adventure {
             pointer: None,
             supply_for: None,
             moved: false,
+            milestones: None,
             cleared: Default::default(),
         }
     }
@@ -355,6 +359,7 @@ impl Adventure {
         self.harvesting = None;
         self.building = None;
         self.supply_for = None;
+        self.milestones = None;
         self.scene_changes.clear();
         self.walkthrough = level.stage == 0 || practice;
     }
@@ -538,7 +543,7 @@ impl Adventure {
         let island = self.active()?;
         if let Some(preferred) = self
             .waypoint
-            .or_else(|| self.tutorial().map(|(_, _, target)| target))
+            .or_else(|| self.walkthrough_step().map(|(_, _, target)| target))
             && self.close_enough(preferred)
         {
             return Some(preferred);
@@ -614,7 +619,29 @@ impl Adventure {
         })
     }
 
-    pub fn tutorial(&self) -> Option<(&'static str, &'static str, Target)> {
+    /// What the HUD suggests next: the walkthrough on the first island, then the advice.
+    /// The flag is true for walkthrough steps.
+    pub fn guide(&self) -> Option<(Advice, bool)> {
+        if let Some((icon, text, target)) = self.walkthrough_step() {
+            return Some((
+                Advice {
+                    icon,
+                    text: text.to_owned(),
+                    target: Some(target),
+                },
+                true,
+            ));
+        }
+        self.advice().map(|advice| (advice, false))
+    }
+
+    /// The guided target with its hint, used for markers and the route button.
+    pub fn tutorial(&self) -> Option<(&'static str, String, Target)> {
+        let (advice, _) = self.guide()?;
+        Some((advice.icon, advice.text, advice.target?))
+    }
+
+    fn walkthrough_step(&self) -> Option<(&'static str, &'static str, Target)> {
         let terrain = self.terrain.as_ref()?;
         let island = self.active()?;
         if terrain.level.stage != 0 || !self.walkthrough || island.completed {
@@ -1611,6 +1638,117 @@ fn check_victory(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign
             game.adventure_complete();
         }
     }
+    celebrate(adventure, game);
+}
+
+/// What the player has reached so far, compared between updates to cheer for progress.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Milestones {
+    reached: u32,
+    rows: u32,
+    staff: u16,
+    capacity: u16,
+    reserve_left: u16,
+}
+
+impl Milestones {
+    fn of(island: &Island, level: Level) -> Self {
+        let (stock, count) = level.reserve();
+        let rows = milestone_rows(island, level).count();
+        Self {
+            reached: milestone_rows(island, level)
+                .enumerate()
+                .filter(|(_, (_, done))| *done)
+                .fold(0, |mask, (row, _)| mask | 1 << row),
+            rows: (1 << rows) - 1,
+            staff: island.staff(),
+            capacity: island.capacity(),
+            reserve_left: count.saturating_sub(island.amount(stock)),
+        }
+    }
+}
+
+/// Every goal row except the reserve, which rises and falls with production.
+fn milestone_rows(island: &Island, level: Level) -> impl Iterator<Item = (String, bool)> + '_ {
+    let region = level.region;
+    level
+        .goals()
+        .map(move |goal| {
+            let name = goal.kind.name(region);
+            let title = if goal.tier > 1 {
+                format!("{name} Stufe {}", goal.tier)
+            } else {
+                name.to_owned()
+            };
+            (title, island.progress(goal) >= goal.count)
+        })
+        .chain(level.plan().map(|_| {
+            (
+                "Bauplan gefunden".to_owned(),
+                island.quest == Quest::Finished,
+            )
+        }))
+        .chain((level.order_count() > 0).then(|| {
+            (
+                "Alle Lieferungen".to_owned(),
+                island.orders_delivered >= level.order_count(),
+            )
+        }))
+}
+
+fn celebrate(adventure: &mut Adventure, game: &mut Game) {
+    let Some((terrain, island)) = adventure.terrain.as_ref().zip(adventure.active()) else {
+        return;
+    };
+    let level = terrain.level;
+    let now = Milestones::of(island, level);
+    let was = adventure.milestones;
+    if was == Some(now) {
+        return;
+    }
+    let cheers = was
+        .filter(|_| !island.completed)
+        .map(|was| cheers(island, level, was, now))
+        .unwrap_or_default();
+    adventure.milestones = Some(now);
+    for cheer in cheers {
+        game.adventure_toast(cheer, true);
+    }
+}
+
+fn cheers(island: &Island, level: Level, was: Milestones, now: Milestones) -> Vec<String> {
+    let mut cheers = Vec::new();
+    let fresh = now.reached & !was.reached;
+    if fresh != 0 {
+        let (met, total) = island.milestones(level);
+        let reached = milestone_rows(island, level)
+            .enumerate()
+            .filter(|(row, _)| fresh & (1 << row) != 0)
+            .map(|(_, (title, _))| title)
+            .last()
+            .unwrap_or_default();
+        cheers.push(format!("Inselziel {met}/{total} · {reached}"));
+    }
+    if now.staff > was.staff {
+        let new = now.staff - was.staff;
+        let verb = if new == 1 { "zieht" } else { "ziehen" };
+        cheers.push(format!("+{new} Bürger {verb} ein"));
+    }
+    if now.capacity > was.capacity {
+        cheers.push(format!("Nili trägt jetzt bis zu {} Waren", now.capacity));
+    }
+    let (stock, count) = level.reserve();
+    // Count down the stock goal once it is the last thing missing.
+    if now.reserve_left < was.reserve_left && now.reached == now.rows {
+        let name = stock.name(level.region);
+        let crossed = |mark: u16| was.reserve_left > mark && now.reserve_left <= mark;
+        if now.reserve_left == 0 {
+            cheers.push(format!("Vorrat komplett · {count} {name}"));
+        } else if crossed(count / 2) || crossed(count / 4) || crossed(5) {
+            cheers.push(format!("Nur noch {} {name}", now.reserve_left));
+        }
+    }
+    cheers
 }
 
 pub(crate) fn first(a: &Adventure) -> Option<Action> {

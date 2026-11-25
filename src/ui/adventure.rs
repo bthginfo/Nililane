@@ -504,12 +504,16 @@ fn walk(
                 panels::metric(r, hud, "adventure_labor", free_staff(island));
             });
             p.spawn(row(11.0)).with_children(|r| {
-                for good in [Good::Wood, Good::Stone, Good::Food, Good::Boards] {
-                    stock(r, hud, good, island.amount(good), level.region);
-                }
-                if level.stage >= 1 {
-                    for good in [Good::Clay, Good::Water, Good::Bricks] {
-                        stock(r, hud, good, island.amount(good), level.region);
+                let (reserve, count) = level.reserve();
+                for good in island.watched_goods(level) {
+                    let n = island.amount(good);
+                    if good == reserve && n < count {
+                        r.spawn(row(3.0)).with_children(|cell| {
+                            icon(cell, hud, good.icon(level.region), 25.0);
+                            label(cell, hud, format!("{n}/{count}"), 19.0, Face::Bold, GOLD);
+                        });
+                    } else {
+                        stock(r, hud, good, n, level.region);
                     }
                 }
             });
@@ -547,34 +551,72 @@ fn walk(
             }
         });
     }
-    if let Some((art, hint, target)) = a.tutorial() {
-        let mut tip = frame_node(Val::Px(if hud.phone { 352.0 } else { 404.0 }), 5.0, 10.0);
+    if let Some((guide, walkthrough)) = a.guide() {
+        let mut tip = frame_node(
+            Val::Px(if hud.phone { 352.0 } else { 404.0 }),
+            if walkthrough { 5.0 } else { 3.0 },
+            if walkthrough { 10.0 } else { 8.0 },
+        );
         tip.position_type = PositionType::Absolute;
         tip.left = Val::Px(16.0);
         tip.top = Val::Px(if hud.phone { 73.0 } else { 116.0 });
         card(root, tip, INK).with_children(|c| {
-            c.spawn(row(9.0)).with_children(|r| {
-                icon(r, hud, art, 38.0);
-                r.spawn(column(1.0)).with_children(|c| {
-                    label(c, hud, hint, 18.0, Face::Bold, SAND);
-                    if !hud.phone
-                        && island.lots.iter().all(Option::is_none)
-                        && island.amount(Good::Wood) == 0
-                    {
+            c.spawn(row(if walkthrough { 9.0 } else { 7.0 }))
+                .with_children(|r| {
+                    icon(r, hud, guide.icon, if walkthrough { 38.0 } else { 26.0 });
+                    r.spawn(Node {
+                        flex_grow: 1.0,
+                        flex_shrink: 1.0,
+                        min_width: Val::Px(0.0),
+                        ..column(1.0)
+                    })
+                    .with_children(|c| {
                         label(
                             c,
                             hud,
-                            "Bewegen mit Stick oder Steuerkreuz",
-                            15.0,
-                            Face::Body,
-                            MUTED,
+                            guide.text.clone(),
+                            if walkthrough { 18.0 } else { 16.0 },
+                            Face::Bold,
+                            SAND,
+                        );
+                        if walkthrough
+                            && !hud.phone
+                            && island.lots.iter().all(Option::is_none)
+                            && island.amount(Good::Wood) == 0
+                        {
+                            label(
+                                c,
+                                hud,
+                                "Bewegen mit Stick oder Steuerkreuz",
+                                15.0,
+                                Face::Body,
+                                MUTED,
+                            );
+                        }
+                    });
+                    if !walkthrough
+                        && a.waypoint.is_none()
+                        && let Some(target) = guide.target
+                        && !a.close_enough(target)
+                    {
+                        action(
+                            r,
+                            hud,
+                            Command::SetRoute(target),
+                            "Weg",
+                            "adventure_hill",
+                            "View",
+                            Style::Quiet,
+                            false,
                         );
                     }
                 });
-            });
             if let Some(waypoint) = a.waypoint {
                 route_status(c, hud, a, waypoint);
-            } else if !a.close_enough(target) {
+            } else if walkthrough
+                && let Some(target) = guide.target
+                && !a.close_enough(target)
+            {
                 action(
                     c,
                     hud,
