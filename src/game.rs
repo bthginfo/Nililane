@@ -632,6 +632,7 @@ pub fn frame(
         let available_favor =
             |town: &Town| coach::harbor_favor(town, &CHAPTERS[town.chapter], game.selected);
         let favor_before = phone_tour_list.then(|| save.active_town().and_then(available_favor));
+        let pulse_before = save.active_town().and_then(harbor_pulse);
         let completed_day = save.active_town_mut().is_some_and(|town| {
             town.tick(
                 &CHAPTERS[town.chapter],
@@ -685,8 +686,14 @@ pub fn frame(
             .and_then(|town| town.incident(&CHAPTERS[town.chapter]))
             && incident_before.is_none()
         {
-            game.message(event.event_name(), Cue::Alert);
+            game.message(
+                format!("{} · Schnelle Hilfe lohnt sich", event.event_name()),
+                Cue::Alert,
+            );
             game.dirty = true;
+        }
+        if let (Some(before), Some(town)) = (pulse_before, save.active_town()) {
+            harbor_news(&mut game, town, before);
         }
         if after.is_some() {
             game.checkpoint += real_dt;
@@ -1125,18 +1132,84 @@ fn delivery_notice(game: &mut Game, save: &Campaign, route: Route) {
     });
     if route.favor {
         let town = save.active_town().unwrap();
-        let title = if let Phase::Open(day) = &town.phase {
-            day.favor.resolved_name()
+        let (title, rushed) = if let Phase::Open(day) = &town.phase {
+            (day.favor.resolved_name(), day.favor_rushed)
         } else {
-            "Bitte vom Kai erfüllt"
+            ("Bitte vom Kai erfüllt", false)
         };
         let currency = Region::of(town.chapter).currency();
-        game.message(format!("{title} · +6 {currency} · +2 Ansehen"), Cue::Aid);
+        game.message(
+            if rushed {
+                format!(
+                    "{title} · Schnell geholfen! +{} {currency} · +{} Ansehen",
+                    6 + model::RUSH_COINS,
+                    2 + model::RUSH_RENOWN
+                )
+            } else {
+                format!("{title} · +6 {currency} · +2 Ansehen")
+            },
+            Cue::Aid,
+        );
     } else {
         game.message(route.job.delivered(), Cue::Aid);
     }
     game.dirty = true;
     game.save(save);
+}
+
+/// A snapshot of the running day, compared before and after each simulation step.
+#[derive(Clone, Copy)]
+struct HarborPulse {
+    goals: u64,
+    streak: u16,
+    seconds: f32,
+}
+
+fn harbor_pulse(town: &Town) -> Option<HarborPulse> {
+    let Phase::Open(day) = &town.phase else {
+        return None;
+    };
+    Some(HarborPulse {
+        goals: town.goals_met(&CHAPTERS[town.chapter]),
+        streak: day.streak,
+        seconds: day.seconds,
+    })
+}
+
+/// Toasts for what just happened on the street. The most important news is posted last.
+fn harbor_news(game: &mut Game, town: &Town, before: HarborPulse) {
+    let (Some(after), Phase::Open(day)) = (harbor_pulse(town), &town.phase) else {
+        return;
+    };
+    let chapter = &CHAPTERS[town.chapter];
+    if let Some(gathering) = day.event
+        && before.seconds < gathering.at
+        && after.seconds >= gathering.at
+    {
+        game.message(
+            format!(
+                "{} · Die Gäste sind da",
+                gathering.event.title(chapter.region)
+            ),
+            Cue::Ferry,
+        );
+    }
+    let step = model::STREAK_STEP;
+    if after.streak > before.streak && after.streak / step > before.streak / step {
+        game.message(
+            format!("Serie ×{} · +1 Ansehen", after.streak - after.streak % step),
+            Cue::Aid,
+        );
+    }
+    let finished = after.goals & !before.goals;
+    if let Some((_, goal)) = chapter
+        .objectives(town.chapter)
+        .enumerate()
+        .find(|&(index, _)| finished & 1 << index.min(63) != 0)
+    {
+        game.message(format!("Ziel erreicht: {}", goal.label()), Cue::Earned);
+        game.dirty = true;
+    }
 }
 
 fn day_feedback(town: &Town) -> Option<(f32, u32, u32)> {
@@ -1749,7 +1822,11 @@ pub(crate) fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
         }
         Action::Demolish => game.show(Panel::Demolish),
         Action::Speed => {
-            game.speed = if game.speed == 1 { 2 } else { 1 };
+            game.speed = match game.speed {
+                1 => 2,
+                2 => 4,
+                _ => 1,
+            };
             game.dirty = true;
         }
         edit => {
@@ -1806,6 +1883,17 @@ pub(crate) fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
                         game.loading_cargo = None;
                         if edit == Action::Open {
                             take_control(town, game, false);
+                            if let Some(gathering) = town.day_event(chapter) {
+                                let progress = gathering.at / chapter.day_seconds();
+                                game.message(
+                                    format!(
+                                        "Heute: {} · ab {}",
+                                        gathering.event.title(chapter.region),
+                                        chapter.shift.clock(progress)
+                                    ),
+                                    Cue::Ferry,
+                                );
+                            }
                         } else if town.cargo_today > 0 {
                             game.message(
                                 format!("Der Handel ist zurück · +{} Silber", town.cargo_today),
