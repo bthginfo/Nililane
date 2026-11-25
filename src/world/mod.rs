@@ -15,6 +15,7 @@ mod buildings;
 mod clothes;
 mod construction;
 mod encounter;
+pub(crate) mod glow;
 pub(crate) use encounter::{
     Scene as EncounterScene, animate as animate_encounters, sync as encounter_scene,
 };
@@ -152,12 +153,24 @@ pub fn setup(
     assets: Res<AssetServer>,
     mut bind_poses: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     mut waters: ResMut<Assets<water::Water>>,
+    mut images: ResMut<Assets<Image>>,
 ) {
+    let glow = glow::prepare(&mut meshes, &mut images, &mut materials);
+    commands.insert_resource(glow.clone());
     commands
         .spawn((
             StreetCamera,
             Camera3d::default(),
             Tonemapping::AcesFitted,
+            // A light haze over the far water and islands gives the scene depth.
+            bevy::pbr::DistanceFog {
+                color: Color::srgba(0.47, 0.69, 0.70, 0.0),
+                falloff: bevy::pbr::FogFalloff::Linear {
+                    start: 44.0,
+                    end: 118.0,
+                },
+                ..default()
+            },
             // ACES flattens saturated low-poly colours a little; win them back.
             bevy::render::view::ColorGrading {
                 global: bevy::render::view::ColorGradingGlobal {
@@ -384,6 +397,7 @@ pub fn sync(
     mut props: Query<(Option<&Boat>, Option<&Sail>, &mut Mesh3d), Or<(With<Boat>, With<Sail>)>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut waters: ResMut<Assets<water::Water>>,
+    glow: Res<glow::Glow>,
 ) {
     let town = game.visible_town(&save);
     let ch = &CHAPTERS[town.chapter];
@@ -476,6 +490,7 @@ pub fn sync(
                     &mut meshes,
                     &mut materials,
                     &art.matte,
+                    &glow,
                     ch.layout,
                     region,
                 );
@@ -552,6 +567,12 @@ pub fn sync(
                                     Transform::from_xyz(1.14, 0.064, 1.13),
                                     bevy::pbr::NotShadowCaster,
                                 ));
+                                model.spawn(glow::halo(
+                                    &glow,
+                                    v(1.14, 0.62, 1.24),
+                                    1.5,
+                                    i as f32 * 2.1,
+                                ));
                             }
                             if kind == Kind::Temple {
                                 model.spawn((
@@ -613,6 +634,17 @@ fn model(region: Region, kind: Kind, level: u8) -> Mesh {
 }
 
 pub use construction::animate as animate_construction;
+
+/// Keeps the haze in the colour of the sky behind the scene.
+pub(crate) fn haze(clear: Res<ClearColor>, mut fog: Query<&mut bevy::pbr::DistanceFog>) {
+    let sky = clear.0.to_srgba();
+    for mut fog in &mut fog {
+        let target = sky.with_alpha(0.58);
+        if fog.color.to_srgba() != target {
+            fog.color = target.into();
+        }
+    }
+}
 
 pub(crate) fn animate_bells(game: Res<Game>, mut bells: Query<(&TempleBell, &mut Transform)>) {
     for (bell, mut transform) in &mut bells {

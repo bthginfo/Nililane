@@ -128,6 +128,8 @@ pub fn run() {
                     ui::project_adventure,
                     world::animate_weather,
                     world::animate_pets,
+                    world::glow::animate,
+                    world::haze,
                 )
                     .chain(),
             )

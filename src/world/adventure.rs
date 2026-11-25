@@ -1609,7 +1609,7 @@ fn landscape(terrain: &Terrain, colors: Palette) -> Mesh {
 }
 
 fn sea(terrain: &Terrain) -> Mesh {
-    const CELL: f32 = 3.2;
+    const CELL: f32 = 2.4;
     const SHALLOW: [f32; 3] = [102.0, 198.0, 194.0];
     const DEEP: [f32; 3] = [36.0, 108.0, 142.0];
     let mut b = Batch::default();

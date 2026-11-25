@@ -1,7 +1,9 @@
-use bevy::{pbr::NotShadowCaster, prelude::*};
+use bevy::{pbr::NotShadowCaster, prelude::*, render::mesh::MeshAabb};
 
 use super::{
-    LOT_STEP, landscape,
+    LOT_STEP,
+    glow::{Glow, halo},
+    landscape,
     mesh::{Batch, Tint, v},
 };
 use crate::{campaign::Region, layout::Layout};
@@ -18,6 +20,7 @@ pub(super) fn place(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     matte: &Handle<StandardMaterial>,
+    glow: &Glow,
     layout: Layout,
     region: Region,
 ) {
@@ -27,6 +30,10 @@ pub(super) fn place(
         height,
         warmth,
     } = lamp(region);
+    let flame_centre = flame
+        .compute_aabb()
+        .map_or(Vec3::Y * height, |bounds| Vec3::from(bounds.center));
+    let mut lamps = 0.0;
     let fixture = meshes.add(fixture);
     let flame = meshes.add(flame);
     let light = materials.add(StandardMaterial {
@@ -47,6 +54,8 @@ pub(super) fn place(
                     MeshMaterial3d(light.clone()),
                     NotShadowCaster,
                 ));
+                lamps += 1.37;
+                post.spawn(halo(glow, flame_centre, 1.9, lamps));
                 post.spawn((
                     PointLight {
                         color: warmth,

@@ -498,10 +498,11 @@ pub fn water(columns: usize, region: Region) -> Mesh {
     let mut b = Batch::default();
     let wide = columns as f32 * LOT_STEP * 0.5 + 2.6;
     let mut grain = Grain::new(59);
-    for zi in -23..=22 {
-        for xi in -25..=24 {
-            let z = zi as f32 * 2.8;
-            let x = xi as f32 * 2.8;
+    const CELL: f32 = 2.0;
+    for zi in -32..=31 {
+        for xi in -35..=34 {
+            let z = zi as f32 * CELL;
+            let x = xi as f32 * CELL;
             let depth = ((x.abs() - wide + 1.0).max(0.0) + (z.abs() - 2.8).max(0.0)) / 16.0;
             let depth = depth.clamp(0.0, 1.0);
             let mix = |shallow: f32, deep: f32| (shallow + (deep - shallow) * depth) as u8;
@@ -514,13 +515,13 @@ pub fn water(columns: usize, region: Region) -> Mesh {
             };
             let point = |x, z| v(x, WATER_LEVEL, z);
             let a = point(x, z);
-            let c = point(x + 2.8, z + 2.8);
+            let c = point(x + CELL, z + CELL);
             b.face(
-                &[a, point(x, z + 2.8), c],
+                &[a, point(x, z + CELL), c],
                 shift(tint, grain.span(-3.5, 3.5) as i16),
             );
             b.face(
-                &[a, c, point(x + 2.8, z)],
+                &[a, c, point(x + CELL, z)],
                 shift(tint, grain.span(-3.5, 3.5) as i16),
             );
         }

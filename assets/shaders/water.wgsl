@@ -1,8 +1,8 @@
 // Stylized low-poly sea for Nililane.
 //
-// Every triangle of the sea keeps one animated facet normal (flat interpolation),
-// so the faceted water catches the sun like hammered glass while the surface itself
-// only swells a few centimetres. Sparkles, a soft depth tint from the vertex colours
+// Every triangle of the sea takes its facet normal from an exaggerated copy of the
+// swell (screen-space derivatives of a "relief" height), so the faceted water catches
+// the light like hammered glass while the surface itself only swells a few centimetres. Sparkles, a soft depth tint from the vertex colours
 // and the scene fog finish the look. Works on desktop and on Android Vulkan 1.1.
 
 #import bevy_pbr::{
@@ -38,7 +38,7 @@ struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) world_position: vec3<f32>,
     @location(1) color: vec4<f32>,
-    @location(2) @interpolate(flat) facet: vec3<f32>,
+    @location(2) relief: f32,
 };
 
 fn wave(p: vec2<f32>, t: f32, direction: vec2<f32>, number: f32, speed: f32, height: f32) -> vec3<f32> {
@@ -68,7 +68,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     out.world_position = world;
     out.clip_position = position_world_to_clip(world);
     out.color = vertex.color;
-    out.facet = normalize(vec3<f32>(-s.y * water.motion.x, 1.0, -s.z * water.motion.x));
+    out.relief = s.x * water.motion.x * 1.35;
     return out;
 }
 
@@ -82,7 +82,12 @@ fn hash(p: vec2<f32>) -> f32 {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let n = in.facet;
+    // The relief is linear across each triangle, so its derivatives give one normal per facet.
+    let relief = vec3<f32>(in.world_position.x, in.relief, in.world_position.z);
+    var n = normalize(cross(dpdy(relief), dpdx(relief)));
+    if n.y < 0.0 {
+        n = -n;
+    }
     var to_sun = normalize(vec3<f32>(0.35, 0.80, 0.45));
     var sun_hue = vec3<f32>(1.0);
     if lights.n_directional_lights > 0u {
@@ -98,24 +103,29 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // A sky reflection lifts facets that tilt towards the viewer.
     let fresnel = pow(1.0 - clamp(dot(n, to_eye), 0.0, 1.0), 3.0);
-    color += vec3<f32>(0.10, 0.16, 0.20) * fresnel * water.tint.a;
+    color += vec3<f32>(0.07, 0.11, 0.14) * fresnel * water.tint.a;
 
-    // Sun glitter on the facets that mirror the light into the camera.
-    let half_vector = normalize(to_sun + to_eye);
+    // Glitter: the top-down camera never sees the real sun's mirror image, so only
+    // the facets that tilt towards the sun's side flash, the calm ones stay dark.
+    var sun_side = vec3<f32>(to_sun.x, 0.0, to_sun.z);
+    if dot(sun_side, sun_side) < 1e-4 {
+        sun_side = vec3<f32>(1.0, 0.0, 0.0);
+    }
+    let half_vector = normalize(vec3<f32>(0.0, 1.0, 0.0) + normalize(sun_side) * 0.34);
     let mirror = clamp(dot(n, half_vector), 0.0, 1.0);
-    let glitter = pow(mirror, 140.0) * 1.6 + pow(mirror, 28.0) * 0.12;
+    let glitter = pow(mirror, 220.0) * 0.5 + pow(mirror, 36.0) * 0.05;
     color += water.glint.rgb * sun_hue * glitter * water.glint.a;
 
     // Tiny twinkles that come and go across the surface.
-    let q = in.world_position.xz * 1.45;
+    let q = in.world_position.xz * 0.95;
     let cell = floor(q);
     let seed = hash(cell);
     let offset = vec2<f32>(hash(cell + vec2<f32>(17.0, 3.0)), hash(cell + vec2<f32>(5.0, 29.0)));
     let spot = fract(q) - 0.25 - offset * 0.5;
     let life = fract(globals.time * (0.18 + seed * 0.27) + seed * 11.0);
     let flash = clamp(1.0 - abs(life - 0.5) * 7.0, 0.0, 1.0);
-    let dot_size = 1.0 - smoothstep(0.012, 0.055, length(spot * vec2<f32>(1.0, 1.6)));
-    let sparkle = step(0.62, seed) * flash * dot_size * water.motion.z;
+    let dot_size = 1.0 - smoothstep(0.025, 0.075, length(spot * vec2<f32>(1.0, 1.7)));
+    let sparkle = step(0.55, seed) * flash * dot_size * water.motion.z * 0.85;
     color += water.glint.rgb * sparkle;
 
     color *= water.tint.a;
