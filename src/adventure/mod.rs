@@ -17,7 +17,7 @@ use std::{fs, io};
 use crate::{
     campaign::{CORE_HARBORS, Region},
     controls::{self, Controls},
-    game::{Action, Game, Panel, View},
+    game::{Action, Cue, Game, Panel, View},
     save::Campaign,
     ui::{self, Hud},
 };
@@ -157,6 +157,8 @@ pub struct Adventure {
     pointer: Option<ui::WalkPointer>,
     supply_for: Option<usize>,
     pub moved: bool,
+    /// Seconds until the summary opens after the last island goal was met.
+    pub finale: Option<f32>,
     milestones: Option<Milestones>,
     /// Islands the campaign save remembers as finished, one bit each.
     cleared: std::sync::atomic::AtomicU64,
@@ -172,6 +174,8 @@ pub struct Harvest {
 }
 
 const BOOK_FILE: &str = "nililane-abenteuer-v1.json";
+/// The beat between the completion fanfare and the summary.
+const FINALE_SECONDS: f32 = 1.7;
 
 fn book_path() -> std::path::PathBuf {
     crate::save::path().with_file_name(BOOK_FILE)
@@ -292,6 +296,7 @@ impl Default for Adventure {
             pointer: None,
             supply_for: None,
             moved: false,
+            finale: None,
             milestones: None,
             cleared: Default::default(),
         }
@@ -365,6 +370,7 @@ impl Adventure {
         self.harvesting = None;
         self.building = None;
         self.supply_for = None;
+        self.finale = None;
         self.milestones = None;
         self.scene_changes.clear();
         self.walkthrough = level.stage == 0 || practice;
@@ -914,6 +920,7 @@ fn act(command: Command, adventure: &mut Adventure, game: &mut Game, save: &mut 
         Command::Pause => close(game, adventure, Screen::Pause),
         Command::Summary => {
             if adventure.active().is_some_and(|island| island.completed) {
+                adventure.finale = None;
                 close(game, adventure, Screen::Finish);
             }
         }
@@ -1665,8 +1672,14 @@ fn check_victory(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign
                 save.reward_adventure(level.index);
                 game.save(save);
             }
-            close(game, adventure, Screen::Finish);
+            // Let the moment land before the summary opens.
+            adventure.finale = Some(FINALE_SECONDS);
             game.adventure_complete();
+            for (step, pitch) in [0.94, 1.12, 1.26].into_iter().enumerate() {
+                game.play_later(Cue::Star, 0.32 + step as f32 * 0.2, Some(pitch));
+            }
+            game.play_later(Cue::Goal, 1.05, None);
+            game.dirty = true;
         }
     }
     celebrate(adventure, game);
@@ -2057,6 +2070,13 @@ fn process_work(adventure: &mut Adventure, game: &mut Game, save: &mut Campaign,
         adventure.screen == Screen::Walk && adventure.close_enough(Target::Plot(lot))
     });
     let dt = dt.min(0.18);
+    if let Some(left) = adventure.finale {
+        adventure.finale = Some(left - dt).filter(|&left| left > 0.0);
+        if adventure.finale.is_none() && adventure.active().is_some_and(|island| island.completed) {
+            close(game, adventure, Screen::Finish);
+            return;
+        }
+    }
     adventure.hand_clock = (adventure.hand_clock - dt).max(0.0);
     adventure.work_swing = (adventure.work_swing - dt).max(0.0);
     adventure.save_clock += dt;

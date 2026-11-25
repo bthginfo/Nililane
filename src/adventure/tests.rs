@@ -2096,3 +2096,53 @@ fn a_landmark_speeds_up_workshops_within_fourteen_steps() {
     assert!((island.monument_bonus(&map, near) - 0.2).abs() < 1e-5);
     assert_eq!(island.monument_bonus(&map, far), 0.0);
 }
+
+#[test]
+fn the_last_goal_plays_a_fanfare_and_the_summary_opens_after_a_beat() {
+    let mut a = Adventure {
+        book: Book::default(),
+        ..Adventure::default()
+    };
+    a.open(0, true);
+    a.screen = Screen::Walk;
+    let level = a.terrain.as_ref().unwrap().level;
+    let mut game = Game::default();
+    let mut save = Campaign::default();
+    let island = a.active_mut().unwrap();
+    for (lot, goal) in level.goals().enumerate() {
+        assert_eq!(goal.count, 1);
+        island.lots[lot] = Some(Property {
+            kind: goal.kind,
+            tier: goal.tier,
+        });
+    }
+    let (stock, count) = level.reserve();
+    island.add(stock, count);
+    check_victory(&mut a, &mut game, &mut save);
+    assert!(a.active().unwrap().completed);
+    assert_eq!(a.screen, Screen::Walk);
+    assert_eq!(game.note, "Insel abgeschlossen");
+    for _ in 0..8 {
+        process_work(&mut a, &mut game, &mut save, 0.18);
+    }
+    assert_eq!(a.screen, Screen::Walk, "zu früh");
+    for _ in 0..3 {
+        process_work(&mut a, &mut game, &mut save, 0.18);
+    }
+    assert_eq!(a.screen, Screen::Finish);
+    assert_eq!(a.finale, None);
+    act(Command::Close, &mut a, &mut game, &mut save);
+    for _ in 0..12 {
+        process_work(&mut a, &mut game, &mut save, 0.18);
+    }
+    assert_eq!(a.screen, Screen::Walk, "nur einmal");
+
+    // Opening the summary during the beat ends it.
+    a.finale = Some(1.0);
+    act(Command::Summary, &mut a, &mut game, &mut save);
+    act(Command::Close, &mut a, &mut game, &mut save);
+    for _ in 0..12 {
+        process_work(&mut a, &mut game, &mut save, 0.18);
+    }
+    assert_eq!(a.screen, Screen::Walk);
+}
