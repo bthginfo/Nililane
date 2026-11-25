@@ -1411,6 +1411,57 @@ fn a_finished_building_pushes_walkers_out_and_the_courier_still_delivers() {
 }
 
 #[test]
+fn a_damaged_island_keeps_the_others_and_the_original_file_as_a_backup() {
+    let mut first = Island::new(Level::at(0));
+    first.completed = true;
+    let mut drifted = Island::new(Level::at(1));
+    drifted.position = [900.0, 900.0];
+    drifted.add(Good::Wood, 7);
+    let mut islands = vec![serde_json::Value::Null; LEVELS];
+    islands[0] = serde_json::to_value(&first).unwrap();
+    islands[1] = serde_json::to_value(&drifted).unwrap();
+    islands[2] = serde_json::json!({ "index": 2, "lots": "kaputt" });
+    let text = serde_json::json!({ "version": 1, "last": 1, "islands": islands }).to_string();
+    let dir = std::env::temp_dir().join(format!("nililane-abenteuer-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(BOOK_FILE);
+    fs::write(&path, &text).unwrap();
+
+    let book = Book::load(&path);
+    assert!(book.islands[0].as_ref().unwrap().completed);
+    let island = book.islands[1].as_ref().unwrap();
+    assert_eq!(island.position, terrain::HALL_DOOR.to_array());
+    assert_eq!(island.amount(Good::Wood), 7);
+    assert!(book.islands[2].is_none());
+    assert_eq!(book.last, Some(1));
+    assert_eq!(
+        fs::read_to_string(path.with_extension("bak")).unwrap(),
+        text
+    );
+
+    fs::write(&path, "{ kaputt").unwrap();
+    let book = Book::load(&path);
+    assert!(book.islands.iter().all(Option::is_none));
+    assert_eq!(
+        fs::read_to_string(path.with_extension("bak")).unwrap(),
+        "{ kaputt"
+    );
+    fs::remove_dir_all(&dir).unwrap();
+
+    // The campaign still remembers islands whose save went missing.
+    let adventure = Adventure {
+        book: Book::default(),
+        ..Adventure::default()
+    };
+    let mut campaign = Campaign::default();
+    campaign.reward_adventure(4);
+    assert!(!adventure.unlocked(5));
+    assert!(!adventure.restore_rewards(&mut campaign));
+    assert!(adventure.unlocked(5));
+    assert!(!adventure.unlocked(6));
+}
+
+#[test]
 fn original_and_new_outfits_use_independent_bits_and_shared_rewards() {
     use crate::cosmetics::Cosmetic;
     let saved = r#"{"owned":1,"garment":"Sea","head":null}"#;

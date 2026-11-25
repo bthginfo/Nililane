@@ -149,7 +149,11 @@ pub struct Adventure {
     pointer: Option<ui::WalkPointer>,
     supply_for: Option<usize>,
     pub moved: bool,
+    /// Islands the campaign save remembers as finished, one bit each.
+    cleared: std::sync::atomic::AtomicU64,
 }
+
+const _: () = assert!(LEVELS <= 64);
 
 #[derive(Clone, Copy)]
 pub struct Harvest {
@@ -158,40 +162,103 @@ pub struct Harvest {
     pub duration: f32,
 }
 
-impl Default for Adventure {
-    fn default() -> Self {
-        let path = crate::save::path().with_file_name("nililane-abenteuer-v1.json");
-        let mut book = fs::File::open(path)
-            .ok()
-            .and_then(|file| serde_json::from_reader::<_, Book>(file).ok())
-            .filter(|book| book.version == 1)
-            .unwrap_or_default();
-        book.islands.resize(LEVELS, None);
-        for (index, stored) in book.islands.iter_mut().enumerate() {
+const BOOK_FILE: &str = "nililane-abenteuer-v1.json";
+
+fn book_path() -> std::path::PathBuf {
+    crate::save::path().with_file_name(BOOK_FILE)
+}
+
+impl Book {
+    /// Reads every island on its own, so one damaged entry cannot reset the whole campaign.
+    /// The flag reports whether anything had to be thrown away.
+    fn parse(bytes: &[u8]) -> (Self, bool) {
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+            return (Self::default(), true);
+        };
+        if value.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
+            return (Self::default(), true);
+        }
+        let mut book = Self {
+            last: value
+                .get("last")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|last| usize::try_from(last).ok()),
+            ..Self::default()
+        };
+        let Some(entries) = value.get("islands").and_then(serde_json::Value::as_array) else {
+            return (book, true);
+        };
+        let mut damaged = false;
+        for (index, entry) in entries.iter().enumerate() {
+            if entry.is_null() {
+                continue;
+            }
+            match Island::deserialize(entry) {
+                Ok(island) if index < LEVELS => book.islands[index] = Some(island),
+                _ => damaged = true,
+            }
+        }
+        damaged |= book.repair();
+        (book, damaged)
+    }
+
+    /// Fixes what can be fixed and drops islands that no longer fit their map.
+    fn repair(&mut self) -> bool {
+        let mut damaged = false;
+        self.islands.resize(LEVELS, None);
+        for (index, stored) in self.islands.iter_mut().enumerate() {
             let Some(island) = stored else { continue };
             let level = Level::at(index);
             let terrain = Terrain::new(level);
             if island.index != index
                 || !(level.inland_plots()..=level.plots()).contains(&island.lots.len())
-                || !terrain.accessible(Vec2::from_array(island.position))
-                || !island.phase.is_finite()
                 || island.lots.iter().flatten().any(|property| {
                     !(1..=crate::model::MAX_LEVEL).contains(&property.tier)
                         || !Build::all(level).contains(&property.kind)
                 })
             {
                 *stored = None;
-            } else {
-                island.lots.resize(level.plots(), None);
-                let max = usize::from(island.staff());
-                island.validate_workers(&terrain, max);
-                island.prepare_logistics(&terrain);
-                island.prepare_production(&terrain);
+                damaged = true;
+                continue;
+            }
+            if !terrain.accessible(Vec2::from_array(island.position)) {
+                island.position = terrain::HALL_DOOR.to_array();
+            }
+            if !island.phase.is_finite() {
+                island.phase = 0.36;
+            }
+            island.lots.resize(level.plots(), None);
+            let max = usize::from(island.staff());
+            island.validate_workers(&terrain, max);
+            island.prepare_logistics(&terrain);
+            island.prepare_production(&terrain);
+        }
+        self.last = self
+            .last
+            .filter(|&i| i < LEVELS && self.islands[i].is_some());
+        damaged
+    }
+
+    fn load(path: &std::path::Path) -> Self {
+        let Ok(bytes) = fs::read(path) else {
+            return Self::default();
+        };
+        let (book, damaged) = Self::parse(&bytes);
+        if damaged {
+            // Keep the unreadable original, the next save would overwrite it.
+            let backup = path.with_extension("bak");
+            match fs::write(&backup, &bytes) {
+                Ok(()) => warn!("Nililane Abenteuer: beschädigte Inseln, Kopie in {backup:?}"),
+                Err(error) => warn!("Nililane Abenteuer: {error}"),
             }
         }
-        book.last = book
-            .last
-            .filter(|&i| i < LEVELS && book.islands[i].is_some());
+        book
+    }
+}
+
+impl Default for Adventure {
+    fn default() -> Self {
+        let book = Book::load(&book_path());
         let selected = book.last.unwrap_or(0);
         Self {
             book,
@@ -216,6 +283,7 @@ impl Default for Adventure {
             pointer: None,
             supply_for: None,
             moved: false,
+            cleared: Default::default(),
         }
     }
 }
@@ -252,7 +320,12 @@ impl Adventure {
     }
 
     pub fn unlocked(&self, index: usize) -> bool {
-        index < LEVELS && (index == 0 || self.completed(index - 1))
+        index < LEVELS && (index == 0 || self.completed(index - 1) || self.rewarded(index - 1))
+    }
+
+    fn rewarded(&self, index: usize) -> bool {
+        let cleared = self.cleared.load(std::sync::atomic::Ordering::Relaxed);
+        index < LEVELS && cleared & (1 << index) != 0
     }
 
     pub fn practice(&self) -> bool {
@@ -292,7 +365,7 @@ impl Adventure {
             return;
         }
         let result = (|| -> io::Result<()> {
-            let path = crate::save::path().with_file_name("nililane-abenteuer-v1.json");
+            let path = book_path();
             if let Some(dir) = path.parent() {
                 fs::create_dir_all(dir)?;
             }
@@ -308,6 +381,8 @@ impl Adventure {
         }
     }
 
+    /// Syncs finished islands both ways: stars for islands finished in the book, and
+    /// unlocked successors for islands the campaign remembers even if their save got lost.
     pub fn restore_rewards(&self, campaign: &mut Campaign) -> bool {
         let mut changed = false;
         for (index, island) in self.book.islands.iter().enumerate() {
@@ -315,6 +390,17 @@ impl Adventure {
                 changed |= campaign.reward_adventure(index);
             }
         }
+        let rewarded = serde_json::to_value(&*campaign)
+            .ok()
+            .and_then(|save| save.get("adventures").cloned())
+            .and_then(|list| serde_json::from_value::<Vec<usize>>(list).ok())
+            .unwrap_or_default();
+        let mask = rewarded
+            .into_iter()
+            .filter(|&index| index < LEVELS)
+            .fold(0u64, |mask, index| mask | 1 << index);
+        self.cleared
+            .fetch_or(mask, std::sync::atomic::Ordering::Relaxed);
         changed
     }
 
