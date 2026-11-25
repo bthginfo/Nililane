@@ -507,18 +507,16 @@ fn walk(
                 icon(r, hud, light, 24.0);
                 panels::metric(r, hud, "adventure_labor", free_staff(island));
             });
-            p.spawn(row(11.0)).with_children(|r| {
+            p.spawn(row(5.0)).with_children(|r| {
                 let (reserve, count) = level.reserve();
                 for good in island.watched_goods(level) {
                     let n = island.amount(good);
-                    if good == reserve && n < count {
-                        r.spawn(row(3.0)).with_children(|cell| {
-                            icon(cell, hud, good.icon(level.region), 25.0);
-                            label(cell, hud, format!("{n}/{count}"), 19.0, Face::Bold, GOLD);
-                        });
+                    let (figure, color) = if good == reserve && n < count {
+                        (format!("{n}/{count}"), GOLD)
                     } else {
-                        stock(r, hud, good, n, level.region);
-                    }
+                        (n.to_string(), SAND)
+                    };
+                    stock_chip(r, hud, good, figure, color, level.region);
                 }
             });
         });
@@ -3494,6 +3492,42 @@ fn twist_note(p: &mut ChildSpawnerCommands, hud: &Hud, level: Level, size: f32) 
     });
 }
 
+/// One figure of the status bar's stock row. It pops and glows when its amount grows,
+/// see [`StockPulse`].
+fn stock_chip(
+    p: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    good: Good,
+    figure: String,
+    rest: Color,
+    region: Region,
+) {
+    p.spawn((
+        StockChip(good),
+        Node {
+            padding: UiRect::axes(Val::Px(3.0), Val::Px(1.0)),
+            ..row(3.0)
+        },
+        BackgroundColor(Color::NONE),
+        BorderRadius::all(Val::Px(8.0)),
+        FocusPolicy::Pass,
+    ))
+    .with_children(|r| {
+        icon(r, hud, good.icon(region), 25.0);
+        r.spawn((
+            StockFigure { good, rest },
+            Text::new(figure),
+            TextFont {
+                font: hud.fonts[Face::Bold as usize].clone(),
+                font_size: 19.0,
+                ..default()
+            },
+            TextColor(rest),
+            FocusPolicy::Pass,
+        ));
+    });
+}
+
 fn stock(p: &mut ChildSpawnerCommands, hud: &Hud, good: Good, n: u16, region: Region) {
     p.spawn(row(3.0)).with_children(|r| {
         icon(r, hud, good.icon(region), 25.0);
@@ -3734,6 +3768,74 @@ pub(crate) struct RouteDistance;
 #[derive(Component)]
 pub(crate) struct HarvestProgress;
 
+/// A chip of the stock row, keyed to its good so a rebuilt HUD keeps the pulse.
+#[derive(Component)]
+pub(crate) struct StockChip(Good);
+
+#[derive(Component)]
+pub(crate) struct StockFigure {
+    good: Good,
+    rest: Color,
+}
+
+/// How long a stock chip pops and glows after its amount grew.
+const PULSE_SECONDS: f32 = 0.4;
+const PULSE_RISE: f32 = 0.07;
+const PULSE_GROWTH: f32 = 0.25;
+const GLOW: Color = Color::srgb(1.0, 0.84, 0.36);
+
+/// The amounts seen last frame and when each good last grew. It lives outside the
+/// HUD, which is rebuilt often, so a rebuild never restarts or cuts a pulse.
+#[derive(Default)]
+pub(crate) struct StockPulse {
+    island: Option<(usize, bool)>,
+    amounts: [u16; Good::ALL.len()],
+    grew: [f32; Good::ALL.len()],
+}
+
+impl StockPulse {
+    fn track(&mut self, key: (usize, bool), island: &Island, now: f32) {
+        if self.island != Some(key) {
+            *self = Self {
+                island: Some(key),
+                amounts: island.stores,
+                grew: [f32::NEG_INFINITY; Good::ALL.len()],
+            };
+            return;
+        }
+        for (slot, &amount) in island.stores.iter().enumerate() {
+            if amount > self.amounts[slot] {
+                self.grew[slot] = now;
+            }
+        }
+        self.amounts = island.stores;
+    }
+
+    /// 0 at rest, 1 at the top of the pop: a quick rise, then a smooth settle.
+    fn strength(&self, good: Good, now: f32) -> f32 {
+        let t = now - self.grew[good as usize];
+        if !(0.0..PULSE_SECONDS).contains(&t) {
+            return 0.0;
+        }
+        if t < PULSE_RISE {
+            let rise = t / PULSE_RISE;
+            return 1.0 - (1.0 - rise) * (1.0 - rise);
+        }
+        let fall = 1.0 - (t - PULSE_RISE) / (PULSE_SECONDS - PULSE_RISE);
+        fall * fall * (3.0 - 2.0 * fall)
+    }
+}
+
+fn blend(from: Color, to: Color, k: f32) -> Color {
+    let (a, b) = (from.to_srgba(), to.to_srgba());
+    Color::srgba(
+        a.red + (b.red - a.red) * k,
+        a.green + (b.green - a.green) * k,
+        a.blue + (b.blue - a.blue) * k,
+        a.alpha + (b.alpha - a.alpha) * k,
+    )
+}
+
 #[derive(Component)]
 pub(crate) enum WorkProgress {
     Construction(usize),
@@ -3773,7 +3875,35 @@ pub(crate) fn project(
             Without<PlayerPin>,
         ),
     >,
+    real: Res<Time<Real>>,
+    mut pulse: Local<StockPulse>,
+    mut stock_row: (
+        Query<(&StockChip, &mut Transform, &mut BackgroundColor)>,
+        Query<(&StockFigure, &mut TextColor)>,
+    ),
 ) {
+    if let Some(island) = a.active() {
+        let now = real.elapsed_secs();
+        pulse.track((island.index, a.practice()), island, now);
+        let (chips, figures) = &mut stock_row;
+        for (chip, mut transform, mut fill) in chips.iter_mut() {
+            let k = pulse.strength(chip.0, now);
+            let scale = Vec3::splat(1.0 + PULSE_GROWTH * k);
+            if transform.scale != scale {
+                transform.scale = scale;
+            }
+            let glow = GOLD.with_alpha(0.3 * k);
+            if fill.0 != glow {
+                fill.0 = glow;
+            }
+        }
+        for (figure, mut color) in figures.iter_mut() {
+            let shown = blend(figure.rest, GLOW, pulse.strength(figure.good, now));
+            if color.0 != shown {
+                color.0 = shown;
+            }
+        }
+    }
     if let Some(harvest) = a.harvesting
         && let Ok(mut bar) = progress.single_mut()
     {
@@ -3908,5 +4038,39 @@ pub(crate) fn project(
         if text.0 != message {
             text.0 = message;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_growing_stock_chip_pops_once_and_settles_while_others_rest() {
+        let level = Level::at(3);
+        let mut island = Island::new(level);
+        let mut pulse = StockPulse::default();
+        island.add(Good::Wood, 5);
+        pulse.track((3, false), &island, 1.0);
+        assert_eq!(
+            pulse.strength(Good::Wood, 1.0),
+            0.0,
+            "kein Puls beim Betreten"
+        );
+        island.add(Good::Wood, 2);
+        island.stores[Good::Stone as usize] = 0;
+        pulse.track((3, false), &island, 2.0);
+        let peak = pulse.strength(Good::Wood, 2.0 + PULSE_RISE);
+        assert!((peak - 1.0).abs() < 1e-4);
+        assert!(pulse.strength(Good::Wood, 2.2) > 0.0);
+        assert_eq!(pulse.strength(Good::Wood, 2.0 + PULSE_SECONDS), 0.0);
+        assert_eq!(pulse.strength(Good::Stone, 2.1), 0.0);
+        // Spending never pops, and another island starts from rest.
+        island.stores[Good::Wood as usize] = 1;
+        pulse.track((3, false), &island, 3.0);
+        assert_eq!(pulse.strength(Good::Wood, 3.1), 0.0);
+        island.add(Good::Wood, 9);
+        pulse.track((4, false), &island, 4.0);
+        assert_eq!(pulse.strength(Good::Wood, 4.1), 0.0);
     }
 }
