@@ -60,7 +60,8 @@ Einstieg auf Naxos. Auf den ersten drei Inseln hält der Spieltag an wichtigen
 Stellen an. Mit **A** oder einem Tipp auf die Markierung folgst du der Hilfe.
 Mit **B** schließt du den Hinweis. Im Haupt- und Pausenmenü findest du die
 **Spielhilfe**. In den **Einstellungen** kannst du die Oberfläche vergrößern
-sowie Musik und Spielklänge separat schalten.
+und Musik, Umgebung (Meer, Brandung, Regen) und Klänge getrennt in fünf
+Stufen von Aus bis 100 % einstellen.
 
 | Xbox-Controller | Aktion |
 | --- | --- |
@@ -199,6 +200,10 @@ aus dem Quellcode bauen.
   nachts einen warmen Lichthof. Das Rathaus leuchtet in der Nacht. Gebäude
   stehen in einem weichen Kontaktschatten, ein leichter Dunst legt sich über
   das ferne Wasser. Neue Gebäude feiern ihre Fertigstellung mit Konfetti.
+- **Leben auf den Inseln.** Möwen kreisen über der Küste. Nachts fällt warmes
+  Licht aus den Türen der Siedlung, und Glühwürmchen tanzen über der Wiese.
+  Eine Erzader glänzt golden. Ist eine Insel geschafft, steigt über dem
+  Rathaus ein Feuerwerk auf.
 
 ![Küste der Salzgärten mit türkisem Flachwasser, Brandung und facettiertem Meer](docs/bilder/kueste.jpg)
 
@@ -218,19 +223,40 @@ aus dem Quellcode bauen.
 - **Begegnungen mit Rhythmus.** Besucher kommen passend zu deinem Fortschritt,
   kehren später mit neuen Geschichten zurück, und ein unbeachtetes Feuer
   erlischt von selbst.
+- **Jede Insel anders.** Wald, Steinbruch und Felder liegen auf jeder Insel
+  woanders, eines nah an der Siedlung, eines weit draußen. Auch die Hügel
+  wandern. Ab der zweiten Insel hat jede Insel eine Besonderheit, etwa
+  **Reiche Wälder**, **Erzader**, **Günstiger Wind**, **Festlaune**,
+  **Fleißige Hände** oder **Fruchtbarer Boden**. Du findest sie im
+  Inselbrief und auf der Karte.
+- **Markt im Handelshafen.** Für Handelsmarken kaufst du Ziegel, Werkzeug
+  oder Waren der Region. Nili trägt sie zur Baustelle oder zum Rathaus. Das
+  Wahrzeichen beschleunigt Werkstätten deutlich stärker und weiter.
 - **Mehr Abwechslung.** Späte Inseln verlangen die Spezialware ihres Gebiets.
   Die ersten Oasen haben eigene Sonderbauten.
+- **Spürbarer Fortschritt.** Wächst ein Vorrat, leuchtet seine Zahl kurz
+  golden auf. Ist die Insel geschafft, erklingt eine Fanfare, bevor die
+  Bilanz erscheint.
 - **Korrekturen.** Bürger bleiben nicht mehr in fertigen Gebäuden stecken.
   Baustellen nennen den echten Grund, wenn es nicht weitergeht. Ein
   beschädigter Spielstand löscht nicht mehr alle Inseln.
 
 **Hafenreisen**
 
+- **Preise mit Vorschau.** Jede Preiskarte zeigt, wie viele Verkäufe und
+  Münzen der Preis morgen bringt und wie viele Gäste ohne Kauf gehen. Ein
+  Stern markiert den besten Preis.
+- **Opfergabe und Herold.** Am Heiligtum bringt Nili einmal am Tag eine
+  Opfergabe, am Forum ruft sie den Herold. Dann kommen zwei Gäste mehr, mit
+  einem Olivenhain oder Speicher daneben drei.
 - **Tagesereignisse.** Handelsschiffe, Hochzeiten, Schulausflüge und Pilger
   bringen an manchen Tagen zusätzliche Gäste. Der Tagesplan kündigt sie an.
+  Festtage werden in Japan zum Matsuri und im Norden zum Thing. Bei
+  Sandsturm haben Fährgäste in den Oasen mehr Geld dabei.
 - **Serien und Rekorde.** Je fünf zufriedene Gäste in Folge bringen +1
   Ansehen. „Ziel erreicht“ erscheint sofort, und der Abendbericht zeigt neue
-  Tagesrekorde.
+  Tagesrekorde. Sobald dir drei Sterne sicher sind, feiert eine Meldung den
+  Moment.
 - **Mehr zu tun an langen Tagen.** Das Tempo reicht bis 4×, und auf großen
   Inseln darf Nili mehr Touren laufen. Schnelle Hilfe bei Zwischenfällen
   bringt +3 Münzen und +2 Ansehen. Das Tagesextra wächst mit deinem Hafen.
@@ -251,7 +277,12 @@ aus dem Quellcode bauen.
   nacheinander mit einem Glockenklang auf. Erfüllte Aufträge melden sich mit
   Häkchen und Klang.
 - Neue, leise Klänge für die Auswahl, Sterne und erfüllte Aufträge. Gleiche
-  Klänge variieren leicht in der Tonhöhe.
+  Klänge variieren leicht in der Tonhöhe. Bei Sternen und erreichten Zielen
+  wird die Musik kurz leiser.
+- Musik, Umgebung und Klänge haben je fünf Lautstärkestufen, einstellbar mit
+  Steuerkreuz, Pfeiltasten oder per Tipp auf − und +. Ausgeschaltete Musik
+  blendet sanft aus.
+- Beim Start gleitet das Hauptmenü Eintrag für Eintrag ins Bild.
 
 ## Neu in 2.7.0
 

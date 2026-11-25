@@ -2,20 +2,31 @@
 
 ## Grafik, Spielgefühl und Spiellogik 3.6.0
 
-- Alle 94 Rust-Tests sind bestanden, ein Fixture-Test für Sichtproben ist
+- Alle 114 Rust-Tests sind bestanden, ein Fixture-Test für Sichtproben ist
   ausgeklammert. Formatprüfung und Clippy mit `-D warnings` sind sauber. Die
   Kampagnenprüfung umfasst weiterhin alle 120 Häfen mit drei Sternen und alle
-  60 Abenteuerinseln. Ein neuer Test hält Boden, Pflanzen und Wasser jeder
-  Abenteuerinsel unter 200 000 Vertices.
-- Neue Tests prüfen die Reparatur beschädigter Hafen- und Inselspielstände
-  samt `.bak`-Kopie, Tagesereignisse auf 120 Häfen über acht Tage, Bürger,
-  die aus fertigen Gebäuden geschoben werden, die Rückkehr von Begegnungen,
-  die Tragkraft mit Speichern, das Blättern durch Reiter, die Klangwarteschlange
-  und das Einschwingen der Animationen.
+  60 Abenteuerinseln, jetzt mit gemischten Rohstoffgebieten, Besonderheiten
+  und dem Markt im Handelshafen. Ein Test hält Boden, Pflanzen und Wasser
+  jeder Abenteuerinsel unter 200 000 Vertices.
+- Neue Tests prüfen unter anderem:
+  - die Reparatur beschädigter Hafen- und Inselspielstände samt `.bak`-Kopie,
+  - Tagesereignisse auf 120 Häfen über acht Tage,
+  - Bürger, die aus fertigen Gebäuden geschoben werden,
+  - die Rückkehr von Begegnungen und die Tragkraft mit Speichern,
+  - die Preisvorschau gegen den echten Markttag in 24 Häfen,
+  - Opfergabe und Herold sowie Einkäufe im Inselmarkt,
+  - die Übernahme alter Lautstärke-Schalter in die neuen Stufen,
+  - das Blättern durch Reiter, die Klangwarteschlange und das Einschwingen
+    der Animationen.
 - Sichtproben unter Linux mit Mesa-Lavapipe (Vulkan) im Format 1280 × 800:
-  Naxos bei Tag und Nacht, die Abendabrechnung, die Kampagnenkarte und die
-  Salzgärten mit ausgebauter Siedlung, Küste, Nacht und Handy-Vorschau. Das
-  Meer zeigt facettierte Wellen, die Laternen ihre Lichthöfe.
+  - Naxos bei Tag und Nacht, die Abendabrechnung, die Preiskarten der
+    Backstube, die Einstellungen und die Kampagnenkarte,
+  - die Salzgärten mit Siedlung, Küste, Nacht, Inselkarte samt Besonderheit
+    und Handy-Vorschau.
+  Das Meer zeigt facettierte Wellen, die Laternen ihre Lichthöfe.
+- Nicht im Bild geprüft wurden Inselfanfare und Feuerwerk, Opfergabe und
+  Herold, Matsuri und Thing sowie die Klänge, denn der Container hat kein
+  Audiogerät. Die Klanglogik ist durch Tests abgedeckt.
 - Der Wasser-Shader verzichtet auf Schleifen über Arrays, weil Lavapipe daran
   scheiterte. Auf echten Android-Geräten und im Android-Emulator ist 3.6.0
   noch nicht geprüft. Es gibt noch keine signierten 3.6.0-APKs.
