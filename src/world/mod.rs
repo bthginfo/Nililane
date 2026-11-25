@@ -158,6 +158,14 @@ pub fn setup(
             StreetCamera,
             Camera3d::default(),
             Tonemapping::AcesFitted,
+            // ACES flattens saturated low-poly colours a little; win them back.
+            bevy::render::view::ColorGrading {
+                global: bevy::render::view::ColorGradingGlobal {
+                    post_saturation: 1.12,
+                    ..default()
+                },
+                ..default()
+            },
             Projection::Orthographic(OrthographicProjection {
                 scaling_mode: ScalingMode::FixedVertical {
                     viewport_height: 20.0,
@@ -580,7 +588,7 @@ fn building_mesh(
     art.kinds
         .entry((region, kind, level))
         .or_insert_with(|| {
-            let mesh = model(region, kind, level);
+            let mesh = mesh::occlude(model(region, kind, level), 0.9, 0.3);
             let mut height = mesh
                 .compute_aabb()
                 .map_or(1.5, |bounds| bounds.center.y + bounds.half_extents.y);

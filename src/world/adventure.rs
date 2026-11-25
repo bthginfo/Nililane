@@ -229,7 +229,7 @@ pub(crate) fn sync(
                     for patch in woods(terrain, earth) {
                         root.spawn((Mesh3d(meshes.add(patch)), MeshMaterial3d(art.matte.clone())));
                     }
-                    let hall = civic(region);
+                    let hall = super::mesh::occlude(civic(region), 0.75, 0.3);
                     root.spawn((
                         Mesh3d(meshes.add(hall)),
                         MeshMaterial3d(art.matte.clone()),
@@ -583,7 +583,11 @@ pub(crate) fn sync(
                                 }) {
                                     entry.3.clone()
                                 } else {
-                                    let handle = meshes.add(workshop(region, kind, property.tier));
+                                    let handle = meshes.add(super::mesh::occlude(
+                                        workshop(region, kind, property.tier),
+                                        0.9,
+                                        0.3,
+                                    ));
                                     scene.workshops.push((
                                         region,
                                         kind,
@@ -1258,10 +1262,10 @@ pub(crate) fn animate(
     }
     if let Ok((mut sun, mut light)) = sun.single_mut() {
         sun.rotation = Quat::from_euler(EulerRot::YXZ, -0.65 + phase.sin() * 0.38, -0.81, 0.0);
-        light.illuminance = 12_800.0 - night * 10_300.0;
+        light.illuminance = 11_200.0 - night * 8_900.0;
         light.color = Color::srgb(1.0 - night * 0.36, 0.93 - night * 0.18, 0.79 + night * 0.14);
     }
-    ambient.brightness = 503.0 - night * 125.0;
+    ambient.brightness = 360.0 - night * 70.0;
     ambient.color = Color::srgb(0.94 - night * 0.23, 0.93 - night * 0.11, 1.0);
     clear.0 = Color::srgb(
         0.40 - night * 0.24,
@@ -1296,7 +1300,7 @@ struct Palette {
 fn palette(region: Region) -> Palette {
     let (turf, coast, rock, wood, leaves, flag) = match region {
         Region::Greece => (
-            [143, 164, 104],
+            [126, 159, 92],
             [223, 190, 135],
             [157, 151, 131],
             [123, 88, 53],
@@ -1304,7 +1308,7 @@ fn palette(region: Region) -> Palette {
             [55, 128, 147],
         ),
         Region::Rome => (
-            [146, 158, 104],
+            [129, 153, 91],
             [206, 171, 125],
             [156, 133, 115],
             [130, 86, 63],
@@ -1312,7 +1316,7 @@ fn palette(region: Region) -> Palette {
             [167, 76, 57],
         ),
         Region::Japan => (
-            [119, 156, 114],
+            [103, 150, 101],
             [201, 177, 134],
             [124, 138, 137],
             [110, 76, 57],
@@ -1320,7 +1324,7 @@ fn palette(region: Region) -> Palette {
             [183, 81, 66],
         ),
         Region::Nordic => (
-            [115, 144, 116],
+            [99, 137, 106],
             [181, 177, 139],
             [129, 143, 145],
             [115, 81, 56],
@@ -1346,10 +1350,120 @@ fn palette(region: Region) -> Palette {
     }
 }
 
+/// Smooth value noise in 0..1, identical on every platform.
+fn value_noise(p: Vec2, seed: u32) -> f32 {
+    let cell = p.floor();
+    let f = p - cell;
+    let s = f * f * (Vec2::splat(3.0) - 2.0 * f);
+    let corner = |dx: i32, dz: i32| {
+        let x = (cell.x as i32 + dx + 8192) as u32;
+        let z = (cell.y as i32 + dz + 8192) as u32;
+        unit(x.wrapping_mul(73_856_093) ^ z.wrapping_mul(19_349_663) ^ seed)
+    };
+    let top = corner(0, 0) + (corner(1, 0) - corner(0, 0)) * s.x;
+    let bottom = corner(0, 1) + (corner(1, 1) - corner(0, 1)) * s.x;
+    top + (bottom - top) * s.y
+}
+
+fn mix(a: Tint, b: Tint, t: f32) -> Tint {
+    let t = t.clamp(0.0, 1.0);
+    std::array::from_fn(|i| (f32::from(a[i]) + (f32::from(b[i]) - f32::from(a[i])) * t) as u8)
+}
+
+/// The walkways between the plots: the broad yard in front of the hall and the lanes.
+struct Lanes {
+    depth: f32,
+    rows: Vec<(f32, f32)>,
+}
+
+impl Lanes {
+    fn new(terrain: &Terrain) -> Self {
+        let depth = terrain.plots[..terrain.level.inland_plots()]
+            .iter()
+            .fold(8.0_f32, |n, p| n.max(p.y.abs()));
+        let rows = [-5.7_f32, 6.4, -11.7, 12.5, -17.8, 18.6]
+            .into_iter()
+            .filter_map(|row| {
+                let extent = terrain
+                    .plots
+                    .iter()
+                    .filter(|p| (p.y - row).abs() < 0.05)
+                    .map(|p| p.x.abs())
+                    .fold(0.0_f32, f32::max);
+                (extent >= 1.0).then(|| (row - row.signum() * 2.22, extent))
+            })
+            .collect();
+        Self { depth, rows }
+    }
+
+    fn lane_z(z: f32, x: f32) -> f32 {
+        z + (x * 0.34).sin() * 0.21
+    }
+
+    /// Distance from the nearest walkway centre line, in world units.
+    fn distance(&self, p: Vec2) -> f32 {
+        let yard = if p.y.abs() <= self.depth + 0.5 {
+            (p.x.abs() - 1.25).max(0.0)
+        } else {
+            f32::MAX
+        };
+        self.rows
+            .iter()
+            .filter(|(_, extent)| p.x.abs() <= extent + 0.6)
+            .map(|&(z, _)| (p.y - Self::lane_z(z, p.x)).abs())
+            .fold(yard, f32::min)
+    }
+}
+
 fn landscape(terrain: &Terrain, colors: Palette) -> Mesh {
     let mut b = Batch::default();
     let step = if terrain.level.stage < 5 { 1.68 } else { 2.01 };
     let span = (terrain.radius * 1.18 / step).ceil() as i32;
+    let lanes = Lanes::new(terrain);
+    let seed = terrain.level.index as u32 * 7_919 + 3_571;
+    // Lush hollows and sun-dried slopes keep the grass from looking like one carpet.
+    let lush = shift(mix(colors.turf, colors.leaves, 0.45), -10);
+    let dry = mix(colors.turf, colors.coast, 0.42);
+    let earth = mix(shift(colors.coast, -30), colors.rock, 0.38);
+    let worn = mix(colors.turf, colors.coast, 0.50);
+    let ground = |p: Vec2, height: f32, t: f32| -> Tint {
+        let edge = terrain.shore(p);
+        let shore = edge < 4.2 + t * 2.6;
+        let stone = height > 2.8 + t * 1.5;
+        let snow = terrain.level.region == Region::Nordic && height > 6.7 + t * 2.8;
+        if snow {
+            return shift([216, 224, 219], (t * 8.0) as i16);
+        }
+        if stone {
+            return shift(
+                colors.rock,
+                ((value_noise(p * 0.31, seed) - 0.5) * 18.0) as i16,
+            );
+        }
+        if shore {
+            let wet = (1.0 - edge / 1.6).clamp(0.0, 1.0);
+            return mix(colors.coast, shift(colors.coast, -24), wet * 0.6);
+        }
+        let patches = value_noise(p * 0.071, seed);
+        let detail = value_noise(p * 0.23, seed ^ 0x55aa);
+        let mut tint = if patches < 0.5 {
+            mix(lush, colors.turf, patches * 2.0)
+        } else {
+            mix(colors.turf, dry, (patches - 0.5) * 2.0)
+        };
+        if let Some(district) = terrain.district(p) {
+            tint = mix(tint, district.district_color(), 0.36);
+        }
+        // Grass is trodden around the houses and worn bare along the walkways.
+        let town = (p.x.abs() - 17.0).max(0.0) + (p.y.abs() - lanes.depth - 3.0).max(0.0);
+        tint = mix(tint, worn, (1.0 - town / 6.0).clamp(0.0, 1.0) * 0.18);
+        tint = mix(
+            tint,
+            earth,
+            (1.0 - (lanes.distance(p) - 0.45) / 0.8).clamp(0.0, 1.0) * 0.62,
+        );
+        shift(tint, ((detail - 0.5) * 16.0) as i16)
+    };
     for row in -span..span {
         for col in -span..span {
             let at = Vec2::new(col as f32, row as f32) * step;
@@ -1367,108 +1481,127 @@ fn landscape(terrain: &Terrain, colors: Palette) -> Mesh {
                 v(p.x, terrain.height(p), p.y)
             };
             let [a, c, d, e] = [corner(0, 0), corner(1, 0), corner(1, 1), corner(0, 1)];
-            let edge = terrain.shore(at);
             let height = (a.y + d.y) * 0.5;
             let t = unit(
                 (row + 92) as u32 * 2389
                     + (col + 92) as u32 * 337
                     + terrain.level.index as u32 * 57,
             );
-            let shore = edge < 4.2 + t * 2.6;
-            let stone = height > 2.8 + t * 1.5;
-            let snow = terrain.level.region == Region::Nordic && height > 6.7 + t * 2.8;
-            let mut base = if snow {
-                [216, 224, 219]
-            } else if stone {
-                colors.rock
-            } else if shore {
-                colors.coast
-            } else {
-                colors.turf
-            };
-            if !snow
-                && !shore
-                && let Some(district) = terrain.district(at)
-            {
-                let tint = district.district_color();
-                base = std::array::from_fn(|i| {
-                    ((u16::from(base[i]) * 3 + u16::from(tint[i]) * 2) / 5) as u8
-                });
-            }
             let sweep = (at.x * 0.23 + at.y * 0.14).sin() * (at.y * 0.18).cos();
-            let shade = (sweep * 9.0 + (t - 0.50) * 13.0) as i16;
-            b.face(&[a, e, d], shift(base, shade));
-            b.face(&[a, d, c], shift(base, shade - 4));
+            let shade = (sweep * 7.0 + (t - 0.50) * 9.0) as i16;
+            let centre = |p: Vec3, q: Vec3, r: Vec3| {
+                let m = (p + q + r) / 3.0;
+                Vec2::new(m.x, m.z)
+            };
+            b.face(&[a, e, d], shift(ground(centre(a, e, d), height, t), shade));
+            b.face(
+                &[a, d, c],
+                shift(ground(centre(a, d, c), height, t), shade - 5),
+            );
         }
     }
-    let dirt = shift(colors.coast, -9);
-    // A connected yard links the plots to the council hall and keeps their margins level.
-    let depth = terrain.plots[..terrain.level.inland_plots()]
-        .iter()
-        .fold(8.0_f32, |n, p| n.max(p.y.abs()));
-    for z in -depth.ceil() as i32..=depth.ceil() as i32 {
-        let path = Vec2::new(0.0, z as f32);
-        b.slab(
-            v(0.0, terrain.height(path) + 0.019, path.y),
-            v(2.50, 0.047, 1.00),
-            shift(dirt, z.rem_euclid(5) as i16 * 3 - 6),
+    // Flagstones laid along the yard and the lanes; the earth shows between them.
+    let flag = |b: &mut Batch, p: Vec2, size: Vec2, n: u32| {
+        let spin = (unit(n) - 0.5) * 0.36;
+        let y = terrain.height(p) + 0.022 + unit(n + 1) * 0.012;
+        let tone = mix(
+            shift(colors.coast, 4),
+            colors.rock,
+            0.35 + unit(n + 2) * 0.3,
         );
-    }
-    for row in [-5.7_f32, 6.4, -11.7, 12.5, -17.8, 18.6] {
-        let extent = terrain
-            .plots
-            .iter()
-            .filter(|p| (p.y - row).abs() < 0.05)
-            .map(|p| p.x.abs())
-            .fold(0.0_f32, f32::max);
-        let z = row - row.signum() * 2.22;
-        for x in -(extent as i32)..=extent as i32 {
-            if extent < 1.0 || x.abs() < 2 {
+        b.block(
+            v(p.x, y, p.y),
+            v(size.x, 0.05, size.y),
+            Quat::from_rotation_y(spin),
+            shift(tone, (unit(n + 3) * 14.0) as i16 - 7),
+        );
+    };
+    for z in -(lanes.depth.ceil() as i32)..=lanes.depth.ceil() as i32 {
+        for lane in 0..3 {
+            let n = (z + 500) as u32 * 31 + lane * 7 + seed;
+            if unit(n + 9) < 0.08 {
                 continue;
             }
-            let p = Vec2::new(x as f32, z + (x as f32 * 0.34).sin() * 0.21);
-            let y = terrain.height(p) + 0.024;
-            b.slab(
-                v(p.x, y, p.y),
-                v(0.987, 0.039, 0.78),
-                shift(dirt, x.rem_euclid(5) as i16 * 3 - 3),
-            );
+            let x = (lane as f32 - 1.0) * 0.80 + (unit(n + 4) - 0.5) * 0.10;
+            let p = Vec2::new(x, z as f32 + (unit(n + 5) - 0.5) * 0.12);
+            flag(&mut b, p, Vec2::new(0.62 + unit(n + 6) * 0.14, 0.78), n);
         }
     }
-    for p in terrain.plots.iter().copied() {
+    for (i, &(z, extent)) in lanes.rows.iter().enumerate() {
+        let mut x = -extent;
+        let mut n = seed + i as u32 * 9_001;
+        while x < extent {
+            n += 13;
+            let length = 0.56 + unit(n) * 0.34;
+            if x.abs() > 1.7 && unit(n + 8) > 0.06 {
+                for side in [-0.21_f32, 0.21] {
+                    let jitter = (unit(n + side.to_bits()) - 0.5) * 0.09;
+                    let p = Vec2::new(x + length * 0.5, Lanes::lane_z(z, x) + side + jitter);
+                    flag(
+                        &mut b,
+                        p,
+                        Vec2::new(length - 0.07, 0.36),
+                        n + side.to_bits(),
+                    );
+                }
+            }
+            x += length;
+        }
+    }
+    // Plots are staked out on packed earth instead of paved over.
+    let pad = mix(mix(colors.turf, earth, 0.38), worn, 0.2);
+    for (index, p) in terrain.plots.iter().copied().enumerate() {
         let y = terrain.height(p);
-        plinth(
-            &mut b,
-            v(p.x, y + 0.008, p.y),
-            3.20,
-            2.77,
-            0.091,
-            shift(colors.coast, -9),
-        );
-        for border in [-1.29, 1.29] {
-            b.slab(
-                v(p.x, y + 0.091, p.y + border),
-                v(2.86, 0.04, 0.067),
-                shift(colors.rock, 5),
+        let n = seed + index as u32 * 977;
+        plinth(&mut b, v(p.x, y + 0.004, p.y), 3.12, 2.69, 0.062, pad);
+        for (x, z) in [(-1.41, -1.21), (1.41, -1.21), (-1.41, 1.21), (1.41, 1.21)] {
+            let at = v(p.x + x, y + 0.05, p.y + z);
+            b.frustum(
+                at,
+                0.05,
+                0.04,
+                0.30,
+                5,
+                shift(colors.wood, (unit(n) * 12.0) as i16),
+            );
+            b.gem(at + Vec3::Y * 0.31, 0.05, 0.04, 0.05, x + z, colors.flag);
+        }
+        for z in [-1.21, 1.21] {
+            b.beam(
+                v(p.x - 1.41, y + 0.24, p.y + z),
+                v(p.x + 1.41, y + 0.24, p.y + z),
+                0.014,
+                [226, 214, 182],
             );
         }
-        for x in [-1.41, 1.41] {
-            for z in [-1.21, 1.21] {
-                b.slab(
-                    v(p.x + x, y + 0.091, p.y + z),
-                    v(0.16, 0.063, 0.28),
-                    shift(colors.rock, 26),
+        for i in 0..5 {
+            let m = n + i * 17;
+            let tuft = v(
+                p.x + (unit(m) - 0.5) * 2.5,
+                y + 0.06,
+                p.y + (unit(m + 1) - 0.5) * 2.1,
+            );
+            let tint = shift(colors.leaves, 10 + (unit(m + 2) * 18.0) as i16);
+            for blade in 0..3 {
+                let dx = blade as f32 * 0.07 - 0.07;
+                b.face(
+                    &[
+                        tuft + v(dx, 0.0, -0.03),
+                        tuft + v(dx + 0.04, 0.0, 0.035),
+                        tuft + v(dx * 1.6, 0.10 + unit(m + 3) * 0.08, 0.0),
+                    ],
+                    tint,
                 );
             }
         }
         let mid = (p.y / 2.0).trunc() * 2.0;
         for a in 0..4 {
             let x = p.x + a as f32 * 0.23 - 0.34;
-            let z = if p.y > mid { p.y - 1.52 } else { p.y + 1.52 };
+            let z = if p.y > mid { p.y - 1.46 } else { p.y + 1.46 };
             b.slab(
                 v(x, y + 0.03, z),
-                v(0.216, 0.046, 0.32),
-                shift(colors.coast, 11),
+                v(0.2, 0.04, 0.30),
+                shift(mix(colors.coast, colors.rock, 0.3), 6),
             );
         }
     }
@@ -1612,6 +1745,96 @@ fn woods(terrain: &Terrain, colors: Palette) -> impl Iterator<Item = Mesh> {
                 i as f32,
                 colors.flag,
             );
+        }
+    }
+    // Wildflowers, tall grass and pebbles, densest around the settlement.
+    let lanes = Lanes::new(terrain);
+    let blossoms: [Tint; 4] = [
+        [246, 240, 222],
+        [244, 205, 92],
+        colors.flag,
+        [226, 146, 168],
+    ];
+    for i in 0..(760 + terrain.level.stage as u32 * 60) {
+        let n = seed ^ (i * 2_654_435_761);
+        let near = unit(n) < 0.62;
+        let p = if near {
+            let a = unit(n + 1) * std::f32::consts::TAU;
+            let r = 3.5 + unit(n + 2).sqrt() * (lanes.depth + 9.0);
+            Vec2::new(a.cos() * r * 1.25, a.sin() * r)
+        } else {
+            Vec2::new(unit(n + 1) * 2.0 - 1.0, unit(n + 2) * 2.0 - 1.0) * terrain.radius
+        };
+        if terrain.shore(p) < 2.6
+            || p.length() < 4.0
+            || lanes.distance(p) < 0.75
+            || terrain.height(p) > 3.2
+            || terrain
+                .plots
+                .iter()
+                .any(|plot| (plot.x - p.x).abs() < 1.9 && (plot.y - p.y).abs() < 1.7)
+            || terrain.deposits.iter().any(|d| d.at.distance(p) < 1.0)
+        {
+            continue;
+        }
+        let b = &mut patches[patch(p)];
+        let at = v(p.x, terrain.height(p) + 0.01, p.y);
+        let kind = unit(n + 3);
+        if kind < 0.5 {
+            let color = blossoms[(unit(n + 4) * 4.0) as usize % 4];
+            for k in 0..(5 + (unit(n + 5) * 5.0) as u32) {
+                let m = n + 40 + k * 3;
+                let q = at + v((unit(m) - 0.5) * 1.0, 0.0, (unit(m + 1) - 0.5) * 0.8);
+                let h = 0.12 + unit(m + 2) * 0.14;
+                b.gem(
+                    q + Vec3::Y * 0.06,
+                    0.12,
+                    0.07,
+                    0.12,
+                    m as f32,
+                    shift(colors.leaves, -4),
+                );
+                b.gem(
+                    q + Vec3::Y * h,
+                    0.13,
+                    0.075,
+                    0.13,
+                    m as f32,
+                    shift(color, (k as i16) * 3),
+                );
+            }
+        } else if kind < 0.82 {
+            let tint = shift(colors.leaves, 4 + (unit(n + 4) * 20.0) as i16);
+            for k in 0..6 {
+                let a = k as f32 / 6.0 * std::f32::consts::TAU + unit(n + 5);
+                let lean = v(a.cos() * 0.17, 0.0, a.sin() * 0.17);
+                let h = 0.30 + unit(n + 6 + k) * 0.22;
+                b.face(
+                    &[
+                        at + v(a.sin() * 0.07, 0.0, -a.cos() * 0.07),
+                        at - v(a.sin() * 0.07, 0.0, -a.cos() * 0.07),
+                        at + lean + Vec3::Y * h,
+                    ],
+                    shift(tint, k as i16 * 2),
+                );
+            }
+        } else {
+            for k in 0..(1 + (unit(n + 4) * 3.0) as u32) {
+                let m = n + 70 + k * 5;
+                let r = 0.10 + unit(m) * 0.13;
+                b.gem(
+                    at + v(
+                        (unit(m + 1) - 0.5) * 0.6,
+                        r * 0.25,
+                        (unit(m + 2) - 0.5) * 0.6,
+                    ),
+                    r,
+                    r * 0.6,
+                    r * 0.85,
+                    m as f32,
+                    shift(colors.rock, (unit(m + 3) * 24.0) as i16 - 6),
+                );
+            }
         }
     }
     patches

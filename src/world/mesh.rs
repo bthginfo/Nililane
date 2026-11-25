@@ -1,7 +1,7 @@
 use bevy::{
     asset::RenderAssetUsages,
     prelude::*,
-    render::mesh::{Indices, PrimitiveTopology},
+    render::mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
 };
 
 pub type Tint = [u8; 3];
@@ -126,6 +126,29 @@ impl Batch {
             self.face(&[c, top, d], shift(tint, 12));
         }
     }
+}
+
+/// Darkens the vertex colours near the ground plane (y = 0), so a building sits in
+/// its own soft contact shadow the way ambient occlusion would place it.
+pub fn occlude(mut mesh: Mesh, reach: f32, depth: f32) -> Mesh {
+    let Some(VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+    else {
+        return mesh;
+    };
+    let heights: Vec<f32> = positions.iter().map(|p| p[1]).collect();
+    if let Some(VertexAttributeValues::Float32x4(colors)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR)
+    {
+        for (color, y) in colors.iter_mut().zip(heights) {
+            let t = (y / reach).clamp(0.0, 1.0);
+            let light = 1.0 - depth * (1.0 - t * t * (3.0 - 2.0 * t));
+            for channel in &mut color[..3] {
+                *channel *= light;
+            }
+        }
+    }
+    mesh
 }
 
 pub fn v(x: f32, y: f32, z: f32) -> Vec3 {
