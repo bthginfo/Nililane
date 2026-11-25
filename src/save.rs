@@ -57,26 +57,34 @@ impl Default for Campaign {
 
 impl Campaign {
     pub fn load() -> Self {
-        let Ok(file) = fs::File::open(path()) else {
+        Self::load_from(&path())
+    }
+
+    fn load_from(file: &std::path::Path) -> Self {
+        let Ok(bytes) = fs::read(file) else {
             return Self::default();
         };
-        Self::decode(file).unwrap_or_default()
+        Self::decode(bytes.as_slice()).unwrap_or_else(|| {
+            // Keep the unreadable file so the next save cannot erase it for good.
+            if let Err(error) = fs::copy(file, backup_path(file)) {
+                bevy::log::warn!("Nililane: {error}");
+            }
+            Self::default()
+        })
     }
 
     pub(crate) fn decode(input: impl io::Read) -> Option<Self> {
         let mut progress: Self = serde_json::from_reader(input).ok()?;
-        if !(1..=VERSION).contains(&progress.version)
-            || !progress.town.as_ref().is_none_or(valid_town)
-        {
+        if !(1..=VERSION).contains(&progress.version) {
             return None;
         }
-        if progress
+        // A damaged harbor must not cost the whole campaign: repair it or let it go.
+        progress.town = progress.town.take().and_then(repair_town);
+        progress.tutorial = progress
             .tutorial
-            .as_ref()
-            .is_some_and(|town| town.chapter >= ISLANDS || !valid_town(town))
-        {
-            progress.tutorial = None;
-        }
+            .take()
+            .filter(|town| town.chapter < ISLANDS)
+            .and_then(repair_town);
         if progress.version == 1
             && let Some(town) = &mut progress.town
         {
@@ -100,13 +108,17 @@ impl Campaign {
         }
         let current = progress.town.as_ref().map(|town| town.chapter);
         let mut seen = [false; crate::campaign::CHAPTER_COUNT];
-        progress.moored.retain(|town| {
-            if Some(town.chapter) == current || !valid_town(town) || seen[town.chapter] {
-                return false;
-            }
-            seen[town.chapter] = true;
-            true
-        });
+        progress.moored = std::mem::take(&mut progress.moored)
+            .into_iter()
+            .filter_map(repair_town)
+            .filter(|town| {
+                if Some(town.chapter) == current || seen[town.chapter] {
+                    return false;
+                }
+                seen[town.chapter] = true;
+                true
+            })
+            .collect();
         for town in progress
             .town
             .iter_mut()
@@ -379,6 +391,44 @@ pub fn travel_bonus(next: usize, income: u32) -> u32 {
     })
 }
 
+fn backup_path(file: &std::path::Path) -> PathBuf {
+    let mut name = file.file_name().unwrap_or_default().to_os_string();
+    name.push(".bak");
+    file.with_file_name(name)
+}
+
+// Keeps a harbor whose day went wrong: its buildings, coins and totals survive and
+// the damaged parts restart from the morning plan.
+fn repair_town(mut town: Town) -> Option<Town> {
+    if valid_town(&town) {
+        return Some(town);
+    }
+    let chapter = CHAPTERS.get(town.chapter)?;
+    town.day = town.day.max(1);
+    for (lot, building) in town.lots.iter_mut().enumerate() {
+        if building.is_some_and(|b| !is_open(chapter, lot) || !(1..=MAX_LEVEL).contains(&b.level)) {
+            *building = None;
+        }
+    }
+    if town
+        .voyage
+        .is_some_and(|voyage| !voyage.valid(&town, chapter))
+    {
+        town.voyage = None;
+    }
+    if !town
+        .last_visits
+        .iter()
+        .all(|visit| visit.resolved && valid_visit(visit, chapter))
+    {
+        town.last_visits.clear();
+    }
+    if matches!(town.phase, Phase::Open(_)) && !valid_town(&town) {
+        town.phase = Phase::Plan;
+    }
+    valid_town(&town).then_some(town)
+}
+
 fn valid_town(town: &Town) -> bool {
     let Some(chapter) = CHAPTERS.get(town.chapter) else {
         return false;
@@ -584,6 +634,50 @@ mod tests {
         town.tick(chapter, 60.0);
         assert_eq!(town.totals.favors, 1);
         assert_eq!(town.totals.routes_today(), 0);
+    }
+
+    #[test]
+    fn a_damaged_harbor_is_repaired_without_losing_records_or_outfits() {
+        let mut progress = Campaign::default();
+        progress.record(0, 3, 3);
+        progress.record(1, 4, 2);
+        assert!(progress.equip(Cosmetic::Sea));
+        let chapter = &CHAPTERS[1];
+        let mut town = Town::new(1, chapter);
+        assert!(town.build(chapter, 8, Kind::Well));
+        assert!(town.open(chapter));
+        town.tick(chapter, 5.0);
+        progress.town = Some(town);
+        let mut damaged = serde_json::to_value(&progress).unwrap();
+        damaged["town"]["phase"]["Open"]["seconds"] = 9999.0.into();
+        let data = serde_json::to_vec(&damaged).unwrap();
+        let repaired = Campaign::decode(data.as_slice()).unwrap();
+        assert_eq!(repaired.records[0].stars, 3);
+        assert_eq!(repaired.records[1].stars, 2);
+        assert!(repaired.wardrobe.wearing(Cosmetic::Sea));
+        let town = repaired.town.as_ref().unwrap();
+        assert!(town.planning());
+        assert_eq!(town.lots[8].unwrap().kind, Kind::Well);
+
+        damaged["town"]["chapter"] = 9999.into();
+        let data = serde_json::to_vec(&damaged).unwrap();
+        let without = Campaign::decode(data.as_slice()).unwrap();
+        assert!(without.town.is_none());
+        assert_eq!(without.records[0].stars, 3);
+        assert!(without.wardrobe.wearing(Cosmetic::Sea));
+    }
+
+    #[test]
+    fn an_unreadable_save_is_backed_up_before_starting_fresh() {
+        let dir = std::env::temp_dir().join(format!("nililane-backup-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("nililane-v1.json");
+        fs::write(&file, b"{\"version\": 2, \"records\": [").unwrap();
+        let progress = Campaign::load_from(&file);
+        assert_eq!(progress.available_stars(), 0);
+        let backup = dir.join("nililane-v1.json.bak");
+        assert_eq!(fs::read(&backup).unwrap(), fs::read(&file).unwrap());
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

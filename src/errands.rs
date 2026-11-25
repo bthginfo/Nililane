@@ -7,6 +7,8 @@ use crate::{
 };
 
 pub const JOB_TYPES: usize = 5;
+/// Guests Nili brings along on one welcome tour.
+pub const WELCOME_GUESTS: u16 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Job {
@@ -107,14 +109,20 @@ impl Job {
         }
     }
 
+    /// Tours per day. Longer shifts leave time for more: one extra tour for every
+    /// 35 seconds a harbor's day runs beyond the first island's.
     pub fn limit(chapter: usize) -> u8 {
-        if chapter < 6 {
+        let base = if chapter < 6 {
             3
         } else if chapter < 12 {
             4
         } else {
             5
-        }
+        };
+        let longer = crate::campaign::CHAPTERS
+            .get(chapter)
+            .map_or(0.0, |rule| rule.day_seconds() - crate::model::DAY_SECONDS);
+        base + (longer.max(0.0) / 35.0) as u8
     }
 
     pub fn daily_max(self, chapter: usize) -> u32 {
@@ -172,22 +180,10 @@ impl Job {
             )),
             Self::Water if kind.water_user() => Some((nearest(Kind::water_source)?, target)),
             Self::Welcome if kind.service().is_some() => Some((Stop::Quay, target)),
-            Self::Shade
-                if matches!(
-                    kind,
-                    Kind::Stoa
-                        | Kind::Baths
-                        | Kind::TeaHouse
-                        | Kind::Temple
-                        | Kind::MoonGarden
-                        | Kind::Caravanserai
-                ) =>
-            {
-                Some((
-                    nearest(|k| matches!(k, Kind::Grove | Kind::TeaGarden | Kind::DateGarden))?,
-                    target,
-                ))
-            }
+            Self::Shade if kind.rest_stop() || kind == Kind::Caravanserai => Some((
+                nearest(|k| matches!(k, Kind::Grove | Kind::TeaGarden | Kind::DateGarden))?,
+                target,
+            )),
             _ => None,
         }
     }
@@ -208,6 +204,9 @@ impl Job {
         let (pickup, delivery) = self
             .route(town, chapter, lot)
             .ok_or(Blocked::Requirements)?;
+        if self == Self::Welcome && day.stock[lot] < WELCOME_GUESTS {
+            return Err(Blocked::Stock);
+        }
         Route::new(
             self,
             false,
@@ -228,6 +227,7 @@ pub enum Blocked {
     Done,
     Limit,
     Requirements,
+    Stock,
     Late,
 }
 
@@ -238,6 +238,7 @@ impl Blocked {
             Self::Busy | Self::Late => "guest_wait",
             Self::Done => "check",
             Self::Limit | Self::Requirements => "lock",
+            Self::Stock => "guest_empty",
         }
     }
 
@@ -248,6 +249,7 @@ impl Blocked {
             Self::Done => "Für heute erledigt.",
             Self::Limit => "Nili hat seine Touren für heute erledigt.",
             Self::Requirements => job.requirements(),
+            Self::Stock => "Dort ist zu wenig Vorrat für zwei Gäste. Bring erst Nachschub.",
             Self::Late => "Dafür ist es heute zu spät.",
         }
     }

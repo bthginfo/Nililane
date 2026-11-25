@@ -367,7 +367,7 @@ fn new_in_harbor(page: &mut ChildSpawnerCommands, hud: &Hud, island: usize, chap
             4 => Some((
                 "feast_hall",
                 "Ein Platz am Herd",
-                "Eine Räucherei neben der Festhalle bringt Fisch für fünf zusätzliche Plätze.",
+                "Eine Räucherei im Viertel bringt Fisch für fünf zusätzliche Plätze. Direkt daneben ist es einer mehr.",
             )),
             5 => Some((
                 "sea_trade",
@@ -1322,7 +1322,7 @@ fn building_link(kind: Kind) -> Option<(&'static str, &'static str)> {
         ),
         Kind::FeastHall => (
             "smoked_fish",
-            "Zwei Portionen Räucherfisch von nebenan ergeben fünf Plätze",
+            "Zwei Portionen Räucherfisch ergeben fünf Plätze, von nebenan sechs",
         ),
         _ => return None,
     })
@@ -2340,7 +2340,12 @@ fn contract_card(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: 
             })
             .with_children(|header| {
                 label(header, hud, "Extra für heute", 16.0, Face::Bold, GOLD);
-                metric(header, hud, "coin", format!("+{} Münzen", goal.reward()));
+                metric(
+                    header,
+                    hud,
+                    "coin",
+                    format!("+{} Münzen", goal.reward(town.chapter)),
+                );
             });
         metric(order, hud, icon_name, format!("{text} · {have}/{need}"));
     });
@@ -2548,6 +2553,19 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
         false,
         town.chapter,
     );
+    if let Some(gathering) = town.day_event(chapter) {
+        metric(
+            page,
+            hud,
+            gathering.event.icon(),
+            format!(
+                "{} · {} Gäste ab {}",
+                gathering.event.title(chapter.region),
+                gathering.guests,
+                chapter.shift.clock(gathering.at / chapter.day_seconds())
+            ),
+        );
+    }
     if town.planning() && !town.last_visits.is_empty() {
         button(
             page,
@@ -2837,6 +2855,35 @@ fn day_plan(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
             metric(request, hud, favor.icon(), favor.name());
             label(request, hud, favor.note(), 15.0, Face::Body, MUTED);
         });
+        let rush = town
+            .rush_deadline(chapter)
+            .filter(|&deadline| matches!(&town.phase, Phase::Open(day) if day.seconds <= deadline));
+        if favor.incident() && rush.is_some() {
+            label(
+                page,
+                hud,
+                format!(
+                    "Hilfst du in den ersten {} Sekunden, gibt es +{} Münzen und +{} Ansehen extra.",
+                    crate::model::RUSH_SECONDS as u32,
+                    crate::model::RUSH_COINS,
+                    crate::model::RUSH_RENOWN
+                ),
+                15.0,
+                Face::Body,
+                GOLD,
+            );
+        }
+    }
+    if let Some(gathering) = town.day_event(chapter) {
+        page.spawn(row(12.0)).with_children(|visit| {
+            metric(
+                visit,
+                hud,
+                gathering.event.icon(),
+                gathering.event.title(chapter.region),
+            );
+            label(visit, hud, gathering.event.note(), 15.0, Face::Body, MUTED);
+        });
     }
     if chapter.harbor_plans() {
         label(page, hud, "Heutiger Hafenplan", 18.0, Face::Bold, GOLD);
@@ -2941,7 +2988,10 @@ fn evening(
                     figures,
                     hud,
                     "coin",
-                    &format!("+{}", report.tally.income + report.grant),
+                    &format!(
+                        "+{}",
+                        report.tally.income + report.tally.caravan_income + report.grant
+                    ),
                     &format!("{} heute", Region::of(town.chapter).currency()),
                 );
                 super::screens::stat(
@@ -2970,11 +3020,34 @@ fn evening(
                     super::screens::stat(figures, hud, "nili", "1", "Bitte vom Kai");
                 }
             });
+            if report.records != 0 {
+                let records: Vec<_> = crate::model::DayRecord::list(report.records)
+                    .map(|record| record.label())
+                    .collect();
+                metric(
+                    page,
+                    hud,
+                    "star",
+                    format!("Tagesrekord · {}", records.join(" · ")),
+                );
+            }
             if report.tally.street_bonus > 0
                 || report.tally.specialty_income > 0
                 || report.contract_bonus > 0
+                || report.tally.streak_bonus > 0
             {
                 page.spawn(row(14.0)).with_children(|bonuses| {
+                    if report.tally.streak_bonus > 0 {
+                        metric(
+                            bonuses,
+                            hud,
+                            "guest_happy",
+                            format!(
+                                "Serie ×{} · +{} Ansehen",
+                                report.tally.best_streak, report.tally.streak_bonus
+                            ),
+                        );
+                    }
                     if report.tally.street_bonus > 0 {
                         metric(
                             bonuses,
@@ -3568,7 +3641,7 @@ pub fn guide(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game) {
                         "smoked_fish",
                         "feast_hall",
                         "Die Festhalle versorgen",
-                        "Eine benachbarte Räucherei gibt zwei Portionen an die Festhalle ab und bewirtet so fünf zusätzliche Gäste.",
+                        "Eine Räucherei im Viertel gibt zwei Portionen an die Festhalle ab. So bewirtet die Halle fünf Gäste mehr, mit der Räucherei direkt daneben sechs.",
                     ),
                     (
                         "boatyard",
