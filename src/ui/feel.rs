@@ -512,3 +512,32 @@ pub(crate) fn animate_report(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_button_spring_settles_at_any_frame_rate() {
+        for dt in [1.0 / 144.0, 1.0 / 30.0, MAX_STEP] {
+            let mut ease = Ease::default();
+            ease.pop();
+            let mut peak = 0.0f32;
+            let mut elapsed = 0.0;
+            while elapsed < 1.0 {
+                ease.spring(1.0, dt);
+                peak = peak.max(ease.scale);
+                elapsed += dt;
+            }
+            assert_eq!(ease.scale, 1.0);
+            assert!(peak > 1.0 && peak < 1.1, "overshoot {peak} at {dt}");
+        }
+    }
+
+    #[test]
+    fn report_stars_pop_past_full_size_and_rest() {
+        assert!(pop(0.0) < 0.01);
+        assert!((pop(0.16) - 1.2).abs() < 1e-3);
+        assert!((pop(0.5) - 1.0).abs() < 1e-5);
+    }
+}

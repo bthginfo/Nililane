@@ -67,6 +67,13 @@ pub struct ButtonAction {
     style: Style,
 }
 
+impl ButtonAction {
+    /// Whether this is the dimmed area around a dialog, which closes it.
+    pub fn closes_dialog(&self) -> bool {
+        self.style == Style::Backdrop
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Style {
     Primary,

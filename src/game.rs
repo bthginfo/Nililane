@@ -690,7 +690,12 @@ pub fn frame(
         } else {
             pressed
         };
-    if let Some(action) = pressed {
+    // A tap beside a dialog closes it; no button should pulse for that.
+    if let Some(action) = pressed
+        && !changed
+            .iter()
+            .any(|(state, button)| *state == Interaction::Pressed && button.closes_dialog())
+    {
         game.press(action);
     }
     if game.view == View::Adventure {
@@ -2294,6 +2299,43 @@ impl Mixer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shoulder_buttons_cycle_tabs_and_wrap() {
+        let save = Campaign::default();
+        let mut game = Game {
+            panel: Panel::Wardrobe,
+            wardrobe_tab: Category::ALL[0],
+            ..Game::default()
+        };
+        assert_eq!(
+            tab_step(&game, &save, false),
+            Some(Action::WardrobeTab(*Category::ALL.last().unwrap()))
+        );
+        game.panel = Panel::Guide;
+        game.guide = ui::GUIDE_PAGES - 1;
+        assert_eq!(tab_step(&game, &save, true), Some(Action::GuideTab(0)));
+        game.panel = Panel::Forecast;
+        game.ledger_page = 3;
+        assert_eq!(tab_step(&game, &save, true), Some(Action::LedgerPage(0)));
+        game.panel = Panel::None;
+        assert_eq!(tab_step(&game, &save, true), None);
+    }
+
+    #[test]
+    fn cues_queue_behind_the_main_cue() {
+        let mut game = Game::default();
+        game.message("Das geht im Moment nicht.", Cue::Blocked);
+        assert!(game.note_failed);
+        let serial = game.note_serial;
+        game.adventure_notice("Lieferung angekommen", true);
+        assert!(!game.note_failed);
+        assert_ne!(game.note_serial, serial);
+        for _ in 0..40 {
+            game.play(Cue::Tick);
+        }
+        assert_eq!(game.sounds.len(), 16);
+    }
 
     #[test]
     fn a_marked_request_starts_from_nilis_current_position() {
