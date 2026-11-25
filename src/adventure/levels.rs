@@ -313,8 +313,8 @@ impl Level {
             ],
             Region::Oasis => [
                 DateGarden,
-                DateGarden,
-                SpiceBazaar,
+                Caravanserai,
+                Glassworks,
                 SpiceBazaar,
                 Caravanserai,
                 Perfumer,
@@ -589,6 +589,17 @@ impl Level {
         }
     }
 
+    /// The processed good each region is known for.
+    pub fn signature(self) -> Good {
+        match self.region {
+            Region::Greece => Good::Oil,
+            Region::Rome => Good::Flour,
+            Region::Japan => Good::Paper,
+            Region::Nordic => Good::Fish,
+            Region::Oasis => Good::Perfume,
+        }
+    }
+
     pub fn reserve(self) -> (Good, u16) {
         match self.stage {
             0 => (Good::Boards, 8),
@@ -616,7 +627,7 @@ impl Level {
                 },
                 14,
             ),
-            6 => (Good::Local, 20),
+            6 => (self.signature(), 18),
             7 => (
                 if matches!(self.region, Region::Greece | Region::Japan) {
                     Good::Cloth
@@ -625,7 +636,7 @@ impl Level {
                 },
                 16,
             ),
-            8 => (Good::Water, 27),
+            8 => (Good::Local, 24),
             9 => (
                 match self.region {
                     Region::Greece => Good::Meals,
@@ -634,7 +645,7 @@ impl Level {
                 },
                 20,
             ),
-            10 => (Good::Craft, 25),
+            10 => (self.signature(), 24),
             _ => (Good::Tools, 28),
         }
     }
