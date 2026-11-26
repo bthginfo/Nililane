@@ -131,12 +131,17 @@ impl Profile {
     pub fn sign(self) -> Sign {
         use Craft::*;
         match self.craft {
-            Home => Sign::Hearth,
+            Home | Table => Sign::Hearth,
             Bake | Clay | Brick => Sign::Smoke,
-            Forge | Glass => Sign::Sparks,
+            Forge | Glass | Signal => Sign::Sparks,
             Saw | Barrel => Sign::Chips,
             Press | Mill => Sign::Dust,
-            Bath | Dye => Sign::Steam,
+            Bath | Dye | Scent => Sign::Steam,
+            Draw => Sign::Splash,
+            Offering => Sign::Incense,
+            Hive => Sign::Bees,
+            // Groves, herb, tea, market and date gardens; paddies and folds stay calm.
+            Garden if !matches!(self.variation, 2 | 5) => Sign::Petals,
             _ => Sign::Glow,
         }
     }
@@ -157,6 +162,14 @@ pub(super) enum Sign {
     Dust,
     /// Light steam from vats and basins.
     Steam,
+    /// Water splashing at a well or basin.
+    Splash,
+    /// Thin incense smoke at an altar.
+    Incense,
+    /// Bees buzzing around the hives.
+    Bees,
+    /// Leaves and blossoms drifting down from trees and beds.
+    Petals,
     /// Only a lit doorway.
     Glow,
 }
@@ -165,12 +178,29 @@ impl Sign {
     /// How many pieces the effect animates.
     pub fn pieces(self) -> u8 {
         match self {
-            Sign::Hearth => 3,
-            Sign::Smoke | Sign::Chips => 5,
-            Sign::Sparks => 7,
-            Sign::Dust | Sign::Steam => 4,
+            Sign::Hearth | Sign::Incense => 3,
+            Sign::Smoke | Sign::Chips | Sign::Splash => 5,
+            Sign::Sparks | Sign::Bees => 7,
+            Sign::Dust | Sign::Steam | Sign::Petals => 4,
             Sign::Glow => 0,
         }
+    }
+
+    /// Where the effect starts, relative to the building's base; `roof` is its height.
+    pub fn origin(self, roof: f32) -> Vec3 {
+        match self {
+            Sign::Chips | Sign::Dust => v(0.0, 0.22, 1.28),
+            Sign::Splash => v(0.0, 0.42, 0.0),
+            Sign::Incense => v(0.0, 0.5, 1.1),
+            Sign::Bees => v(0.1, 0.7, 0.5),
+            Sign::Petals => v(0.2, (roof * 0.85).max(1.0), 0.3),
+            _ => v(0.42, (roof - 0.12).max(0.6), -0.18),
+        }
+    }
+
+    /// Sparks glow by themselves.
+    pub fn glows(self) -> bool {
+        self == Sign::Sparks
     }
 
     /// A fire inside lights the doorway by day as well.
@@ -189,6 +219,13 @@ impl Sign {
             Sign::Dust => b.gem(Vec3::ZERO, 0.17, 0.12, 0.16, 0.2, [242, 234, 214]),
             Sign::Sparks => b.gem(Vec3::ZERO, 0.045, 0.045, 0.045, 0.0, [255, 176, 72]),
             Sign::Chips => b.slab(Vec3::ZERO, v(0.10, 0.022, 0.055), [214, 168, 112]),
+            Sign::Splash => b.gem(Vec3::ZERO, 0.045, 0.06, 0.045, 0.0, [150, 206, 228]),
+            Sign::Incense => b.gem(Vec3::ZERO, 0.13, 0.11, 0.12, 0.3, [226, 222, 214]),
+            Sign::Bees => {
+                b.gem(Vec3::ZERO, 0.035, 0.028, 0.045, 0.0, [228, 176, 52]);
+                b.slab(v(0.0, 0.025, 0.0), v(0.08, 0.006, 0.03), [236, 240, 244]);
+            }
+            Sign::Petals => b.slab(Vec3::ZERO, v(0.07, 0.012, 0.05), [236, 168, 186]),
             Sign::Glow => {}
         }
         b.mesh()

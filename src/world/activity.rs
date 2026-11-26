@@ -96,6 +96,26 @@ pub(crate) struct Errand {
     spot: Vec3,
     face: f32,
     offset: f32,
+    /// Indoor workers vanish inside between their trips; outdoor ones stay in sight.
+    inside: bool,
+}
+
+/// The space outside a building where its people work.
+#[derive(Clone, Copy)]
+struct Area {
+    door: Vec3,
+    spot: Vec3,
+    pile: Option<Vec3>,
+    scale: f32,
+}
+
+/// Where the worker looks while working: away from the door, towards the work.
+fn yard_target(spot: Vec3, door: Vec3) -> Vec3 {
+    spot - door
+}
+
+fn yard_face(direction: &Vec3) -> f32 {
+    direction.x.atan2(direction.z)
 }
 
 /// The rhythm of an errand: inside, out of the door, at work in the yard, back in.
@@ -104,11 +124,19 @@ const ERRAND_OUT: f32 = 7.0;
 const ERRAND_WALK: f32 = 1.3;
 const ERRAND_WORK: f32 = 3.2;
 
-fn errand_gesture(craft: Craft) -> StationGesture {
+fn errand_gesture(craft: Craft, lot: usize, inside: bool) -> StationGesture {
     match craft {
+        // Some homes chop firewood, others hang out the washing.
+        Craft::Home if lot.is_multiple_of(2) => StationGesture::Saw,
+        Craft::Home => StationGesture::Weave,
         Craft::Saw => StationGesture::Saw,
-        Craft::Dye | Craft::Bath | Craft::Scent => StationGesture::Pour,
-        Craft::Forge | Craft::Glass => StationGesture::Tend,
+        Craft::Dye | Craft::Bath | Craft::Scent | Craft::Draw => StationGesture::Pour,
+        Craft::Forge | Craft::Glass | Craft::Signal | Craft::Brick => StationGesture::Tend,
+        Craft::Clay | Craft::Press | Craft::Mill => StationGesture::Wheel,
+        Craft::Offering => StationGesture::Bow,
+        Craft::Write => StationGesture::Write,
+        Craft::Weave | Craft::Lantern | Craft::Nets => StationGesture::Weave,
+        _ if !inside => gesture(craft),
         _ => StationGesture::Lift,
     }
 }
@@ -231,198 +259,228 @@ pub(crate) fn sync(
         }
         let Some(workshop) = workshop else { continue };
         let profile = Profile::of(workshop.build);
-        if profile.indoors() {
-            let base = match place {
-                Place::Harbor(_) => Some(lot_position(lot, chapter.layout.width())),
-                Place::Adventure(_) => {
-                    land.map(|(map, _)| super::adventure::position(map, map.plots[lot]))
-                }
-            };
-            let Some(base) = base else { continue };
-            let roof = match workshop.build {
-                Build::Harbor(kind) => art.roof_height(region, kind, workshop.tier),
-                build => super::adventure::workshop_roof(region, build, workshop.tier),
-            };
-            let sign = profile.sign();
-            let piece = cache
-                .signs
-                .entry(sign)
-                .or_insert_with(|| meshes.add(sign.piece()))
-                .clone();
-            let origin = match sign {
-                Sign::Chips | Sign::Dust => Vec3::new(0.0, 0.22, 1.28),
-                _ => Vec3::new(0.42, (roof - 0.12).max(0.6), -0.18),
-            };
-            let material = if sign == Sign::Sparks {
-                art.lantern_material.clone()
-            } else {
-                art.matte.clone()
-            };
-            // The yard lies where the old outdoor bench stood, beside the door.
-            let outside = match place {
-                Place::Harbor(_) => Some(harbor_spot(lot, chapter.layout.width())),
-                Place::Adventure(_) => {
-                    land.and_then(|(map, island)| adventure_spot(map, &island.lots, lot))
-                }
-            };
-            let yard = outside.map(|spot| {
+        let base = match place {
+            Place::Harbor(_) => Some(lot_position(lot, chapter.layout.width())),
+            Place::Adventure(_) => {
+                land.map(|(map, _)| super::adventure::position(map, map.plots[lot]))
+            }
+        };
+        let Some(base) = base else { continue };
+        // Where the work spills outside. Harbor buildings face the camera: the north
+        // row opens onto the lane, the south row onto the promenade wall, where only
+        // the doorstep is free. On the islands the first clear side of the plot is used.
+        let station = match place {
+            Place::Harbor(_) => {
+                (lot_row(lot) == 0).then(|| harbor_spot(lot, chapter.layout.width()))
+            }
+            Place::Adventure(_) => {
+                land.and_then(|(map, island)| adventure_spot(map, &island.lots, lot))
+            }
+        };
+        let area = match (place, station) {
+            (Place::Harbor(_), _) if lot_row(lot) != 0 => Some(Area {
+                door: Vec3::new(0.0, 0.0, 1.0),
+                spot: Vec3::new(0.42, 0.0, 1.2),
+                pile: None,
+                scale: 0.78,
+            }),
+            (_, Some(spot)) => {
                 let local = spot.translation - base;
                 let out = Vec2::new(local.x, local.z).normalize_or(Vec2::Y);
                 let side = Vec2::new(out.y, -out.x);
                 let ground = local.y;
                 let door = Vec3::new(out.x * 1.15, ground, out.y * 1.15);
-                let work = Vec3::new(local.x, ground, local.z);
-                let pile = work + Vec3::new(side.x, 0.0, side.y) * 0.62;
-                (door, work, pile, out, spot.scale.x)
+                let spot_at = Vec3::new(local.x, ground, local.z);
+                Some(Area {
+                    door,
+                    spot: spot_at,
+                    pile: Some(spot_at + Vec3::new(side.x, 0.0, side.y) * 0.62),
+                    scale: spot.scale.x,
+                })
+            }
+            _ => None,
+        };
+        let roof = match workshop.build {
+            Build::Harbor(kind) => art.roof_height(region, kind, workshop.tier),
+            build => super::adventure::workshop_roof(region, build, workshop.tier),
+        };
+        let sign = profile.sign();
+        let piece = cache
+            .signs
+            .entry(sign)
+            .or_insert_with(|| meshes.add(sign.piece()))
+            .clone();
+        let origin = sign.origin(roof);
+        let material = if sign.glows() {
+            art.lantern_material.clone()
+        } else {
+            art.matte.clone()
+        };
+        let variant = (lot * 3 + workshop.tier as usize + profile.variation as usize) % 8;
+        let outdoor_bench = (!profile.indoors())
+            .then_some(station)
+            .flatten()
+            .map(|transform| {
+                let model = cache.models.entry((region, profile)).or_insert_with(|| {
+                    let station = assets::station(profile, region);
+                    Model {
+                        parts: station
+                            .parts
+                            .into_iter()
+                            .map(|part| (meshes.add(part.mesh), part.at, part.movement))
+                            .collect(),
+                        person: station.person,
+                        guest: station.visitor,
+                    }
+                });
+                let local = Transform {
+                    translation: transform.translation - base,
+                    ..transform
+                };
+                let worker = local.transform_point(model.person);
+                (local, model.parts.clone(), model.guest, worker)
             });
-            let root = commands
-                .spawn((
-                    Interior {
-                        lot,
-                        workshop,
-                        profile,
-                    },
-                    Transform::from_translation(base),
-                    Visibility::Inherited,
-                ))
-                .with_children(|root| {
-                    for index in 0..sign.pieces() {
-                        root.spawn((
-                            Puff {
-                                lot,
-                                index,
-                                sign,
-                                origin,
-                            },
-                            Mesh3d(piece.clone()),
-                            MeshMaterial3d(material.clone()),
-                            Transform::from_translation(origin).with_scale(Vec3::ZERO),
-                            NotShadowCaster,
-                        ));
-                    }
-                    if sign.fire() {
-                        root.spawn((
-                            Firelight { lot },
-                            halo(&art.glow, Vec3::new(0.0, 0.55, 1.30), 1.35, lot as f32),
-                        ));
-                    }
-                    let Some((door, work, pile, out, scale)) = yard else {
-                        return;
-                    };
-                    let facing = Quat::from_rotation_y(out.x.atan2(out.y));
-                    let yard = assets::yard(profile.craft, region);
+        let yard = profile
+            .indoors()
+            .then(|| area.and_then(|area| area.pile.map(|pile| (pile, area))))
+            .flatten()
+            .map(|(pile, area)| {
+                let yard = assets::yard(profile.craft, region);
+                let still = meshes.add(yard.still);
+                let hanging: Vec<_> = yard
+                    .hanging
+                    .into_iter()
+                    .map(|(mesh, pivot)| (meshes.add(mesh), pivot))
+                    .collect();
+                (pile, area, still, hanging)
+            });
+        let root = commands
+            .spawn((
+                Interior {
+                    lot,
+                    workshop,
+                    profile,
+                },
+                Transform::from_translation(base),
+                Visibility::Inherited,
+            ))
+            .with_children(|root| {
+                for index in 0..sign.pieces() {
                     root.spawn((
-                        Mesh3d(meshes.add(yard.still)),
+                        Puff {
+                            lot,
+                            index,
+                            sign,
+                            origin,
+                        },
+                        Mesh3d(piece.clone()),
+                        MeshMaterial3d(material.clone()),
+                        Transform::from_translation(origin).with_scale(Vec3::ZERO),
+                        NotShadowCaster,
+                    ));
+                }
+                if sign.fire() {
+                    root.spawn((
+                        Firelight { lot },
+                        halo(&art.glow, Vec3::new(0.0, 0.55, 1.30), 1.35, lot as f32),
+                    ));
+                }
+                if let Some((pile, area, still, hanging)) = yard {
+                    let out = area.spot - area.door;
+                    let facing = Quat::from_rotation_y(out.x.atan2(out.z));
+                    root.spawn((
+                        Mesh3d(still),
                         MeshMaterial3d(art.matte.clone()),
                         Transform::from_translation(pile)
                             .with_rotation(facing)
-                            .with_scale(Vec3::splat(scale * 1.15)),
+                            .with_scale(Vec3::splat(area.scale * 1.15)),
                     ))
                     .with_children(|pile| {
-                        for (i, (mesh, pivot)) in yard.hanging.into_iter().enumerate() {
+                        for (i, (mesh, pivot)) in hanging.into_iter().enumerate() {
                             pile.spawn((
                                 Flutter {
                                     phase: lot as f32 * 0.7 + i as f32 * 1.3,
                                 },
-                                Mesh3d(meshes.add(mesh)),
+                                Mesh3d(mesh),
                                 MeshMaterial3d(art.matte.clone()),
                                 Transform::from_translation(pivot),
                                 NotShadowCaster,
                             ));
                         }
                     });
-                    let variant =
-                        (lot * 3 + workshop.tier as usize + profile.variation as usize) % 8;
+                }
+                if let Some((local, parts, guest, _)) = &outdoor_bench {
+                    root.spawn((
+                        Station {
+                            lot,
+                            workshop,
+                            profile,
+                        },
+                        *local,
+                        Visibility::Hidden,
+                    ))
+                    .with_children(|bench| {
+                        for (handle, at, movement) in parts {
+                            let mut part = bench.spawn((
+                                Detail {
+                                    lot,
+                                    at: *at,
+                                    movement: *movement,
+                                },
+                                Mesh3d(handle.clone()),
+                                MeshMaterial3d(art.matte.clone()),
+                                Transform::from_translation(*at),
+                            ));
+                            if matches!(movement, Movement::Smoke(_) | Movement::Fleck(..)) {
+                                part.insert(NotShadowCaster);
+                            }
+                        }
+                        // Guests sit at the tables; the staff walks to and fro.
+                        if let Some(at) = guest {
+                            let style = (variant + 5) % 8;
+                            let mut actor = bench.spawn((
+                                Attendant {
+                                    lot,
+                                    variant: style,
+                                    gesture: StationGesture::Seated(at.y),
+                                    guest: true,
+                                },
+                                MeshMaterial3d(art.matte.clone()),
+                                Transform::from_xyz(at.x, 0.008, at.z)
+                                    .with_rotation(Quat::from_rotation_y(PI)),
+                                Visibility::Hidden,
+                            ));
+                            people::worker_rig(&mut actor, &cast, style, region);
+                        }
+                    });
+                }
+                // Somebody always does something: indoors they step out now and then,
+                // at an outdoor bench they go back and forth between bench and door.
+                let walk = match (&outdoor_bench, area) {
+                    (Some((local, _, _, worker)), Some(area)) => {
+                        Some((area.door, *worker, false, local.scale.x))
+                    }
+                    (_, Some(area)) => Some((area.door, area.spot, true, area.scale)),
+                    _ => None,
+                };
+                if let Some((door, spot, inside, scale)) = walk {
+                    let gesture = errand_gesture(profile.craft, lot, inside);
                     let mut person = root.spawn((
                         Errand {
                             lot,
                             variant,
-                            gesture: errand_gesture(profile.craft),
+                            gesture,
                             door,
-                            spot: work,
-                            face: (pile - work).x.atan2((pile - work).z),
+                            spot,
+                            face: yard_face(&yard_target(spot, door)),
                             offset: lot as f32 * 3.7,
+                            inside,
                         },
                         MeshMaterial3d(art.matte.clone()),
                         Transform::from_translation(door).with_scale(Vec3::splat(scale)),
                         Visibility::Hidden,
                     ));
                     people::worker_rig(&mut person, &cast, variant, region);
-                })
-                .id();
-            cache.slots[lot] = Some((workshop, root));
-            continue;
-        }
-        let transform = match place {
-            Place::Harbor(_) => Some(harbor_spot(lot, chapter.layout.width())),
-            Place::Adventure(_) => {
-                land.and_then(|(map, island)| adventure_spot(map, &island.lots, lot))
-            }
-        };
-        let Some(transform) = transform else { continue };
-        let model = cache.models.entry((region, profile)).or_insert_with(|| {
-            let station = assets::station(profile, region);
-            Model {
-                parts: station
-                    .parts
-                    .into_iter()
-                    .map(|part| (meshes.add(part.mesh), part.at, part.movement))
-                    .collect(),
-                person: station.person,
-                guest: station.visitor,
-            }
-        });
-        let variant = (lot * 3 + workshop.tier as usize + profile.variation as usize) % 8;
-        let root = commands
-            .spawn((
-                Station {
-                    lot,
-                    workshop,
-                    profile,
-                },
-                transform,
-                Visibility::Hidden,
-            ))
-            .with_children(|root| {
-                for (handle, at, movement) in &model.parts {
-                    let mut piece = root.spawn((
-                        Detail {
-                            lot,
-                            at: *at,
-                            movement: *movement,
-                        },
-                        Mesh3d(handle.clone()),
-                        MeshMaterial3d(art.matte.clone()),
-                        Transform::from_translation(*at),
-                    ));
-                    if matches!(movement, Movement::Smoke(_) | Movement::Fleck(..)) {
-                        piece.insert(NotShadowCaster);
-                    }
-                }
-                let person = |root: &mut ChildSpawnerCommands, at: Vec3, guest| {
-                    let style = if guest { (variant + 5) % 8 } else { variant };
-                    let gesture = if guest {
-                        StationGesture::Seated(at.y)
-                    } else {
-                        gesture(profile.craft)
-                    };
-                    let mut actor = root.spawn((
-                        Attendant {
-                            lot,
-                            variant: style,
-                            gesture,
-                            guest,
-                        },
-                        MeshMaterial3d(art.matte.clone()),
-                        Transform::from_xyz(at.x, 0.008, at.z)
-                            .with_rotation(Quat::from_rotation_y(if guest { PI } else { 0.0 })),
-                        Visibility::Hidden,
-                    ));
-                    people::worker_rig(&mut actor, &cast, style, region);
-                };
-                person(root, model.person, false);
-                if let Some(at) = model.guest {
-                    person(root, at, true);
                 }
             })
             .id();
@@ -685,31 +743,62 @@ pub(crate) fn animate(
     let mut errand_poses = Vec::new();
     for (errand, rig, mut transform, mut visible) in &mut visual.errands {
         let working = live.get(errand.lot).is_some_and(|state| state.work);
-        let t = (game.clock + errand.offset).rem_euclid(ERRAND_PERIOD);
-        let walk_out = ERRAND_OUT..ERRAND_OUT + ERRAND_WALK;
-        let at_work = walk_out.end..walk_out.end + ERRAND_WORK;
-        let walk_in = at_work.end..at_work.end + ERRAND_WALK;
-        let outside = working && (walk_out.start..walk_in.end).contains(&t);
-        set_visibility(&mut visible, outside);
-        if !outside {
-            continue;
-        }
         let path = errand.spot - errand.door;
         let heading = |d: Vec3| d.x.atan2(d.z);
-        let pose = if walk_out.contains(&t) || walk_in.contains(&t) {
-            let (p, toward) = if walk_out.contains(&t) {
-                ((t - walk_out.start) / ERRAND_WALK, path)
-            } else {
-                (1.0 - (t - walk_in.start) / ERRAND_WALK, -path)
-            };
+        let walking = |p: f32, toward: Vec3, t: f32, transform: &mut Transform| {
             let eased = p * p * (3.0 - 2.0 * p);
             transform.translation = errand.door + path * eased;
             transform.rotation = Quat::from_rotation_y(heading(toward));
             people::worker_pose(&cast, errand.variant, region, t * 5.2, 1.0, t, false)
+        };
+        let pose = if errand.inside {
+            // Inside most of the time; out of the door, a spell of work, back in.
+            let t = (game.clock + errand.offset).rem_euclid(ERRAND_PERIOD);
+            let walk_out = ERRAND_OUT..ERRAND_OUT + ERRAND_WALK;
+            let at_work = walk_out.end..walk_out.end + ERRAND_WORK;
+            let walk_in = at_work.end..at_work.end + ERRAND_WALK;
+            let outside = working && (walk_out.start..walk_in.end).contains(&t);
+            set_visibility(&mut visible, outside);
+            if !outside {
+                continue;
+            }
+            if walk_out.contains(&t) {
+                walking((t - walk_out.start) / ERRAND_WALK, path, t, &mut transform)
+            } else if walk_in.contains(&t) {
+                walking(
+                    1.0 - (t - walk_in.start) / ERRAND_WALK,
+                    -path,
+                    t,
+                    &mut transform,
+                )
+            } else {
+                transform.translation = errand.spot;
+                transform.rotation = Quat::from_rotation_y(errand.face);
+                people::station_pose(&cast, errand.variant, region, errand.gesture, t)
+            }
         } else {
-            transform.translation = errand.spot;
-            transform.rotation = Quat::from_rotation_y(errand.face);
-            people::station_pose(&cast, errand.variant, region, errand.gesture, t)
+            // At an outdoor bench: work there, fetch something from the door, come back.
+            set_visibility(&mut visible, working);
+            if !working {
+                continue;
+            }
+            const BENCH: f32 = 4.6;
+            const FETCH: f32 = 1.4;
+            const WALK: f32 = 1.5;
+            let t = (game.clock + errand.offset).rem_euclid(BENCH + FETCH + WALK * 2.0);
+            if t < BENCH {
+                transform.translation = errand.spot;
+                transform.rotation = Quat::from_rotation_y(heading(path) + PI);
+                people::station_pose(&cast, errand.variant, region, errand.gesture, t)
+            } else if t < BENCH + WALK {
+                walking(1.0 - (t - BENCH) / WALK, -path, t, &mut transform)
+            } else if t < BENCH + WALK + FETCH {
+                transform.translation = errand.door;
+                transform.rotation = Quat::from_rotation_y(heading(-path));
+                people::station_pose(&cast, errand.variant, region, StationGesture::Lift, t)
+            } else {
+                walking((t - BENCH - WALK - FETCH) / WALK, path, t, &mut transform)
+            }
         };
         errand_poses.extend(rig.joints.iter().copied().zip(pose));
     }
@@ -785,9 +874,9 @@ fn puff_pose(puff: &Puff, t: f32, wind: f32) -> Transform {
     let (translation, scale, spin) = match puff.sign {
         Sign::Hearth | Sign::Smoke | Sign::Steam => {
             let (rate, rise, size) = match puff.sign {
-                Sign::Hearth => (0.22, 0.95, 0.55),
-                Sign::Steam => (0.42, 0.70, 0.85),
-                _ => (0.34, 1.20, 1.0),
+                Sign::Hearth => (0.22, 1.05, 0.8),
+                Sign::Steam => (0.42, 0.80, 1.0),
+                _ => (0.34, 1.35, 1.3),
             };
             let p = at(t, rate);
             let drift = Vec3::new(
@@ -826,6 +915,51 @@ fn puff_pose(puff: &Puff, t: f32, wind: f32) -> Transform {
             );
             (puff.origin + drift, (p * PI).sin() * 1.1, p * 2.0)
         }
+        Sign::Splash => {
+            let p = at(t, 1.05);
+            let out = Vec3::new(spread.cos() * 0.28, 0.0, spread.sin() * 0.28);
+            (
+                puff.origin + out * p + Vec3::Y * (0.34 * (p * PI).sin()),
+                (1.0 - p) * 0.9,
+                0.0,
+            )
+        }
+        Sign::Incense => {
+            let p = at(t, 0.16);
+            let curl = Vec3::new(
+                0.08 * (p * TAU * 1.5 + spread).sin() + wind * p,
+                0.85 * p,
+                0.06 * (p * TAU + spread).cos(),
+            );
+            (
+                puff.origin + curl,
+                (p * PI).sin() * (0.4 + p * 0.6),
+                p * 2.0,
+            )
+        }
+        Sign::Bees => {
+            let angle = t * (2.1 + f32::from(puff.index) * 0.17) + spread;
+            let reach = 0.32 + 0.12 * (t * 1.3 + spread).sin();
+            (
+                puff.origin
+                    + Vec3::new(
+                        angle.cos() * reach,
+                        0.14 * (t * 4.1 + spread).sin(),
+                        angle.sin() * reach * 0.8,
+                    ),
+                1.0,
+                angle + PI * 0.5,
+            )
+        }
+        Sign::Petals => {
+            let p = at(t, 0.13);
+            let sway = Vec3::new(
+                0.28 * (p * TAU * 1.5 + spread).sin() + wind * p * 1.5,
+                -(puff.origin.y - 0.05) * p,
+                0.22 * (p * TAU + spread).cos(),
+            );
+            (puff.origin + sway, (p * PI).sin().sqrt(), p * 7.0 + spread)
+        }
         Sign::Glow => (puff.origin, 0.0, 0.0),
     };
     Transform::from_translation(translation)
@@ -841,5 +975,45 @@ fn set_visibility(out: &mut Visibility, show: bool) {
     };
     if *out != next {
         *out = next;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Writes a busy harbor in the middle of a market day for visual review:
+    /// `NILILANE_SHOWCASE_DIR=/tmp/x cargo test --release harbor_showcase -- --ignored`
+    #[test]
+    #[ignore]
+    fn harbor_showcase_for_visual_review() {
+        use crate::model::Building;
+        let Some(dir) = std::env::var_os("NILILANE_SHOWCASE_DIR") else {
+            return;
+        };
+        let chapter = std::env::var("NILILANE_SHOWCASE_HARBOR")
+            .ok()
+            .and_then(|i| i.parse().ok())
+            .unwrap_or(7);
+        let rule = &CHAPTERS[chapter];
+        let mut town = Town::new(chapter, rule);
+        let allowed = rule.allowed();
+        let kinds: Vec<Kind> = allowed.iter().copied().cycle().take(LOTS).collect();
+        for (lot, kind) in kinds.into_iter().enumerate() {
+            if rule.layout.contains(lot) {
+                let mut building = Building::new(kind);
+                building.level = 2 + (lot % 3) as u8;
+                town.lots[lot] = Some(building);
+            }
+        }
+        assert!(town.open(rule));
+        let mut campaign = Campaign::default();
+        for earlier in 0..chapter {
+            campaign.record(earlier, 4, 3);
+        }
+        campaign.enter_town(town, false);
+        std::fs::create_dir_all(&dir).unwrap();
+        let json = serde_json::to_string(&campaign).unwrap();
+        std::fs::write(std::path::Path::new(&dir).join("nililane-v1.json"), json).unwrap();
     }
 }
