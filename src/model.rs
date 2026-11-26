@@ -331,7 +331,7 @@ impl Kind {
         }
     }
 
-    pub fn service(self) -> Option<Service> {
+    pub const fn service(self) -> Option<Service> {
         match self {
             Self::Bakery => Some(Service::Bread),
             Self::Potter => Some(Service::Pottery),
@@ -563,7 +563,7 @@ impl Assortment {
         *self == Self::Standard
     }
 
-    pub fn supported(kind: Kind) -> bool {
+    pub const fn supported(kind: Kind) -> bool {
         matches!(
             kind,
             Kind::Bakery
@@ -1240,6 +1240,21 @@ pub struct Tally {
     pub best_streak: u32,
     #[serde(default)]
     pub streak_bonus: u32,
+    /// Most different tours Nili walked on one day.
+    #[serde(default)]
+    pub best_tour_day: u32,
+    /// Incidents solved fast enough for the rush bonus.
+    #[serde(default)]
+    pub rushes: u32,
+    /// Most favourite offers one age group bought on a single day, by [`Age`].
+    #[serde(default)]
+    pub best_fans: [u32; 3],
+    /// Best share of happy guests held on two days in a row: the weaker of both days.
+    #[serde(default)]
+    pub best_steady_mood: u32,
+    /// Calls at the temple, shrine and forum, by [`Calling`].
+    #[serde(default)]
+    pub calls: [u32; 3],
 }
 
 impl Tally {
@@ -1258,6 +1273,11 @@ impl Tally {
 
     pub fn routes_today(&self) -> u32 {
         self.routes.iter().sum()
+    }
+
+    /// How many different kinds of tour Nili walked.
+    pub fn tour_kinds(&self) -> u32 {
+        self.routes.iter().filter(|&&n| n > 0).count() as u32
     }
 
     pub fn served_total(&self) -> u32 {
@@ -1312,6 +1332,15 @@ impl Tally {
         self.spice_routes += other.spice_routes;
         self.best_streak = self.best_streak.max(other.best_streak);
         self.streak_bonus += other.streak_bonus;
+        self.best_tour_day = self.best_tour_day.max(other.best_tour_day);
+        self.rushes += other.rushes;
+        for (best, today) in self.best_fans.iter_mut().zip(other.best_fans) {
+            *best = (*best).max(today);
+        }
+        self.best_steady_mood = self.best_steady_mood.max(other.best_steady_mood);
+        for (total, today) in self.calls.iter_mut().zip(other.calls) {
+            *total += today;
+        }
         self.harvest_peak = self.harvest_peak.max(other.harvest_peak);
         self.bell_rings += other.bell_rings;
         self.catch_peak = self.catch_peak.max(other.catch_peak);
@@ -3066,6 +3095,9 @@ impl Town {
         };
         day.rung_bells |= 1 << lot;
         day.tally.bell_rings += u32::from(calling == Some(Calling::Bell));
+        if let Some(calling) = calling {
+            day.tally.calls[calling as usize] += 1;
+        }
         day.restock(lot, guests);
         let at = day.seconds;
         invite_party(
@@ -3193,8 +3225,13 @@ impl Town {
         tally.harvest_peak = u32::from(day.rice_harvest);
         tally.catch_peak = u32::from(day.fish_catch);
         tally.best_ferry_day = tally.ferry_served;
+        tally.best_tour_day = tally.tour_kinds();
+        tally.best_fans = tally.specialties;
         if tally.responses() >= 12 {
             tally.best_mood = tally.satisfaction().unwrap_or(0);
+            // Yesterday only counts with enough votes of its own, like today.
+            let yesterday = self.last_day.as_ref().map_or(0, |last| last.best_mood);
+            tally.best_steady_mood = tally.best_mood.min(yesterday);
         }
         if let Some(Goal::GuestCare(age, minimum, _)) = care_goal(chapter, self.chapter) {
             tally.best_care = tally.care(age, minimum);
@@ -3330,6 +3367,12 @@ impl Town {
             Goal::Rebuild(order) => self.lots[order.lot]
                 .filter(|building| building.kind == order.new)
                 .map_or(0, |building| u32::from(building.level)),
+            Goal::Streak(_) => self.totals.best_streak,
+            Goal::TourDay(_) => self.totals.best_tour_day,
+            Goal::Rush(_) => self.totals.rushes,
+            Goal::FanDay(age, _) => self.totals.best_fans[age as usize],
+            Goal::SteadyMood(_) => self.totals.best_steady_mood,
+            Goal::Call(calling, _) => self.totals.calls[calling as usize],
             Goal::Pair(first, second, _) => self
                 .lots
                 .iter()
@@ -3382,6 +3425,11 @@ impl Town {
             Goal::Clean(_) => value + today.cleaned,
             Goal::GuestCare(age, minimum, _) => value.max(today.care(age, minimum)),
             Goal::FavoriteMenu(age, _) => value.max(today.favorite_variety(age)),
+            Goal::Streak(_) => value.max(today.best_streak),
+            Goal::TourDay(_) => value.max(today.tour_kinds()),
+            Goal::Rush(_) => value + today.rushes,
+            Goal::FanDay(age, _) => value.max(today.specialties[age as usize]),
+            Goal::Call(calling, _) => value + today.calls[calling as usize],
             _ => value,
         };
         (shown, need)
@@ -3403,9 +3451,10 @@ impl Town {
             return 0;
         }
         let complete = chapter.objectives(self.chapter).all(|goal| {
-            let (value, need) = match goal {
-                Goal::GuestCare(..) => self.goal(goal),
-                _ => self.live_goal(goal),
+            let (value, need) = if goal.settles_at_dusk() {
+                self.goal(goal)
+            } else {
+                self.live_goal(goal)
             };
             value >= need
         });
@@ -3648,6 +3697,7 @@ fn finish_favor(
     if day.favor.incident() && rush.is_some_and(|deadline| at <= deadline) {
         day.tally.income += RUSH_COINS;
         day.tally.reputation += RUSH_RENOWN;
+        day.tally.rushes += 1;
         day.favor_rushed = true;
     }
 }
@@ -4227,6 +4277,37 @@ mod tests {
                 break;
             }
         }
+        // Happy streaks and good days need a shop for every wish, so nobody leaves
+        // empty-handed.
+        let every_wish = chapter.objectives(town.chapter).any(|goal| {
+            matches!(goal, Streak(_) | SteadyMood(_) | GoodDay(_) | Variety(_))
+                && town.goal(goal).0 < goal.target()
+        });
+        if every_wish {
+            for &service in chapter.locals.iter().chain(chapter.guests) {
+                if town
+                    .lots
+                    .iter()
+                    .flatten()
+                    .any(|b| b.kind.service() == Some(service))
+                {
+                    continue;
+                }
+                let Some(kind) = crate::campaign_orders::shop_for(service, chapter)
+                    .filter(|kind| chapter.allowed().contains(kind))
+                else {
+                    continue;
+                };
+                let lot = chapter
+                    .layout
+                    .lots()
+                    .filter(|&lot| town.lots[lot].is_none() && is_open(chapter, lot))
+                    .min_by_key(|&lot| near(lot));
+                if let Some(lot) = lot {
+                    town.build(chapter, lot, kind);
+                }
+            }
+        }
     }
 
     fn improve_objectives(town: &mut Town, chapter: &Chapter) {
@@ -4532,13 +4613,16 @@ mod tests {
         let goal_age = chapter
             .objectives(town.chapter)
             .find_map(|goal| match goal {
-                Goal::FavoriteMenu(age, _) if town.goal(goal).0 < goal.target() => Some(age),
+                Goal::FavoriteMenu(age, _) | Goal::FanDay(age, _)
+                    if town.goal(goal).0 < goal.target() =>
+                {
+                    Some(age)
+                }
                 _ => None,
             });
         if goal_age.is_some()
             || chapter
-                .goals
-                .iter()
+                .objectives(town.chapter)
                 .any(|goal| matches!(goal, Goal::Specials(_)))
         {
             let production = town.production(chapter);
@@ -4592,12 +4676,15 @@ mod tests {
                 stage: ManualStage::Pickup,
             });
         }
-        if chapter.region == crate::campaign::Region::Japan {
+        let calls_wanted = chapter
+            .objectives(town.chapter)
+            .any(|goal| matches!(goal, Goal::Call(..)) && town.goal(goal).0 < goal.target());
+        if chapter.region == crate::campaign::Region::Japan || calls_wanted {
             use crate::world::motion;
             let temples: Vec<_> = chapter
                 .layout
                 .lots()
-                .filter(|&lot| town.lots[lot].is_some_and(|b| b.kind == Temple))
+                .filter(|&lot| town.calling(lot).is_some())
                 .collect();
             for lot in temples {
                 walk_to(&mut town, chapter, motion::entrance(lot, chapter.layout));
@@ -4609,9 +4696,8 @@ mod tests {
             use crate::{trade::SailingRoute, world::motion};
             let remaining = |cash: bool| {
                 chapter
-                    .goals
-                    .iter()
-                    .find_map(|&goal| {
+                    .objectives(town.chapter)
+                    .find_map(|goal| {
                         if !matches!(goal, Goal::CargoIncome(_) | Goal::Voyages(_))
                             || cash != matches!(goal, Goal::CargoIncome(_))
                         {
@@ -4648,7 +4734,7 @@ mod tests {
             }
         }
         if chapter.region == crate::campaign::Region::Oasis
-            && chapter.goals.iter().any(|goal| {
+            && chapter.objectives(town.chapter).any(|goal| {
                 matches!(
                     goal,
                     Goal::Caravans(_) | Goal::CaravanIncome(_) | Goal::SpiceRoutes(_)
@@ -5682,6 +5768,208 @@ mod tests {
         assert!(!late.favor_rushed);
         assert_eq!(late.tally.income, 6);
         assert!(town.rush_deadline(chapter).is_none());
+    }
+
+    fn walk_in(age: Age, at: f32) -> Visit {
+        Visit {
+            origin: Origin::Home(0),
+            age: Some(age),
+            specialty_bonus: 0,
+            wants: Service::Bread,
+            budget: Price::Fine,
+            at,
+            resolved: false,
+            shop: None,
+            miss: None,
+            guided_to: None,
+            declined_at: None,
+        }
+    }
+
+    /// Opens a day in Milos with only the given guests and a stocked bakery on plot 7.
+    fn quiet_day(town: &mut Town, guests: Vec<Visit>, stock: u16) {
+        let chapter = &CHAPTERS[9];
+        assert!(town.open(chapter));
+        let Phase::Open(day) = &mut town.phase else {
+            unreachable!()
+        };
+        day.visits = guests;
+        day.stock[7] = stock;
+    }
+
+    #[test]
+    fn a_streak_goal_keeps_the_longest_happy_run_of_any_day() {
+        let chapter = &CHAPTERS[9];
+        let mut town = Town::new(9, chapter);
+        assert_eq!(town.lots[7].map(|b| b.kind), Some(Bakery));
+        let goal = Goal::Streak(8);
+        // Six happy guests, then the bakery runs out and the run breaks.
+        quiet_day(
+            &mut town,
+            (0..9)
+                .map(|n| walk_in(Age::Adult, 1.0 + n as f32))
+                .collect(),
+            6,
+        );
+        town.tick(chapter, 12.0);
+        assert_eq!(town.live_goal(goal), (6, 8));
+        assert_eq!(town.goal(goal).0, 0, "the day is still running");
+        assert!(town.tick(chapter, chapter.day_seconds()));
+        assert_eq!(town.goal(goal), (6, 8));
+        assert!(town.advance());
+        // A shorter run on the next day keeps the record.
+        quiet_day(
+            &mut town,
+            (0..3)
+                .map(|n| walk_in(Age::Adult, 1.0 + n as f32))
+                .collect(),
+            3,
+        );
+        assert!(town.tick(chapter, chapter.day_seconds()));
+        assert_eq!(town.goal(goal), (6, 8));
+    }
+
+    #[test]
+    fn a_tour_day_counts_different_tours_on_a_single_day() {
+        let chapter = &CHAPTERS[9];
+        let mut town = Town::new(9, chapter);
+        let goal = Goal::TourDay(3);
+        quiet_day(&mut town, Vec::new(), 0);
+        let Phase::Open(day) = &mut town.phase else {
+            unreachable!()
+        };
+        day.tally.routes[Job::Freight as usize] = 2;
+        day.tally.routes[Job::Water as usize] = 1;
+        assert_eq!(town.live_goal(goal), (2, 3));
+        assert!(town.tick(chapter, chapter.day_seconds()));
+        assert!(town.advance());
+        quiet_day(&mut town, Vec::new(), 0);
+        let Phase::Open(day) = &mut town.phase else {
+            unreachable!()
+        };
+        day.tally.routes[Job::Welcome as usize] = 1;
+        assert!(town.tick(chapter, chapter.day_seconds()));
+        // Three kinds over two days are not three on one day.
+        assert_eq!(town.goal(goal), (2, 3));
+        assert_eq!(town.goal(Goal::RouteVariety(3)), (3, 3));
+    }
+
+    #[test]
+    fn only_quick_rescues_count_for_the_rush_goal() {
+        let chapter = &CHAPTERS[0];
+        let mut town = Town::new(0, chapter);
+        assert!(town.build(chapter, 2, Bakery));
+        assert!(town.open(chapter));
+        let lots = town.lots;
+        let Phase::Open(day) = &mut town.phase else {
+            unreachable!()
+        };
+        day.favor = Favor::Fire;
+        let mut late = day.clone();
+        finish_favor(&lots, &mut late, 2, 11.0, 99.0, 0, Some(10.0));
+        assert_eq!(late.tally.rushes, 0);
+        finish_favor(&lots, day, 2, 9.0, 99.0, 0, Some(10.0));
+        assert_eq!(day.tally.rushes, 1);
+        assert_eq!(town.live_goal(Goal::Rush(1)), (1, 1));
+        assert_eq!(town.goal(Goal::Rush(1)).0, 0);
+        assert!(town.tick(chapter, chapter.day_seconds()));
+        assert_eq!(town.goal(Goal::Rush(1)), (1, 1));
+    }
+
+    #[test]
+    fn a_fan_day_counts_one_age_group_buying_its_favourite_on_one_day() {
+        let chapter = &CHAPTERS[9];
+        let mut town = Town::new(9, chapter);
+        assert!(town.set_assortment(7, Assortment::Colorful));
+        let goal = Goal::FanDay(Age::Child, 3);
+        let guests = [Age::Child, Age::Adult, Age::Child, Age::Senior, Age::Child]
+            .into_iter()
+            .enumerate()
+            .map(|(n, age)| walk_in(age, 1.0 + n as f32))
+            .collect();
+        quiet_day(&mut town, guests, 10);
+        town.tick(chapter, 8.0);
+        // Only the children like the colourful offer.
+        assert_eq!(town.live_goal(goal), (3, 3));
+        assert_eq!(town.live_goal(Goal::FanDay(Age::Adult, 1)), (0, 1));
+        assert!(town.tick(chapter, chapter.day_seconds()));
+        assert!(town.advance());
+        quiet_day(&mut town, vec![walk_in(Age::Child, 1.0)], 10);
+        assert!(town.tick(chapter, chapter.day_seconds()));
+        assert_eq!(town.goal(goal), (3, 3), "one day counts, not the sum");
+        assert_eq!(town.totals.specialties[Age::Child as usize], 4);
+    }
+
+    #[test]
+    fn steady_mood_takes_the_weaker_of_two_days_in_a_row() {
+        let chapter = &CHAPTERS[9];
+        let mut town = Town::new(9, chapter);
+        let goal = Goal::SteadyMood(80);
+        assert!(goal.settles_at_dusk());
+        let close = |town: &mut Town, served: u32, missed: u32| {
+            quiet_day(town, Vec::new(), 0);
+            let Phase::Open(day) = &mut town.phase else {
+                unreachable!()
+            };
+            day.tally.served[Service::Bread as usize] = served;
+            day.tally.missed[Service::Bread as usize] = missed;
+            assert!(town.tick(chapter, chapter.day_seconds()));
+            assert!(town.advance());
+        };
+        close(&mut town, 18, 2);
+        assert_eq!(town.goal(goal).0, 0, "a single good day is not enough");
+        close(&mut town, 16, 4);
+        assert_eq!(town.goal(goal), (80, 80));
+        // Too few votes to count, so the pair is broken.
+        close(&mut town, 10, 0);
+        close(&mut town, 20, 0);
+        assert_eq!(town.goal(goal), (80, 80));
+        close(&mut town, 19, 1);
+        assert_eq!(town.goal(goal), (95, 80));
+        quiet_day(&mut town, Vec::new(), 0);
+        assert_eq!(
+            town.live_goal(goal),
+            (95, 80),
+            "the running day waits for dusk"
+        );
+    }
+
+    #[test]
+    fn calls_count_per_kind_and_the_offering_goal_ignores_the_bell() {
+        let index = CHAPTERS
+            .iter()
+            .position(|c| c.allowed().contains(&Shrine))
+            .unwrap();
+        let mut chapter = CHAPTERS[index];
+        chapter.ferry = 0;
+        let mut town = Town::new(index, &chapter);
+        town.lots.fill(None);
+        town.coins = 500;
+        assert!(town.build(&chapter, 8, Shrine));
+        let goal = Goal::Call(Calling::Offering, 2);
+        for day in 1..=2 {
+            assert!(town.open(&chapter));
+            assert!(town.ring_bell(&chapter, 8));
+            assert_eq!(town.live_goal(goal), (day, 2));
+            assert!(town.tick(&chapter, chapter.day_seconds()));
+            assert!(town.advance());
+        }
+        assert_eq!(town.goal(goal), (2, 2));
+        assert_eq!(town.goal(Goal::Call(Calling::Herald, 1)).0, 0);
+        assert_eq!(town.goal(Goal::Bell(1)).0, 0);
+    }
+
+    #[test]
+    fn old_tallies_load_without_the_new_goal_records() {
+        let old = r#"{"served":[3],"missed":[1],"income":4,"reputation":2,"favors":0,
+            "best_streak":5}"#;
+        let tally: Tally = serde_json::from_str(old).unwrap();
+        assert_eq!(tally.best_streak, 5);
+        assert_eq!(
+            (tally.best_tour_day, tally.rushes, tally.best_steady_mood),
+            (0, 0, 0)
+        );
+        assert_eq!((tally.best_fans, tally.calls), ([0; 3], [0; 3]));
     }
 
     #[test]

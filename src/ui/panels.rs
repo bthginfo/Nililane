@@ -263,6 +263,20 @@ fn brief(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter
 fn new_in_harbor(page: &mut ChildSpawnerCommands, hud: &Hud, island: usize, chapter: &Chapter) {
     use crate::model::Age;
     let stage = harbor_stage(island);
+    // Goal kinds this region asks for the first time get a tile with their „So geht’s“.
+    let start = Region::of(island).start();
+    let seen = |goal: crate::campaign::Goal| {
+        (start..island).any(|earlier| {
+            CHAPTERS[earlier]
+                .objectives(earlier)
+                .any(|other| std::mem::discriminant(&other) == std::mem::discriminant(&goal))
+        })
+    };
+    let first_goals: Vec<_> = chapter
+        .objectives(island)
+        .filter(|&goal| goal.introduced() && !seen(goal))
+        .map(|goal| (super::goal_icon(goal), goal.label(), goal.hint(chapter)))
+        .collect();
     let mut fresh = match stage {
         0 => vec![(
             "age_adult",
@@ -424,6 +438,9 @@ fn new_in_harbor(page: &mut ChildSpawnerCommands, hud: &Hud, island: usize, chap
         {
             fresh.push((calling.icon(), calling.action(), calling.hint()));
         }
+    }
+    for (art, title, explanation) in &first_goals {
+        fresh.push((art, title.as_str(), explanation.as_str()));
     }
     if fresh.is_empty() {
         return;
@@ -2227,20 +2244,6 @@ fn goals(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter
         |page| {
             objective_list(page, hud, town, chapter);
             hint(page, hud, chapter.hint, "nili");
-            if chapter
-                .goals
-                .iter()
-                .any(|g| matches!(g, crate::campaign::Goal::GoodDay(_)))
-            {
-                label(
-                    page,
-                    hud,
-                    "Die Zufriedenheit zählt ab 12 Rückmeldungen.",
-                    16.0,
-                    Face::Body,
-                    MUTED,
-                );
-            }
             page.spawn(row(16.0)).with_children(|stars| {
                 metric(
                     stars,
@@ -2275,7 +2278,7 @@ fn objective_list(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter:
     let extra = crate::campaign_orders::extra_goals(chapter, town.chapter);
     if extra.iter().all(Option::is_none) {
         for task in chapter.goals {
-            super::screens::goal(p, hud, town, task);
+            campaign_goal(p, hud, town, chapter, task);
         }
         return;
     }
@@ -2288,7 +2291,7 @@ fn objective_list(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter:
         .filter(|task| order.is_none() || matches!(task, Goal::Sale(..) | Goal::TradeUpgrade(..)));
     let main = |p: &mut ChildSpawnerCommands| {
         for task in basics {
-            campaign_goal(p, hud, town, task);
+            campaign_goal(p, hud, town, chapter, task);
         }
     };
     let extra = |p: &mut ChildSpawnerCommands| {
@@ -2301,7 +2304,7 @@ fn objective_list(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter:
             );
         }
         for task in followups {
-            campaign_goal(p, hud, town, task);
+            campaign_goal(p, hud, town, chapter, task);
         }
     };
     if hud.phone {
@@ -2326,85 +2329,48 @@ fn objective_list(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter:
     }
 }
 
+/// One objective of the Aufträge list, with a „So geht’s“ line while it is still open.
 fn campaign_goal(
     p: &mut ChildSpawnerCommands,
     hud: &Hud,
     town: &Town,
+    chapter: &Chapter,
     task: crate::campaign::Goal,
 ) {
     use crate::campaign::Goal;
     super::screens::goal(p, hud, town, task);
-    match task {
-        Goal::GuestCare(_, minimum, _) => {
-            label(
-                p,
-                hud,
-                format!("Ab {minimum} zufriedenen Gästen dieser Gruppe an einem Tag."),
-                14.0,
-                Face::Body,
-                MUTED,
-            );
-        }
-        Goal::FavoriteMenu(_, _) => {
-            label(
-                p,
-                hud,
-                "Am selben Tag, aus verschiedenen Warengruppen.",
-                14.0,
-                Face::Body,
-                MUTED,
-            );
-        }
-        Goal::Rebuild(order) if town.planning() && town.goal(task).0 < task.target() => {
-            button(
-                p,
-                hud,
-                Action::LookAtLot(order.lot),
-                "Bauplatz öffnen",
-                "hammer",
-                "",
-                Style::Quiet,
-                false,
-            );
-        }
+    if super::shown_goal(town, task).0 >= task.target() {
+        return;
+    }
+    // The trade steps follow each other, so only the current one explains itself.
+    let how = match task {
         Goal::TradeUpgrade(order)
             if super::shown_goal(town, Goal::Sale(order, false)).0 < order.basic =>
         {
-            label(
-                p,
-                hud,
-                "Nach dem Verkauf des Grundangebots",
-                14.0,
-                Face::Body,
-                MUTED,
-            );
+            "Nach dem Verkauf des Grundangebots".to_owned()
         }
         Goal::Sale(order, true)
             if super::shown_goal(town, Goal::TradeUpgrade(order)).0
-                >= u32::from(order.special.tier())
-                && town.goal(task).0 < task.target() =>
+                < u32::from(order.special.tier()) =>
         {
-            let help = order
-                .special
-                .flavor()
-                .filter(|_| order.favorite_only)
-                .map_or_else(
-                    || "Wähle dieses Angebot morgens im Gebäude.".to_owned(),
-                    |age| format!("Morgens im Laden wählen · {}", age.group()),
-                );
-            label(p, hud, help, 14.0, Face::Body, MUTED);
+            "Nach dem Ausbau".to_owned()
         }
-        Goal::Dogs(_) if town.planning() && town.goal(task).0 < task.target() => {
-            label(
-                p,
-                hud,
-                "In der ersten Schichthälfte kommt ein Hund in die Gasse.",
-                14.0,
-                Face::Body,
-                MUTED,
-            );
-        }
-        _ => {}
+        _ => format!("So geht’s: {}", task.hint(chapter)),
+    };
+    label(p, hud, how, 14.0, Face::Body, MUTED);
+    if let Goal::Rebuild(order) = task
+        && town.planning()
+    {
+        button(
+            p,
+            hud,
+            Action::LookAtLot(order.lot),
+            "Bauplatz öffnen",
+            "hammer",
+            "",
+            Style::Quiet,
+            false,
+        );
     }
 }
 

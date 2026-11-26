@@ -1426,47 +1426,41 @@ fn chapter_picture(
     picture(p, hud, &format!("island_{chapter}"), width, height);
 }
 
+/// Goal progress as the street shows it, counting the running day.
 fn shown_goal(town: &crate::model::Town, goal: crate::campaign::Goal) -> (u32, u32) {
+    town.live_goal(goal)
+}
+
+/// The picture beside an objective row.
+fn goal_icon(goal: crate::campaign::Goal) -> &'static str {
     use crate::campaign::Goal;
-    let (value, need) = town.goal(goal);
-    let Phase::Open(day) = &town.phase else {
-        return (value, need);
-    };
-    let shown = match goal {
-        Goal::Serve(service, _) => value + day.tally.served[service as usize],
-        Goal::Renown(_) => value + day.tally.reputation,
-        Goal::Earn(_) => value + day.tally.income,
-        Goal::Help(_) => value + day.tally.favors,
-        Goal::FeastGuests(_) if town.weather(&CHAPTERS[town.chapter]) == Weather::Feast => {
-            value.max(day.tally.served_total())
+    match goal {
+        Goal::Build(k, _) | Goal::Upgrade(k, _) | Goal::Pair(k, _, _) => kind_icon(k),
+        Goal::Serve(s, _) | Goal::Produce(s, _) => service_icon(s),
+        Goal::Sale(order, _) | Goal::TradeUpgrade(order) => kind_icon(order.shop),
+        Goal::Dogs(_) => "dog",
+        Goal::Clean(_) => "scraps",
+        Goal::GuestCare(age, ..) | Goal::FavoriteMenu(age, _) | Goal::FanDay(age, _) => age.icon(),
+        Goal::Rebuild(order) => kind_icon(order.new),
+        Goal::Renown(_) | Goal::Specials(_) => "star",
+        Goal::Help(_) | Goal::RouteVariety(_) | Goal::TourDay(_) => "nili",
+        Goal::Earn(_) | Goal::MarketDay(_) | Goal::CargoIncome(_) | Goal::CaravanIncome(_) => {
+            "coin"
         }
-        Goal::Variety(_) => value.max(day.tally.served.iter().filter(|&&n| n > 0).count() as u32),
-        Goal::MarketDay(_) => value.max(day.tally.income),
-        Goal::Water(_) => value.max(u32::from(day.water)),
-        Goal::Harvest(_) => value.max(u32::from(day.rice_harvest)),
-        Goal::Specials(_) => value + day.tally.specialties.iter().sum::<u32>(),
-        Goal::Caravans(_) => value + day.tally.caravans,
-        Goal::CaravanIncome(_) => value + day.tally.caravan_income,
-        Goal::SpiceRoutes(_) => value + day.tally.spice_routes,
-        Goal::Bell(_) => value + day.tally.bell_rings,
-        Goal::Catch(_) => value.max(u32::from(day.fish_catch)),
-        Goal::Route(job, _) => value + day.tally.routes[job as usize],
-        Goal::RouteVariety(_) => town
-            .totals
-            .routes
-            .iter()
-            .zip(day.tally.routes)
-            .filter(|&(record, today)| *record + today > 0)
-            .count() as u32,
-        Goal::FerryDay(_) => value.max(day.tally.ferry_served),
-        Goal::Produce(service, _) => value + day.tally.produced[service as usize],
-        Goal::Dogs(_) => value + day.tally.dogs,
-        Goal::Clean(_) => value + day.tally.cleaned,
-        Goal::GuestCare(age, minimum, _) => value.max(day.tally.care(age, minimum)),
-        Goal::FavoriteMenu(age, _) => value.max(day.tally.favorite_variety(age)),
-        _ => value,
-    };
-    (shown, need)
+        Goal::FeastGuests(_) | Goal::FerryDay(_) => "ferry",
+        Goal::Variety(_) => "book",
+        Goal::Water(_) => "water",
+        Goal::Harvest(_) => "rice_paddy",
+        Goal::Bell(_) => "temple_bell",
+        Goal::Catch(_) => "fishery",
+        Goal::Voyages(_) => "sea_trade",
+        Goal::Caravans(_) | Goal::SpiceRoutes(_) => "caravan",
+        Goal::Route(job, _) => job.icon(),
+        Goal::GoodDay(_) | Goal::SteadyMood(_) | Goal::Streak(_) => "mood",
+        Goal::Residents(_) => "house",
+        Goal::Rush(_) => "fire",
+        Goal::Call(calling, _) => calling.icon(),
+    }
 }
 
 fn build_set(chapter: &crate::campaign::Chapter, page: usize) -> &[Kind] {

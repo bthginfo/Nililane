@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    campaign::{Chapter, Goal, Region, harbor_stage},
+    campaign::{Chapter, Goal, Region, harbor_stage, richer, tutorial},
     model::{Age, Assortment, Building, Kind},
 };
 
@@ -78,9 +78,14 @@ fn candidate(chapter: &Chapter, stage: usize) -> Option<Kind> {
         })
 }
 
+/// Harbors at these stages hand out a trade order when one of their shops fits.
+pub(crate) const fn trade_stage(stage: usize) -> bool {
+    matches!(stage, 3 | 5 | 7 | 9 | 11 | 14 | 16 | 18 | 20 | 22 | 23)
+}
+
 pub(crate) fn trade_order(chapter: &Chapter, index: usize) -> Option<TradeOrder> {
     let stage = harbor_stage(index);
-    if !matches!(stage, 3 | 5 | 7 | 9 | 11 | 14 | 16 | 18 | 20 | 22 | 23) {
+    if !trade_stage(stage) {
         return None;
     }
     let shop = candidate(chapter, stage)?;
@@ -150,6 +155,15 @@ pub(crate) fn extra_goals(chapter: &Chapter, index: usize) -> [Option<Goal>; 4] 
         .or_else(|| chapter.locals.first().copied());
     let production = service.map(|service| Goal::Produce(service, 9 + stage as u32 / 2));
     let care = care_goal(chapter, index);
+    // The first Greek ports keep their simple extras; later harbors ask for a plan instead
+    // of a production count, and keep the list short.
+    let simple = tutorial(index);
+    let fresh = || richer(chapter, index, 2);
+    let planned = chapter
+        .goals
+        .iter()
+        .filter(|goal| !goal.plain_counter() && !goal.street_task())
+        .count();
     let side = match stage {
         4 | 8 | 13 | 17 | 21 | 23 => Some(Goal::Dogs(1)),
         6 | 11 | 12 | 15 | 19 => care,
@@ -171,6 +185,12 @@ pub(crate) fn extra_goals(chapter: &Chapter, index: usize) -> [Option<Goal>; 4] 
         } else {
             None
         };
+        // The three trade steps count as one goal with a plan.
+        let bonus = match bonus {
+            Some(Goal::Produce(..)) if !simple => Some(fresh()),
+            bonus => bonus,
+        }
+        .filter(|goal| simple || goal.street_task() || planned + 2 <= MOST_PLANNED);
         return [
             Some(Goal::Sale(order, false)),
             Some(Goal::TradeUpgrade(order)),
@@ -188,14 +208,29 @@ pub(crate) fn extra_goals(chapter: &Chapter, index: usize) -> [Option<Goal>; 4] 
         (Region::Nordic, 10) => Some(Goal::Pair(Kind::Cooperage, Kind::Boatyard, 1)),
         _ => rebuild(chapter, stage),
     };
-    [production, secondary, spatial, None]
+    if simple {
+        return [production, secondary, spatial, None];
+    }
+    let first = spatial.unwrap_or_else(fresh);
+    // A street errand keeps the list short when the harbor already asks for enough.
+    let secondary = secondary.map(|goal| {
+        if goal.street_task() || planned + 2 <= MOST_PLANNED {
+            goal
+        } else {
+            Goal::Clean(if stage >= 11 { 2 } else { 1 })
+        }
+    });
+    [Some(first), secondary, None, None]
 }
+
+/// Later harbors ask for at most this many goals beyond one plain counter and street errands.
+pub(crate) const MOST_PLANNED: usize = 4;
 
 pub(crate) fn quest_dog(index: usize) -> bool {
     matches!(harbor_stage(index), 4 | 8 | 13 | 17 | 21 | 23)
 }
 
-#[cfg(test)]
+/// The building of this harbor that sells a service, preferring what can be built here.
 pub(crate) fn shop_for(service: crate::model::Service, chapter: &Chapter) -> Option<Kind> {
     chapter
         .allowed()
@@ -299,5 +334,53 @@ mod tests {
             assert!(shops.len() >= 2, "{:?}: {shops:?}", chapters[0].region);
             assert_eq!(rebuilds, 1);
         }
+    }
+
+    #[test]
+    fn later_harbors_mix_at_most_one_plain_counter_with_planned_goals() {
+        let trade = |goal: &Goal| matches!(goal, Goal::Sale(..) | Goal::TradeUpgrade(..));
+        let mut kinds = std::collections::HashMap::new();
+        for (index, chapter) in CHAPTERS.iter().enumerate() {
+            let goals: Vec<_> = chapter.objectives(index).collect();
+            if tutorial(index) {
+                assert!(
+                    goals.iter().all(|goal| !goal.introduced()),
+                    "{} stays simple",
+                    chapter.district
+                );
+                continue;
+            }
+            let counters = goals
+                .iter()
+                .filter(|goal| !trade(goal) && goal.plain_counter())
+                .count();
+            // The three trade steps form one order with a plan.
+            let planned = goals
+                .iter()
+                .filter(|goal| !trade(goal) && !goal.plain_counter() && !goal.street_task())
+                .count()
+                + usize::from(goals.iter().any(trade));
+            assert!(counters <= 1, "{}: {counters} counters", chapter.district);
+            assert!(
+                (2..=MOST_PLANNED).contains(&planned),
+                "{}: {planned} goals with a plan",
+                chapter.district
+            );
+            let labels: Vec<_> = goals.iter().map(|goal| goal.label()).collect();
+            for (i, label) in labels.iter().enumerate() {
+                assert!(
+                    !labels[..i].contains(label),
+                    "{} asks twice: {label}",
+                    chapter.district
+                );
+            }
+            for goal in goals.iter().filter(|goal| goal.introduced()) {
+                *kinds.entry(std::mem::discriminant(goal)).or_insert(0u32) += 1;
+            }
+        }
+        // Every new kind turns up often enough to become familiar.
+        assert_eq!(kinds.len(), 6);
+        assert!(kinds.values().all(|&count| count >= 5), "{kinds:?}");
+        assert!(kinds.values().sum::<u32>() >= 100);
     }
 }
