@@ -9,9 +9,9 @@ Siedlungen.
 
 ## Android-Downloads
 
-**[Handy-APK 3.6.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/f3d5961c1613796e3542954ade547d42ee8af74c/Nililane-3.6.0-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/f3d5961c1613796e3542954ade547d42ee8af74c/Nililane-3.6.0-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.6.0-phone)
+**[Handy-APK 3.6.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/f3d5961c1613796e3542954ade547d42ee8af74c/Nililane-3.6.0-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/f3d5961c1613796e3542954ade547d42ee8af74c/Nililane-3.6.0-Handy.apk.sha256) · [Neuerungen](#neu-in-360)
 
-**[Tablet-APK 3.6.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/f3d5961c1613796e3542954ade547d42ee8af74c/Nililane-3.6.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/f3d5961c1613796e3542954ade547d42ee8af74c/Nililane-3.6.0-x86_64.apk) · [Tablet-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.6.0)
+**[Tablet-APK 3.6.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/f3d5961c1613796e3542954ade547d42ee8af74c/Nililane-3.6.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/f3d5961c1613796e3542954ade547d42ee8af74c/Nililane-3.6.0-x86_64.apk) · [Neuerungen](#neu-in-360)
 
 [SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/f3d5961c1613796e3542954ade547d42ee8af74c/Nililane-3.6.0.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/f3d5961c1613796e3542954ade547d42ee8af74c/Nililane-3.6.0-x86_64.apk.sha256)
 
