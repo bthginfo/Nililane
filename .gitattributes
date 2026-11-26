@@ -26,3 +26,6 @@ Nililane-3.6.0.apk filter=lfs diff=lfs merge=lfs -text
 Nililane-3.6.1-x86_64.apk filter=lfs diff=lfs merge=lfs -text
 Nililane-3.6.1-Handy.apk filter=lfs diff=lfs merge=lfs -text
 Nililane-3.6.1.apk filter=lfs diff=lfs merge=lfs -text
+Nililane-3.7.0.apk filter=lfs diff=lfs merge=lfs -text
+Nililane-3.7.0-x86_64.apk filter=lfs diff=lfs merge=lfs -text
+Nililane-3.7.0-Handy.apk filter=lfs diff=lfs merge=lfs -text
