@@ -42,6 +42,10 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Platz für die Android-Builds schaffen
+        if: steps.version.outputs.skip != 'true'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/node_modules /opt/ghc /usr/local/share/boost
+
       - name: Signaturschlüssel vorbereiten
         if: steps.version.outputs.skip != 'true'
         env:
