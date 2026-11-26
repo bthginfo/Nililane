@@ -283,6 +283,10 @@ aus dem Quellcode bauen.
   Steuerkreuz, Pfeiltasten oder per Tipp auf − und +. Ausgeschaltete Musik
   blendet sanft aus.
 - Beim Start gleitet das Hauptmenü Eintrag für Eintrag ins Bild.
+- Aufgeräumtes HUD: Im Abenteuer stehen offene Ziele oben, erledigte werden zu
+  einer Zeile zusammengefasst, und „Aufträge“ und „Lager“ teilen sich eine
+  Reihe. Im Hafen bleibt die Zufriedenheitskarte schlank, bis die ersten Gäste
+  ihre Stimme abgeben, und Nilis Tipps verdecken die Ziele nicht mehr.
 
 ## Neu in 2.7.0
 
