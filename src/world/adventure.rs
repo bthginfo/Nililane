@@ -398,16 +398,9 @@ pub(crate) fn sync(
                         });
                     }
                     if terrain.level.order_count() > 0 {
-                        let kind = match region {
-                            Region::Greece => Kind::Storehouse,
-                            Region::Rome => Kind::FerryOffice,
-                            Region::Japan => Kind::Machiya,
-                            Region::Nordic => Kind::Longhouse,
-                            Region::Oasis => Kind::Caravanserai,
-                        };
                         let at = terrain.outpost;
                         root.spawn((
-                            Mesh3d(meshes.add(super::model(region, kind, 2))),
+                            Mesh3d(meshes.add(super::model(region, outpost_kind(region), 2))),
                             MeshMaterial3d(art.matte.clone()),
                             Transform::from_xyz(at.x, terrain.height(at), at.y)
                                 .with_scale(Vec3::splat(1.18)),
@@ -2642,10 +2635,60 @@ fn workshop(region: Region, kind: Build, tier: u8) -> Mesh {
     b.mesh()
 }
 
+/// The building that stands at the trading outpost of an island.
+/// Every region needs a model for it, see the test below.
+fn outpost_kind(region: Region) -> Kind {
+    match region {
+        Region::Greece | Region::Rome => Kind::Storehouse,
+        Region::Japan => Kind::Machiya,
+        Region::Nordic => Kind::Longhouse,
+        Region::Oasis => Kind::Caravanserai,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::render::mesh::VertexAttributeValues;
+    use bevy::render::mesh::{MeshAabb, VertexAttributeValues};
+
+    #[test]
+    fn every_island_building_and_outpost_has_a_regional_model() {
+        for index in 0..crate::adventure::LEVELS {
+            let level = crate::adventure::Level::at(index);
+            let kinds = crate::adventure::Build::all(level)
+                .into_iter()
+                .filter_map(|plan| match plan {
+                    crate::adventure::Build::Harbor(kind) => Some(kind),
+                    _ => None,
+                })
+                .chain([outpost_kind(level.region)]);
+            for kind in kinds {
+                let mut previous = None;
+                for tier in 1..=crate::model::MAX_LEVEL {
+                    let mesh = super::super::model(level.region, kind, tier);
+                    let tag = (level.name, kind, tier);
+                    let extent = mesh.compute_aabb().unwrap();
+                    assert!(
+                        extent.center.x.abs() + extent.half_extents.x
+                            <= super::super::LOT_STEP / 2.0 + 0.05,
+                        "{tag:?}"
+                    );
+                    assert!(
+                        extent.center.z.abs() + extent.half_extents.z < 1.56,
+                        "{tag:?}"
+                    );
+                    assert!(extent.center.y + extent.half_extents.y < 3.80, "{tag:?}");
+                    let Some(VertexAttributeValues::Float32x3(vertices)) =
+                        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                    else {
+                        panic!("Missing model positions for {tag:?}");
+                    };
+                    assert_ne!(previous.as_ref(), Some(vertices), "{tag:?}");
+                    previous = Some(vertices.clone());
+                }
+            }
+        }
+    }
 
     #[test]
     fn island_scenery_stays_within_a_phone_vertex_budget() {

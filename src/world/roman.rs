@@ -39,7 +39,7 @@ pub fn model(kind: Kind, level: u8) -> Mesh {
         Kind::Mill | Kind::Scribe | Kind::GardenCourt => {
             super::market_buildings::roman(&mut b, kind, level)
         }
-        _ => unreachable!("building unavailable in Rome"),
+        _ => unreachable!("building unavailable in Rome: {kind:?}"),
     }
     b.mesh()
 }

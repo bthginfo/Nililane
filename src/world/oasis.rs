@@ -32,7 +32,8 @@ pub(super) fn model(kind: Kind, level: u8) -> Mesh {
         Perfumer => perfumer(&mut b, level),
         MoonGarden => moon_garden(&mut b, level),
         CarpetHall => carpet_hall(&mut b, level),
-        _ => unreachable!("building unavailable in the Oases"),
+        Storehouse => granary(&mut b, level),
+        _ => unreachable!("building unavailable in the Oases: {kind:?}"),
     }
     b.mesh()
 }
@@ -488,6 +489,54 @@ fn caravanserai(b: &mut Batch, level: u8) {
                 SUN,
             );
         }
+    }
+}
+
+/// Mud-brick store of the oasis islands: a cool hall with beam ends, sacks and jars
+/// in the shaded yard and grain domes on the upper tiers.
+fn granary(b: &mut Batch, level: u8) {
+    plinth(b, Vec3::ZERO, 2.72, 2.24, 0.15, SHALE);
+    let h = 1.28 + f32::from(level.saturating_sub(1)) * 0.09;
+    let hall = v(-0.36, 0.15 + h / 2.0, -0.42);
+    wall(b, hall, v(1.86, h, 1.30), SANDSTONE);
+    slab_roof(b, v(-0.36, 0.19 + h, -0.42), 1.96, 1.42, JADE);
+    arch(b, v(-0.36, 0.15, 0.245), true, 0.66, 0.30, SHALE);
+    // Beam ends of the flat roof stick out of the front wall.
+    for i in 0..5 {
+        let x = -1.12 + i as f32 * 0.38;
+        b.slab(v(x, 0.03 + h, 0.27), v(0.075, 0.075, 0.18), WOOD);
+    }
+    let jars = [SUN, PLUM, LAPIS, SUN, JADE, PLUM];
+    for (i, &tint) in jars.iter().take(1 + usize::from(level)).enumerate() {
+        let x = 0.72 + (i % 3) as f32 * 0.24;
+        let z = 0.20 + (i / 3) as f32 * 0.30;
+        amphora(b, v(x, 0.15, z), 0.95 + (i % 2) as f32 * 0.15, tint);
+    }
+    if level >= 2 {
+        for (i, x) in [0.70, 0.93, 1.15].into_iter().enumerate() {
+            let p = v(x, 0.15, -0.40 - (i % 2) as f32 * 0.12);
+            b.frustum(p, 0.13, 0.11, 0.24, 8, [214, 191, 150]);
+            b.frustum(p + Vec3::Y * 0.24, 0.11, 0.045, 0.07, 8, [196, 170, 128]);
+        }
+    }
+    if level >= 3 {
+        cloth_roof(b, v(0.93, 1.18, 0.10), 0.92, 0.86, [SUN, STUCCO]);
+        crate_box(b, v(-1.08, 0.15, 0.78), v(0.36, 0.28, 0.32), WOOD);
+    }
+    if level >= 4 {
+        screen(b, v(-0.85, 0.08 + h * 0.62, 0.245), 0.36, 0.34, LAPIS);
+        screen(b, v(0.13, 0.08 + h * 0.62, 0.245), 0.36, 0.34, LAPIS);
+    }
+    if level >= 5 {
+        let silo = v(0.93, 0.15, -0.72);
+        b.frustum(silo, 0.36, 0.33, 0.95, 14, STUCCO);
+        dome(b, silo + Vec3::Y * 0.95, 0.34, SANDSTONE);
+    }
+    if level >= 6 {
+        let top = v(-0.36, 0.25 + h, -0.55);
+        b.frustum(top, 0.30, 0.30, 0.12, 12, SANDSTONE);
+        dome(b, top + Vec3::Y * 0.12, 0.38, LAPIS);
+        flowerpot(b, v(0.42, 0.15, 0.85), 0.85, [213, 126, 132]);
     }
 }
 
