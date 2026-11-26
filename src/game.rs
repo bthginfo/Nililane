@@ -91,6 +91,8 @@ pub enum Action {
     SelectLot(usize),
     LookAtLot(usize),
     StreetHelp(usize),
+    /// The "?" of a busy panel: shows or hides its short explanation.
+    Info(ui::Info),
     Goals,
     Forecast,
     Feedback,
@@ -251,6 +253,8 @@ pub struct Game {
     pub ledger_page: usize,
     pub review_guest: Option<usize>,
     pub review_reason: Option<Miss>,
+    /// The panel explanation that is open, if any.
+    pub info: Option<ui::Info>,
     pub return_to_guests: bool,
     pub job: Option<Job>,
     pub nearby: Option<Nearby>,
@@ -401,6 +405,7 @@ impl Default for Game {
             ledger_page: 0,
             review_guest: None,
             review_reason: None,
+            info: None,
             return_to_guests: false,
             job: None,
             nearby: None,
@@ -516,6 +521,7 @@ impl Game {
         self.quick_menu = false;
         self.scroll_y = 0.0;
         self.lesson = None;
+        self.info = None;
         self.focus = None;
         self.dirty = true;
     }
@@ -1727,6 +1733,11 @@ pub(crate) fn apply(action: Action, game: &mut Game, save: &mut Campaign) {
         }
         Action::QuickMenu => {
             game.quick_menu = !game.quick_menu;
+            game.dirty = true;
+        }
+        Action::Info(topic) => {
+            game.info = (game.info != Some(topic)).then_some(topic);
+            game.focus = Some(action);
             game.dirty = true;
         }
         Action::CameraView => {

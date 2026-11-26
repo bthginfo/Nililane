@@ -1436,13 +1436,16 @@ fn property_panel(
     property: crate::adventure::Property,
 ) {
     let level = terrain.level;
-    panels::modal(
+    panels::explained_modal(
         root,
         hud,
         730.0,
         &format!("STUFE {} / {}", property.tier, MAX_LEVEL),
         property.kind.name(level.region),
         build_icon(property.kind),
+        island
+            .recipe_for(level, lot)
+            .map(|_| (Info::Workshop, level.region.currency())),
         |p| {
             if let Some(recipe) = island.recipe_for(level, lot) {
                 if let Some(order) = level
@@ -1761,13 +1764,14 @@ fn labor(
 ) {
     let level = terrain.level;
     let collection = a.group == 0;
-    panels::modal(
+    panels::explained_modal(
         root,
         hud,
         785.0,
         &free_staff(island),
         "Bürgeraufträge",
         "adventure_labor",
+        Some((Info::Citizens, level.region.currency())),
         |p| {
             if island.staff() == 0 {
                 label(

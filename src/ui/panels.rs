@@ -49,6 +49,23 @@ pub(super) fn modal(
     image: &str,
     content: impl FnOnce(&mut ChildSpawnerCommands),
 ) {
+    explained_modal(p, hud, width, heading, title, image, None, content);
+}
+
+/// A dialog with a "?" in its header that opens a short explanation of `info`
+/// in the region's `currency` words.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn explained_modal(
+    p: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    width: f32,
+    heading: &str,
+    title: &str,
+    image: &str,
+    info: Option<(Info, &str)>,
+    content: impl FnOnce(&mut ChildSpawnerCommands),
+) {
+    let explained = info.filter(|(topic, _)| hud.info == Some(*topic));
     let mut veil = overlay(p);
     veil.insert(feel::Veil(feel::key(title)));
     if let Some(action) = hud.dismiss {
@@ -103,6 +120,13 @@ pub(super) fn modal(
                         SAND,
                     );
                 });
+                if let Some((topic, _)) = info {
+                    head.spawn(Node {
+                        flex_grow: 1.0,
+                        ..default()
+                    });
+                    info_button(head, hud, topic, explained.is_some());
+                }
                 if hud.phone
                     && let Some(action) = hud.close_modal
                 {
@@ -119,6 +143,9 @@ pub(super) fn modal(
                 }
             });
             line(page, LINE);
+            if let Some((topic, currency)) = explained {
+                info_card(page, hud, topic, currency);
+            }
             if hud.phone {
                 page.spawn((
                     touch::ScrollPage,
@@ -752,13 +779,14 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
         town.coins,
         currency.to_uppercase()
     );
-    modal(
+    explained_modal(
         p,
         hud,
         956.0,
         &heading,
         b.kind.name(),
         kind_icon(b.kind),
+        b.kind.service().map(|_| (Info::Shop, currency)),
         |page| {
             let before = town.production(chapter);
             if let Some(service) = b.kind.service() {
