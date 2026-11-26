@@ -782,11 +782,12 @@ pub fn refresh(
                 }
             }
             Dynamic::Sales => {
-                if let Some(day) = day {
+                if let (Some(town), Some(day)) = (town, day) {
                     let text_value = format!(
-                        "{} versorgt  ·  +{} Münzen",
+                        "{} Gäste versorgt  ·  +{} {}",
                         day.tally.served_total(),
-                        day.tally.income
+                        day.tally.income,
+                        crate::campaign::Region::of(town.chapter).currency()
                     );
                     if text.0 != text_value {
                         text.0 = text_value;

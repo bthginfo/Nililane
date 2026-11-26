@@ -116,10 +116,11 @@ pub(super) fn strip(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: 
                 DEEP,
             )
             .with_children(|rewards| {
+                let currency = crate::campaign::Region::of(town.chapter).currency();
                 icon(rewards, hud, "coin", 25.0);
-                label(rewards, hud, "+6", 16.0, Face::Bold, GOLD);
+                badge_label(rewards, hud, format!("+6 {currency}"), 16.0, GOLD);
                 icon(rewards, hud, "star", 24.0);
-                label(rewards, hud, "+2", 16.0, Face::Bold, GOLD);
+                badge_label(rewards, hud, "+2 Ansehen", 16.0, GOLD);
             });
         }
     });

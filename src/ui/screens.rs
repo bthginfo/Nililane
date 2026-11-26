@@ -557,7 +557,7 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
             });
         });
         if matches!(town.phase, Phase::Open(_)) {
-            card(stack, frame_node(Val::Px(290.0), 6.0, 10.0), INK).with_children(|time| {
+            card(stack, frame_node(Val::Px(370.0), 6.0, 10.0), INK).with_children(|time| {
                 time.spawn(Node {
                     justify_content: JustifyContent::SpaceBetween,
                     ..row(6.0)
