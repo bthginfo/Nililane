@@ -1,0 +1,121 @@
+# Baut die Android-Pakete, signiert sie mit dem Veröffentlichungszertifikat und legt
+# die GitHub-Releases an. Läuft, sobald auf main eine neue Version in Cargo.toml steht
+# (oder von Hand über "Run workflow"). Benötigte Repository-Secrets:
+#   NILILANE_KEYSTORE_BASE64  Keystore-Datei als Base64
+#   NILILANE_KEY_PASSWORD     Passwort des Keystores
+#   NILILANE_KEY_ALIAS        optional; ohne Angabe wird der erste Alias genommen
+name: Android-Release
+
+on:
+  push:
+    branches: [main]
+    paths: [Cargo.toml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+env:
+  # SHA-256 des Zertifikats, mit dem alle bisherigen Nililane-APKs signiert sind.
+  RELEASE_CERT: 2b1d0ba76d634dc142857758dc9f370c29f8b12934c54ff08fb4d506a65435ad
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version bestimmen
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "Release v$version gibt es schon."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Signaturschlüssel vorbereiten
+        if: steps.version.outputs.skip != 'true'
+        env:
+          KEYSTORE: ${{ secrets.NILILANE_KEYSTORE_BASE64 }}
+          PASSWORD: ${{ secrets.NILILANE_KEY_PASSWORD }}
+          ALIAS: ${{ secrets.NILILANE_KEY_ALIAS }}
+        run: |
+          if [ -z "$KEYSTORE" ] || [ -z "$PASSWORD" ]; then
+            echo "::error::Die Secrets NILILANE_KEYSTORE_BASE64 und NILILANE_KEY_PASSWORD fehlen."
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.jks"
+          printf '%s' "$PASSWORD" > "$RUNNER_TEMP/password"
+          chmod 600 "$RUNNER_TEMP/release.jks" "$RUNNER_TEMP/password"
+          if [ -z "$ALIAS" ]; then
+            ALIAS=$(keytool -list -keystore "$RUNNER_TEMP/release.jks" -storepass:file "$RUNNER_TEMP/password" \
+              | sed -n 's/^\([^,]*\),.*PrivateKeyEntry.*/\1/p' | head -1)
+          fi
+          if [ -z "$ALIAS" ]; then
+            echo "::error::Im Keystore wurde kein Schlüssel gefunden."
+            exit 1
+          fi
+          echo "NILILANE_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          echo "NILILANE_KEY_PASSWORD_FILE=$RUNNER_TEMP/password" >> "$GITHUB_ENV"
+          echo "NILILANE_KEY_ALIAS=$ALIAS" >> "$GITHUB_ENV"
+
+      - name: Rust für Android
+        if: steps.version.outputs.skip != 'true'
+        run: rustup target add aarch64-linux-android x86_64-linux-android
+
+      - name: Android-SDK und NDK
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          sdkmanager=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | tail -1)
+          yes | "$sdkmanager" --licenses > /dev/null
+          "$sdkmanager" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358" > /dev/null
+
+      - name: Pakete bauen und signieren
+        if: steps.version.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p dist
+          NILILANE_ABIS=x86_64 tools/build-android.sh
+          mv "build/android/Nililane-$VERSION.apk" "dist/Nililane-$VERSION-x86_64.apk"
+          NILILANE_ABIS=arm64-v8a tools/build-android.sh
+          mv "build/android/Nililane-$VERSION.apk" "dist/Nililane-$VERSION.apk"
+          NILILANE_VARIANT=phone NILILANE_ABIS=arm64-v8a tools/build-android.sh
+          mv "build/android/Nililane-$VERSION-Handy.apk" "dist/"
+          rm -f "$RUNNER_TEMP/release.jks" "$RUNNER_TEMP/password"
+
+      - name: Zertifikat prüfen
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          for apk in dist/*.apk; do
+            "$apksigner" verify --print-certs "$apk" | grep -q "SHA-256 digest: $RELEASE_CERT" || {
+              echo "::error::$apk trägt nicht das Veröffentlichungszertifikat."
+              exit 1
+            }
+            (cd dist && sha256sum "$(basename "$apk")" > "$(basename "$apk").sha256")
+          done
+
+      - name: Releases anlegen
+        if: steps.version.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          notes=docs/release-notes.md
+          gh release create "v$VERSION" --target "$GITHUB_SHA" \
+            --title "Nililane $VERSION" --notes-file "$notes" \
+            "dist/Nililane-$VERSION.apk" "dist/Nililane-$VERSION.apk.sha256" \
+            "dist/Nililane-$VERSION-x86_64.apk" "dist/Nililane-$VERSION-x86_64.apk.sha256"
+          gh release create "v$VERSION-phone" --target "$GITHUB_SHA" \
+            --title "Nililane Handy $VERSION" --notes-file "$notes" \
+            "dist/Nililane-$VERSION-Handy.apk" "dist/Nililane-$VERSION-Handy.apk.sha256"
