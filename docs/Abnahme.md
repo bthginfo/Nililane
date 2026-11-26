@@ -40,6 +40,9 @@
   Veröffentlichungszertifikat. Sie lassen sich deshalb nicht als Update über
   3.5.1 installieren. Mit dem Release-Keystore müssen sie neu signiert
   werden.
+- Veröffentlicht sind die Pakete im `downloads`-Branch (Commit `f3d5961`)
+  per Git LFS und in den Releases `v3.6.0` und `v3.6.0-phone`. Alle drei
+  Download-Links lieferten HTTP 200 mit der erwarteten Dateigröße.
 - Der Wasser-Shader verzichtet auf Schleifen über Arrays, weil Lavapipe daran
   scheiterte. Auf echten Android-Geräten und im Android-Emulator ist 3.6.0
   noch nicht geprüft; der Container hat keine Hardware-Virtualisierung.
