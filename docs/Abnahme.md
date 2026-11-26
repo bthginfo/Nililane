@@ -1,5 +1,22 @@
 # Spielreview und Abnahme
 
+## Signierte Veröffentlichung 3.6.1
+
+- 3.6.1 enthält den Stand von 3.6.0 und ist mit dem bisherigen
+  Veröffentlichungszertifikat signiert (`CN=Nililane, O=Nililane`, SHA-256
+  `2B:1D:0B:A7:…:A6:54:35:AD`). Für Tablet ARM64, Tablet x86_64 und Handy
+  ARM64 hat `apksigner` dieses Zertifikat bestätigt. Es ist dasselbe wie bei
+  3.5.1. Die APKs sind damit als Update über 3.5.1 installierbar.
+- Versionen: Tablet `game.nililane` versionCode 22, Handy
+  `game.nililane.phone` versionCode 10. Die Prüfung mit
+  `zipalign -c -P 16 4` war erfolgreich.
+- Der Keystore wurde nur zum Signieren in den Arbeitscontainer geladen und
+  danach mit `shred` gelöscht. Er liegt nicht im Repository.
+- Die Pakete liegen im `downloads`-Branch (Commit `abdbcdb`); alle Links
+  liefern HTTP 200. Der Workflow `.github/workflows/android-release.yml` legt
+  die Releases `v3.6.1` und `v3.6.1-phone` an und prüft das Zertifikat erneut.
+- Auf einem echten Gerät ist 3.6.1 noch nicht geprüft.
+
 ## Grafik, Spielgefühl und Spiellogik 3.6.0
 
 - Alle 114 Rust-Tests sind bestanden, ein Fixture-Test für Sichtproben ist

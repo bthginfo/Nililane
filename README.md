@@ -9,20 +9,16 @@ Siedlungen.
 
 ## Android-Downloads
 
-**[Handy-APK 3.6.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/f3d5961c1613796e3542954ade547d42ee8af74c/Nililane-3.6.0-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/f3d5961c1613796e3542954ade547d42ee8af74c/Nililane-3.6.0-Handy.apk.sha256) · [Neuerungen](#neu-in-360)
+**[Handy-APK 3.6.1 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/abdbcdb09d059b36d7add9dafa130420a0b5096d/Nililane-3.6.1-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/abdbcdb09d059b36d7add9dafa130420a0b5096d/Nililane-3.6.1-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.6.1-phone)
 
-**[Tablet-APK 3.6.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/f3d5961c1613796e3542954ade547d42ee8af74c/Nililane-3.6.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/f3d5961c1613796e3542954ade547d42ee8af74c/Nililane-3.6.0-x86_64.apk) · [Neuerungen](#neu-in-360)
+**[Tablet-APK 3.6.1 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/abdbcdb09d059b36d7add9dafa130420a0b5096d/Nililane-3.6.1.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/abdbcdb09d059b36d7add9dafa130420a0b5096d/Nililane-3.6.1-x86_64.apk) · [Tablet-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.6.1)
 
-[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/f3d5961c1613796e3542954ade547d42ee8af74c/Nililane-3.6.0.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/f3d5961c1613796e3542954ade547d42ee8af74c/Nililane-3.6.0-x86_64.apk.sha256)
+[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/abdbcdb09d059b36d7add9dafa130420a0b5096d/Nililane-3.6.1.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/abdbcdb09d059b36d7add9dafa130420a0b5096d/Nililane-3.6.1-x86_64.apk.sha256)
 
-> **Hinweis zur Signatur:** Die Pakete von 3.6.0 tragen ein neues Testzertifikat
-> statt des bisherigen Veröffentlichungszertifikats. Android installiert sie
-> deshalb nicht als Update über 3.5.1. Für 3.6.0 musst du die bisherige App
-> zuerst deinstallieren. Dabei gehen Hafenreise, Abenteuerinseln und Sterne
-> verloren. Wer seinen Spielstand behalten möchte, bleibt vorerst bei 3.5.1:
-> [Handy 3.5.1](https://media.githubusercontent.com/media/bthginfo/Nililane/f71208911b62387aeff661f966a2804ca6948008/Nililane-3.5.1-Handy.apk) ·
-> [Tablet 3.5.1](https://media.githubusercontent.com/media/bthginfo/Nililane/f71208911b62387aeff661f966a2804ca6948008/Nililane-3.5.1.apk) ·
-> [Tablet 3.5.1 für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/f71208911b62387aeff661f966a2804ca6948008/Nililane-3.5.1-x86_64.apk)
+Die Pakete sind wie bisher signiert. Installiere sie als Update über 3.5.1,
+dann bleiben Hafenreise, Abenteuerinseln und Sterne erhalten. Hast du die
+kurzzeitig angebotene Testfassung 3.6.0 installiert, deinstalliere sie einmal
+vor dem Update.
 
 ![Siedlung in den Salzgärten mit Blumenwiesen, Steinplattenwegen und abgesteckten Bauplätzen](docs/bilder/abenteuer-siedlung.jpg)
 
@@ -57,12 +53,11 @@ dem passenden Abholort und Ziel auf **Starten** und steuere Nili los.
 
 ## Auf dem Tablet spielen
 
-Die Pakete benötigen Android 8 oder neuer und Vulkan 1.1. Lade die passende
-APK auf dein Tablet und öffne die Datei. Pakete mit demselben Zertifikat
-installierst du als Update über deine bisherige Version; so nimmst du deine
-Hafenreise, deine Abenteuerinseln und deine Sterne mit. Für 3.6.0 gilt der
-Hinweis zur Signatur oben. Nililane läuft offline und öffnet sich im
-Querformat.
+Die signierten Pakete benötigen Android 8 oder neuer und Vulkan 1.1.
+Lade die passende APK auf dein Tablet und öffne die Datei. Installiere sie
+als Update über deine bisherige Version, um deine Hafenreise, deine
+Abenteuerinseln und deine Sterne mitzunehmen. Nililane läuft offline und
+öffnet sich im Querformat.
 
 Kopple den Xbox-Controller über die Android-Bluetooth-Einstellungen oder
 schließe ihn per USB an. Unter **Erste Reise** beginnt der bebilderte
@@ -191,8 +186,9 @@ Du führst Nili selbst entlang der Spur.
 
 ## Neu in 3.6.0
 
-Die Downloads oben enthalten Version 3.6.0. Beachte den Hinweis zur
-Signatur.
+Version 3.6.1 bringt alle Neuerungen von 3.6.0 mit dem bisherigen
+Veröffentlichungszertifikat. Sie lässt sich deshalb als Update über 3.5.1
+installieren.
 
 **Grafik**
 
