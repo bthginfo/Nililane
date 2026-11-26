@@ -9,16 +9,16 @@ Siedlungen.
 
 ## Android-Downloads
 
-**[Handy-APK 3.6.1 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/abdbcdb09d059b36d7add9dafa130420a0b5096d/Nililane-3.6.1-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/abdbcdb09d059b36d7add9dafa130420a0b5096d/Nililane-3.6.1-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.6.1-phone)
+**[Handy-APK 3.7.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/3d341d3d1316f7d5a5aa91fbd4fec31d2597e9db/Nililane-3.7.0-Handy.apk)** · [SHA-256](https://raw.githubusercontent.com/bthginfo/Nililane/3d341d3d1316f7d5a5aa91fbd4fec31d2597e9db/Nililane-3.7.0-Handy.apk.sha256) · [Handy-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.7.0-phone)
 
-**[Tablet-APK 3.6.1 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/abdbcdb09d059b36d7add9dafa130420a0b5096d/Nililane-3.6.1.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/abdbcdb09d059b36d7add9dafa130420a0b5096d/Nililane-3.6.1-x86_64.apk) · [Tablet-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.6.1)
+**[Tablet-APK 3.7.0 für ARM64](https://media.githubusercontent.com/media/bthginfo/Nililane/3d341d3d1316f7d5a5aa91fbd4fec31d2597e9db/Nililane-3.7.0.apk)** · [APK für x86_64](https://media.githubusercontent.com/media/bthginfo/Nililane/3d341d3d1316f7d5a5aa91fbd4fec31d2597e9db/Nililane-3.7.0-x86_64.apk) · [Tablet-Release](https://github.com/bthginfo/Nililane/releases/tag/v3.7.0)
 
-[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/abdbcdb09d059b36d7add9dafa130420a0b5096d/Nililane-3.6.1.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/abdbcdb09d059b36d7add9dafa130420a0b5096d/Nililane-3.6.1-x86_64.apk.sha256)
+[SHA-256 für ARM64](https://raw.githubusercontent.com/bthginfo/Nililane/3d341d3d1316f7d5a5aa91fbd4fec31d2597e9db/Nililane-3.7.0.apk.sha256) · [SHA-256 für x86_64](https://raw.githubusercontent.com/bthginfo/Nililane/3d341d3d1316f7d5a5aa91fbd4fec31d2597e9db/Nililane-3.7.0-x86_64.apk.sha256)
 
-Die Pakete sind wie bisher signiert. Installiere sie als Update über 3.5.1,
-dann bleiben Hafenreise, Abenteuerinseln und Sterne erhalten. Hast du die
-kurzzeitig angebotene Testfassung 3.6.0 installiert, deinstalliere sie einmal
-vor dem Update.
+Die Pakete sind wie bisher signiert. Installiere sie als Update über 3.6.1
+oder 3.5.1, dann bleiben Hafenreise, Abenteuerinseln und Sterne erhalten. Hast
+du die kurzzeitig angebotene Testfassung 3.6.0 installiert, deinstalliere sie
+einmal vor dem Update. Was neu ist, steht unter [Neu in 3.7.0](#neu-in-370).
 
 ![Siedlung in den Salzgärten mit Blumenwiesen, Steinplattenwegen und abgesteckten Bauplätzen](docs/bilder/abenteuer-siedlung.jpg)
 
@@ -99,7 +99,8 @@ Tablet schließt ein Tipp neben ein Fenster dieses Fenster.
 
 Die ersten beiden Häfen jedes Gebiets haben drei Ziele. Danach wechseln
 sich Inseln mit fünf, sechs oder sieben Aufgaben ab. Unter **Aufträge**
-siehst du den Fortschritt. Ein Stern markiert im Laden das Angebot, das
+siehst du den Fortschritt und unter jedem Ziel einen Satz, wie du es
+schaffst. Ein Stern markiert im Laden das Angebot, das
 gerade für den Handelsauftrag zählt.
 
 Verkaufe zuerst das Grundangebot. Baue den Laden aus und wähle das neue
@@ -183,6 +184,64 @@ Du führst Nili selbst entlang der Spur.
 | Aufträge und Siedlungsbilanz | RB oder die gleichnamige Schaltfläche |
 | Weg in der Einführung ein- oder ausblenden | View oder „Weg anzeigen“ |
 | Pause | Start, B oder „Pause“ |
+
+## Neu in 3.7.0
+
+**Leben in den Gebäuden**
+
+- **Arbeit drinnen statt Herumstehen.** Wer in einer Werkstatt oder einem
+  Laden arbeitet, ist im Gebäude. Das gilt in den Hafenreisen und im
+  Abenteuer.
+- **Jedes Gebäude zeigt seine Arbeit.** Backstube, Töpferei und Ziegelei
+  rauchen, Schmiede und Glasbläserei sprühen Funken, im Sägewerk und in der
+  Fassbinderei fliegen Späne, Getreidemühle und Ölpresse stauben, Thermen,
+  Färberei und Duftwerkstatt dampfen. In Wohnhäusern und Tavernen flackert
+  Herdfeuer, am Brunnen spritzt Wasser, am Heiligtum steigt Weihrauch auf,
+  Bienen umschwirren die Imkerei, und im Garten fallen Blüten.
+- **Kurze Wege nach draußen.** Zwischendurch kommt jemand heraus, holt etwas
+  aus dem Hof und geht wieder hinein. Draußen arbeiten nur Stände, Gärten,
+  Netze und Tische, dort sitzen auch Gäste.
+- **Eigene Höfe.** Holzstapel, Wäscheleinen, Fässer, Säcke, Ziegel, Amboss,
+  Krüge oder Laternenschnüre stehen passend zum Handwerk vor dem Haus.
+
+![Werkstätten in Ikaria mit Rauch aus den Schornsteinen und Bewohnern bei der Arbeit](docs/bilder/werkstattleben.jpg)
+
+**Preiskarten**
+
+- Jede Karte sagt in Worten, was passiert: „4 pro Kauf“, „9 Gäste kaufen“,
+  „3 Gäste gehen leer aus“. Darunter steht die Rechnung, zum Beispiel
+  „9 × 4 + 2 Extra fürs Angebot“. Ein Stern zeigt den Preis mit den meisten
+  Münzen, und in der Einführung gibt Nili einen Tipp.
+
+**Aufträge**
+
+- **Hafenreisen.** Neben Verkaufszielen gibt es Serien, in denen niemand leer
+  ausgeht, zwei zufriedene Abende in Folge, schnelle Hilfe bei
+  Zwischenfällen, einen Lieblingstag für eine Altersgruppe, mehrere Touren
+  mit Nili an einem Tag sowie Herold und Opfergabe.
+- **Abenteuer.** Inseln wollen jetzt Bürger, mehrere Werkstätten
+  gleichzeitig, eine Warenkette, Hilfe für Besucher, Handelsfahrten zum
+  Nachbarhafen, eine Ernte oder Erz aus der Erzader. Jede Besonderheit bringt
+  ein eigenes Ziel. Der Inselbrief nennt die besonderen Ziele schon vor der
+  Landung, und ein verpasstes Feuer oder Fest kommt mit einem späteren Besuch
+  wieder.
+- **So geht's.** Unter jedem Ziel steht in beiden Spielarten ein Satz, wie du
+  es schaffst. Die Hinweiszeile im Abenteuer führt zu den neuen Zielen.
+
+**Bedienung**
+
+- Ein **?** erklärt Läden und Anzeigen. Die Läden sagen „Du hast 3
+  Drachmen“, „7 Laibe am Tag“ und beim Ausbau „7 → 10 Laibe am Tag (+3)“.
+  Ist ein Knopf grau, steht daneben, was noch fehlt.
+- Im Abenteuer nennt die Vorratsleiste jede Ware beim Namen, und oben steht,
+  wie viele Bürger frei sind. Offene Ziele stehen zuerst, erledigte werden
+  zusammengefasst.
+
+**Korrekturen**
+
+- Römische Inseln mit Außenposten und Lagerhäuser in den Oasen bringen das
+  Spiel nicht mehr zum Absturz. Die Oasen haben dafür ein eigenes
+  Lehmlagerhaus mit Krügen, Säcken und Kuppeln bekommen.
 
 ## Neu in 3.6.0
 

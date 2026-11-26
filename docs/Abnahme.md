@@ -1,5 +1,46 @@
 # Spielreview und Abnahme
 
+## Leben in den Gebäuden, Aufträge und Bedienung 3.7.0
+
+- Alle 135 Rust-Tests sind bestanden, zwei Fixture-Tests für Sichtproben
+  sind ausgeklammert. Formatprüfung und Clippy mit `-D warnings` sind sauber.
+  Die Kampagnenprüfung umfasst weiterhin alle 120 Häfen mit drei Sternen und
+  alle 60 Abenteuerinseln. Der Testbot erfüllt dabei auch die neuen Ziele.
+- Neue Tests prüfen unter anderem:
+  - die neuen Hafenziele (Serien, zwei zufriedene Abende, schnelle Hilfe,
+    Lieblingstag einer Altersgruppe, Touren an einem Tag, Herold und
+    Opfergabe) samt „So geht's“-Hinweisen,
+  - die neuen Inselziele (Bürger, Werkstätten gleichzeitig, Warenkette,
+    Besuch, Feuer, Handelsfahrten, Erzader, Ernte), alte Inselspielstände
+    ohne Zielzähler und die Hinweiszeile,
+  - Modelle für jedes Gebäude und jeden Außenposten aller 60 Inseln auf jeder
+    Stufe, passend zum Bauplatz.
+- Dieser Test hat zwei Abstürze gefunden, die schon in 3.6.1 steckten:
+  Römische Inseln mit Außenposten luden ein griechisches Modell, und die Oasen
+  hatten kein Lagerhaus. Beides ist behoben. Die Oasen haben ein eigenes
+  Lehmlagerhaus mit sechs Stufen bekommen.
+- Sichtproben unter Linux mit Mesa-Lavapipe (Vulkan) im Format 1280 × 800:
+  - Werkstätten in beiden Spielarten mit Rauch, Funken, Dampf, Wegen nach
+    draußen und Höfen, die Haustürszenen der Südreihe im Hafen,
+  - die Preiskarten der Backstube, Aufträge in den Häfen 40 und 70, die
+    Erklärkarten und die Ausbau-Vorschau,
+  - Silberstrand in Rom mit den neuen Zielen und Jasminhang in den Oasen mit
+    dem Lagerhaus auf Stufe 1 und 6.
+- `tools/build-android.sh` hat mit SDK 36, Build-Tools 36.0.0 und NDK r28c
+  alle drei Pakete gebaut und mit dem Veröffentlichungszertifikat signiert
+  (`CN=Nililane, O=Nililane`, SHA-256 `2B:1D:0B:A7:…:A6:54:35:AD`):
+  - Tablet: `game.nililane`, versionCode 23, ARM64 und x86_64.
+  - Handy: `game.nililane.phone`, versionCode 11, ARM64.
+  Geprüft wurden `apksigner verify --print-certs`, `zipalign -c -P 16 4` und
+  die Versionen im Manifest. Die APKs sind als Update über 3.6.1 und 3.5.1
+  installierbar.
+- Der Keystore liegt nicht im Repository.
+- Die Pakete liegen im `downloads`-Branch (Commit `3d341d3`); alle Links und
+  Prüfsummen liefern HTTP 200. Der Workflow
+  `.github/workflows/android-release.yml` legt die Releases `v3.7.0` und
+  `v3.7.0-phone` an und prüft das Zertifikat erneut.
+- Auf einem echten Gerät ist 3.7.0 noch nicht geprüft.
+
 ## Signierte Veröffentlichung 3.6.1
 
 - 3.6.1 enthält den Stand von 3.6.0 und ist mit dem bisherigen

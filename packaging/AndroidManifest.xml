@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="game.nililane" android:versionCode="22" android:versionName="3.6.1">
+    package="game.nililane" android:versionCode="23" android:versionName="3.7.0">
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
     <uses-feature android:name="android.hardware.vulkan.version"
         android:version="0x00401000" android:required="true" />
