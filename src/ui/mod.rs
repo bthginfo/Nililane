@@ -58,6 +58,8 @@ pub struct Hud {
     /// The input device the hints are drawn for.
     device: Device,
     scroll_y: f32,
+    /// The "?" explanation open on this screen, if any.
+    info: Option<Info>,
 }
 
 #[derive(Component, Clone, Copy)]
@@ -95,6 +97,93 @@ enum Face {
     Body,
     Bold,
     Serif,
+}
+
+/// A busy screen with a "?" that opens a short explanation in plain words.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Info {
+    /// The harbor's money and renown beside the goals.
+    Harbor,
+    /// A harbor shop: stock, price, offer and upgrade.
+    Shop,
+    /// A workshop on an adventure island and its helpers.
+    Workshop,
+    /// The citizens' tasks on an adventure island.
+    Citizens,
+}
+
+impl Info {
+    /// Two or three short sentences; `currency` names the money of the region.
+    fn lines(self, currency: &str) -> [String; 3] {
+        match self {
+            Info::Harbor => [
+                format!("{currency} sind dein Geld. Damit baust du Läden und machst sie größer."),
+                "Ansehen bekommst du für zufriedene Gäste und für Hilfe am Kai.".into(),
+                "Die Aufträge darunter zeigen, was dir noch zu den Sternen fehlt.".into(),
+            ],
+            Info::Shop => [
+                "Jeden Morgen macht der Laden neue Ware. Gäste kaufen, bis alles weg ist.".into(),
+                "Ist der Preis zu hoch für einen Gast, geht er ohne Kauf weiter.".into(),
+                "Ausbauen bringt mehr Ware am Tag und neue Angebote.".into(),
+            ],
+            Info::Workshop => [
+                "Hier machen Bürger aus Rohstoffen aus dem Lager neue Waren.".into(),
+                "Mit + schickst du mehr Bürger her. Dann geht es schneller.".into(),
+                "Bei „Mitarbeiten“ packt Nili selbst mit an.".into(),
+            ],
+            Info::Citizens => [
+                "Bürger wohnen in deinen Häusern. Mehr Häuser bringen mehr Bürger.".into(),
+                "Freie Bürger schickst du zum Sammeln oder in eine Werkstatt.".into(),
+                "Mit + und − teilst du sie ein. „Weg zeigen“ markiert den Ort.".into(),
+            ],
+        }
+    }
+}
+
+/// Which explanation the screen on display can show, so one left open on an
+/// earlier screen closes by itself.
+fn info_topic(game: &Game, expedition: &crate::adventure::Adventure) -> Option<Info> {
+    use crate::adventure::Screen;
+    match (game.view, game.panel) {
+        (View::Street, Panel::None) => Some(Info::Harbor),
+        (View::Street, Panel::Details) => Some(Info::Shop),
+        (View::Adventure, Panel::None) => match expedition.screen {
+            Screen::Lot(_) => Some(Info::Workshop),
+            Screen::Labor => Some(Info::Citizens),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The "?" toggle of a busy screen.
+fn info_button(p: &mut ChildSpawnerCommands, hud: &Hud, topic: Info, open: bool) {
+    button(
+        p,
+        hud,
+        Action::Info(topic),
+        "?",
+        "",
+        "",
+        if open { Style::Selected } else { Style::Quiet },
+        false,
+    );
+}
+
+/// The short explanation behind a "?".
+fn info_card(p: &mut ChildSpawnerCommands, hud: &Hud, topic: Info, currency: &str) {
+    card(p, frame_node(Val::Percent(100.0), 2.0, 8.0), DEEP).with_children(|note| {
+        for line in topic.lines(currency) {
+            let bullet = Node {
+                align_items: AlignItems::FlexStart,
+                ..row(7.0)
+            };
+            note.spawn(bullet).with_children(|r| {
+                label(r, hud, "•", 15.0, Face::Bold, GOLD);
+                label(r, hud, line, 15.0, Face::Body, SAND);
+            });
+        }
+    });
 }
 
 #[derive(Component)]
@@ -155,6 +244,10 @@ pub fn draw(
     hud.phone = game.phone;
     hud.scroll_y = game.scroll_y;
     hud.device = controls.device;
+    if game.info.is_some() && game.info != info_topic(&game, &expedition) {
+        game.info = None;
+    }
+    hud.info = game.info;
     hud.close_modal = Some(
         if game.view == View::Adventure && game.panel == Panel::None {
             Action::Adventure(crate::adventure::Command::Close)
@@ -689,11 +782,12 @@ pub fn refresh(
                 }
             }
             Dynamic::Sales => {
-                if let Some(day) = day {
+                if let (Some(town), Some(day)) = (town, day) {
                     let text_value = format!(
-                        "{} versorgt  ·  +{} Münzen",
+                        "{} Gäste versorgt  ·  +{} {}",
                         day.tally.served_total(),
-                        day.tally.income
+                        day.tally.income,
+                        crate::campaign::Region::of(town.chapter).currency()
                     );
                     if text.0 != text_value {
                         text.0 = text_value;

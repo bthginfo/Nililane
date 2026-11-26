@@ -58,6 +58,15 @@ impl Responses {
     fn counts(self) -> String {
         format!("{} von {} erfüllt", self.served, self.total)
     }
+
+    /// The longer form for the guest book: "3 von 4 Wünschen erfüllt".
+    fn wishes(self) -> String {
+        if self.total == 1 {
+            format!("{} von 1 Wunsch erfüllt", self.served)
+        } else {
+            format!("{} von {} Wünschen erfüllt", self.served, self.total)
+        }
+    }
 }
 
 pub(super) fn face(verdict: Verdict) -> &'static str {
@@ -538,7 +547,7 @@ fn metric(p: &mut ChildSpawnerCommands, hud: &Hud, heading: &str, symbol: &str, 
                     if value.total == 0 {
                         "Noch keine Stimmen".into()
                     } else {
-                        value.counts()
+                        value.wishes()
                     },
                     14.5,
                     Face::Body,
@@ -732,7 +741,11 @@ fn guest_card(
                 c,
                 hud,
                 visit.age(index).icon(),
-                format!("Spezialität · +{} Münzen", visit.specialty_bonus),
+                format!(
+                    "Lieblingsangebot · +{} {} extra",
+                    visit.specialty_bonus,
+                    Region::of(town.chapter).currency()
+                ),
             );
         } else if verdict == Verdict::Pleased
             && let Some(b) = visit.shop.and_then(|lot| town.lots[usize::from(lot)])
@@ -766,10 +779,11 @@ fn guest_card(
                 .and_then(|lot| town.lots[usize::from(lot)])
                 .filter(|b| b.kind.service() == Some(visit.wants))
                 .map(|b| b.price.coins(visit.wants));
-            let budget = format!("Bis zu {budget} {}", Region::of(town.chapter).currency());
+            let currency = Region::of(town.chapter).currency();
+            let budget = format!("Der Gast zahlt höchstens {budget} {currency}");
             let price = price.map_or_else(
                 || budget.clone(),
-                |price| format!("Preis {price}  ·  {budget}"),
+                |price| format!("Dein Preis: {price} {currency}  ·  {budget}"),
             );
             label(c, hud, price, 15.5, Face::Bold, GOLD);
         }

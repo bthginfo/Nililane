@@ -557,7 +557,7 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
             });
         });
         if matches!(town.phase, Phase::Open(_)) {
-            card(stack, frame_node(Val::Px(290.0), 6.0, 10.0), INK).with_children(|time| {
+            card(stack, frame_node(Val::Px(370.0), 6.0, 10.0), INK).with_children(|time| {
                 time.spawn(Node {
                     justify_content: JustifyContent::SpaceBetween,
                     ..row(6.0)
@@ -662,7 +662,11 @@ pub fn street(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town,
                 &town.totals.reputation.to_string(),
                 "Ansehen",
             );
+            info_button(stats, hud, Info::Harbor, hud.info == Some(Info::Harbor));
         });
+        if hud.info == Some(Info::Harbor) {
+            info_card(rail, hud, Info::Harbor, Region::of(town.chapter).currency());
+        }
         guests::summary(rail, hud, town);
         line(rail, LINE);
         label(rail, hud, ch.name, 27.0, Face::Serif, SAND);

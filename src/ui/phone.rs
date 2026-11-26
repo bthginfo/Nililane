@@ -84,6 +84,13 @@ pub(super) fn harbor(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town:
         None
     };
     let route = open.and_then(|day| day.manual_route().map(|(route, nili)| (day, route, nili)));
+    // Nili's next step is the gold button; starting the day waits until it is done.
+    let coach_step = coach::next(town, chapter, game.selected, game.saw_prices).filter(|step| {
+        route.is_none()
+            && game.job.is_none()
+            && game.lesson.is_none()
+            && !matches!(step, Step::StartDay | Step::Arrivals | Step::Evening)
+    });
     let sky = if chapter.shift.night() && weather == Weather::Clear {
         "moon"
     } else {
@@ -116,14 +123,20 @@ pub(super) fn harbor(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town:
                 label(r, hud, format!("Tag {}", town.day), 22.0, Face::Bold, SAND);
             }
             icon(r, hud, "coin", 26.0);
-            label(r, hud, town.coins.to_string(), 22.0, Face::Bold, SAND);
+            label(
+                r,
+                hud,
+                format!(
+                    "{} {}",
+                    town.coins,
+                    crate::campaign::Region::of(town.chapter).currency()
+                ),
+                22.0,
+                Face::Bold,
+                SAND,
+            );
         });
-        if route.is_none()
-            && game.job.is_none()
-            && game.lesson.is_none()
-            && let Some(step) = coach::next(town, chapter, game.selected, game.saw_prices)
-            && !matches!(step, Step::StartDay | Step::Arrivals | Step::Evening)
-        {
+        if let Some(step) = coach_step {
             let (title, icon) = prompts::step_words(step);
             button(
                 stack,
@@ -132,7 +145,7 @@ pub(super) fn harbor(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town:
                 title,
                 icon,
                 "",
-                Style::Quiet,
+                Style::Primary,
                 false,
             );
         }
@@ -230,7 +243,11 @@ pub(super) fn harbor(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town:
                     },
                     if chapter.shift.night() { "moon" } else { "sun" },
                     "",
-                    Style::Primary,
+                    if coach_step.is_some() {
+                        Style::Quiet
+                    } else {
+                        Style::Primary
+                    },
                     false,
                 );
             });
@@ -496,27 +513,41 @@ pub(super) fn expedition(
     island: &Island,
     level: Level,
 ) {
-    let mut top = corner_node();
-    top.position_type = PositionType::Absolute;
-    top.left = Val::Px(14.0);
-    top.top = Val::Px(12.0);
-    card(p, top, INK).with_children(|r| {
-        icon(
-            r,
-            hud,
-            if (0.18..=0.82).contains(&island.phase) {
-                "sun"
-            } else {
-                "moon"
-            },
-            28.0,
-        );
-        label(r, hud, level.name, 24.0, Face::Serif, SAND);
-        if !island.completed {
-            let (met, total) = island.milestones(level);
-            icon(r, hud, "book", 22.0);
-            label(r, hud, format!("{met}/{total}"), 19.0, Face::Bold, GOLD);
-        }
+    let top = Node {
+        position_type: PositionType::Absolute,
+        left: Val::Px(14.0),
+        top: Val::Px(12.0),
+        padding: UiRect::axes(Val::Px(12.0), Val::Px(6.0)),
+        ..column(3.0)
+    };
+    card(p, top, INK).with_children(|status| {
+        status.spawn(row(8.0)).with_children(|r| {
+            icon(
+                r,
+                hud,
+                if (0.18..=0.82).contains(&island.phase) {
+                    "sun"
+                } else {
+                    "moon"
+                },
+                28.0,
+            );
+            label(r, hud, level.name, 24.0, Face::Serif, SAND);
+            if !island.completed {
+                let (met, total) = island.milestones(level);
+                icon(r, hud, "book", 22.0);
+                label(
+                    r,
+                    hud,
+                    format!("{met}/{total} Ziele"),
+                    19.0,
+                    Face::Bold,
+                    GOLD,
+                );
+            }
+        });
+        // The phone shows the stock too, so nobody has to open the map to count wood.
+        super::adventure::stock_row(status, hud, island, level);
     });
     pocket(p, hud, game, false, |menu| {
         let (command, title, art) = if island.completed {

@@ -49,6 +49,23 @@ pub(super) fn modal(
     image: &str,
     content: impl FnOnce(&mut ChildSpawnerCommands),
 ) {
+    explained_modal(p, hud, width, heading, title, image, None, content);
+}
+
+/// A dialog with a "?" in its header that opens a short explanation of `info`
+/// in the region's `currency` words.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn explained_modal(
+    p: &mut ChildSpawnerCommands,
+    hud: &Hud,
+    width: f32,
+    heading: &str,
+    title: &str,
+    image: &str,
+    info: Option<(Info, &str)>,
+    content: impl FnOnce(&mut ChildSpawnerCommands),
+) {
+    let explained = info.filter(|(topic, _)| hud.info == Some(*topic));
     let mut veil = overlay(p);
     veil.insert(feel::Veil(feel::key(title)));
     if let Some(action) = hud.dismiss {
@@ -103,6 +120,13 @@ pub(super) fn modal(
                         SAND,
                     );
                 });
+                if let Some((topic, _)) = info {
+                    head.spawn(Node {
+                        flex_grow: 1.0,
+                        ..default()
+                    });
+                    info_button(head, hud, topic, explained.is_some());
+                }
                 if hud.phone
                     && let Some(action) = hud.close_modal
                 {
@@ -119,6 +143,9 @@ pub(super) fn modal(
                 }
             });
             line(page, LINE);
+            if let Some((topic, currency)) = explained {
+                info_card(page, hud, topic, currency);
+            }
             if hud.phone {
                 page.spawn((
                     touch::ScrollPage,
@@ -546,7 +573,7 @@ fn nili(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter)
 
 fn build(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, chapter: &Chapter) {
     let balance = format!(
-        "FREIER BAUPLATZ  ·  {} {}",
+        "FREIER BAUPLATZ  ·  DU HAST {} {}",
         town.coins,
         Region::of(town.chapter).currency().to_uppercase()
     );
@@ -634,12 +661,18 @@ fn build(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, chap
                             let (art, effect) = if let Some(service) = kind.service() {
                                 (
                                     service_icon(service),
-                                    stock_text(service, after.stock[game.selected]),
+                                    format!(
+                                        "{} am Tag",
+                                        stock_text(service, after.stock[game.selected])
+                                    ),
                                 )
                             } else if kind.water_source() {
                                 (
                                     "water",
-                                    format!("+{} Krüge", after.water.saturating_sub(before.water)),
+                                    format!(
+                                        "+{} Krüge Wasser",
+                                        after.water.saturating_sub(before.water)
+                                    ),
                                 )
                             } else {
                                 match kind {
@@ -708,7 +741,11 @@ fn build(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, chap
                                 label(
                                     item,
                                     hud,
-                                    format!("Noch {} Münzen nötig", kind.cost() - town.coins),
+                                    format!(
+                                        "Noch {} {} nötig",
+                                        kind.cost() - town.coins,
+                                        Region::of(town.chapter).currency()
+                                    ),
                                     15.0,
                                     Face::Body,
                                     MUTED,
@@ -764,18 +801,19 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
     };
     let currency = Region::of(town.chapter).currency();
     let heading = format!(
-        "STUFE {}  ·  {} {}",
+        "STUFE {}  ·  DU HAST {} {}",
         b.level,
         town.coins,
         currency.to_uppercase()
     );
-    modal(
+    explained_modal(
         p,
         hud,
         956.0,
         &heading,
         b.kind.name(),
         kind_icon(b.kind),
+        b.kind.service().map(|_| (Info::Shop, currency)),
         |page| {
             let before = town.production(chapter);
             if let Some(service) = b.kind.service() {
@@ -784,11 +822,17 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                     _ => before.stock[lot],
                 };
                 page.spawn(row(20.0)).with_children(|stats| {
+                    // While planning, the figure is what the shop makes each morning.
+                    let made = if town.planning() && stock > 0 {
+                        " am Tag"
+                    } else {
+                        ""
+                    };
                     metric(
                         stats,
                         hud,
                         service_icon(service),
-                        stock_text(service, stock),
+                        format!("{}{made}", stock_text(service, stock)),
                     );
                     if service.priced() {
                         metric(
@@ -824,9 +868,9 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                                     hud,
                                     "check",
                                     if has_places(service) {
-                                        "Genug Plätze"
+                                        "Genug Plätze für alle Gäste"
                                     } else {
-                                        "Vorrat reicht"
+                                        "Genug für alle Gäste"
                                     },
                                 );
                             }
@@ -851,9 +895,9 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                                         (
                                             "check",
                                             if has_places(service) {
-                                                "Genug Plätze"
+                                                "Genug Plätze für alle Gäste"
                                             } else {
-                                                "Vorrat reicht"
+                                                "Genug für alle Gäste"
                                             }
                                             .to_owned(),
                                         )
@@ -1030,16 +1074,37 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
             if town.planning() {
                 if let Some(estimate) = upgrade_estimate(town, chapter, lot) {
                     let appearance = expansion(b.kind, b.level + 1, Region::of(town.chapter));
-                    page.spawn(row(18.0)).with_children(|next| {
-                        metric(next, hud, "hammer", appearance);
+                    page.spawn(Node {
+                        flex_wrap: FlexWrap::Wrap,
+                        row_gap: Val::Px(5.0),
+                        ..row(18.0)
+                    })
+                    .with_children(|next| {
+                        label(
+                            next,
+                            hud,
+                            format!("Ausbau auf Stufe {}:", b.level + 1),
+                            16.0,
+                            Face::Bold,
+                            GOLD,
+                        );
                         let UpgradeEstimate {
                             art,
                             from,
                             to,
                             unit,
+                            daily,
                             ..
                         } = estimate;
-                        metric(next, hud, art, format!("{from} → {to} {unit}"));
+                        // Say what changes in plain numbers: "6 → 9 Laibe am Tag (+3)".
+                        let when = if daily { " am Tag" } else { "" };
+                        let change = if to > from {
+                            format!("{from} → {to} {unit}{when} (+{})", to - from)
+                        } else {
+                            format!("{from} → {to} {unit}{when}")
+                        };
+                        metric(next, hud, art, change);
+                        metric(next, hud, "hammer", appearance);
                     });
                     if let Some(kind) = estimate.short_water {
                         let words = if kind == b.kind {
@@ -1057,15 +1122,38 @@ fn details(p: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, town: &Town, ch
                 })
                 .with_children(|actions| {
                     if b.level < MAX_LEVEL {
-                        button(
+                        let cost = b.upgrade_cost();
+                        actions.spawn(row(9.0)).with_children(|upgrade| {
+                            button(
+                                upgrade,
+                                hud,
+                                Action::Upgrade,
+                                &format!("Ausbauen  ·  {cost} {currency}"),
+                                "hammer",
+                                "",
+                                Style::Quiet,
+                                town.coins < cost,
+                            );
+                            // A greyed-out button always says what is missing.
+                            if town.coins < cost {
+                                label(
+                                    upgrade,
+                                    hud,
+                                    format!("Noch {} {currency} nötig", cost - town.coins),
+                                    15.0,
+                                    Face::Bold,
+                                    GOLD,
+                                );
+                            }
+                        });
+                    } else {
+                        label(
                             actions,
                             hud,
-                            Action::Upgrade,
-                            &format!("Ausbauen  ·  {}", b.upgrade_cost()),
-                            "hammer",
-                            "",
-                            Style::Quiet,
-                            town.coins < b.upgrade_cost(),
+                            "Höchste Stufe erreicht",
+                            15.0,
+                            Face::Bold,
+                            MUTED,
                         );
                     }
                     button(
@@ -1119,6 +1207,7 @@ fn offer_cards(
 ) {
     use crate::campaign::Goal;
     let island = town.chapter;
+    let currency = Region::of(island).currency();
     let requested = crate::campaign_orders::trade_order(chapter, island)
         .filter(|order| {
             order.shop == building.kind
@@ -1138,16 +1227,23 @@ fn offer_cards(
     })
     .with_children(|header| {
         label(header, hud, "Angebot", 18.0, Face::Bold, GOLD);
-        metric(header, hud, "coin", "Möglicher Mehrerlös");
+        label(
+            header,
+            hud,
+            "Passt das Angebot zum Gast, zahlt er etwas extra.",
+            15.0,
+            Face::Body,
+            SAND,
+        );
         if let Some(choice) = requested.filter(|choice| !choice.unlocked(building.level)) {
             metric(
                 header,
                 hud,
                 "star",
                 format!(
-                    "Auftrag ab Stufe {} · {}",
-                    choice.tier(),
-                    choice.label(building.kind)
+                    "Für den Auftrag: {} ab Stufe {}",
+                    choice.label(building.kind),
+                    choice.tier()
                 ),
             );
         } else if let Some(next) = Assortment::ALL.into_iter().find(|choice| {
@@ -1157,7 +1253,11 @@ fn offer_cards(
             label(
                 header,
                 hud,
-                format!("Ab Stufe {} · {}", next.tier(), next.label(building.kind)),
+                format!(
+                    "Nach dem Ausbau auf Stufe {}: {}",
+                    next.tier(),
+                    next.label(building.kind)
+                ),
                 15.0,
                 Face::Body,
                 MUTED,
@@ -1227,7 +1327,7 @@ fn offer_cards(
                         label(
                             tile,
                             hud,
-                            format!("{purchases} · {people}"),
+                            format!("Für {people} · {purchases} freuen sich"),
                             14.5,
                             Face::Body,
                             MUTED,
@@ -1235,13 +1335,13 @@ fn offer_cards(
                         label(
                             tile,
                             hud,
-                            format!("+{coins} Münzen"),
+                            format!("+{coins} {currency} extra"),
                             15.0,
                             Face::Bold,
                             GOLD,
                         );
                     } else {
-                        label(tile, hud, "Grundangebot", 14.5, Face::Body, MUTED);
+                        label(tile, hud, "Für alle · kein Extra", 14.5, Face::Body, MUTED);
                     }
                 });
             }
@@ -2135,6 +2235,8 @@ struct UpgradeEstimate {
     from: u16,
     to: u16,
     unit: &'static str,
+    /// Whether the figure is made fresh every day, like loaves or beds.
+    daily: bool,
     short_water: Option<Kind>,
 }
 
@@ -2229,6 +2331,21 @@ fn upgrade_estimate(town: &Town, chapter: &Chapter, lot: usize) -> Option<Upgrad
         from,
         to,
         unit,
+        // Stock, water and harvests are made fresh each morning; the other figures
+        // (neighbours, bonuses for nearby shops, trade) are not daily amounts.
+        daily: building.residents() == 0
+            && !matches!(
+                building.kind,
+                Kind::HerbGarden
+                    | Kind::TeaGarden
+                    | Kind::Boatyard
+                    | Kind::SignalTower
+                    | Kind::FerryOffice
+                    | Kind::Storehouse
+                    | Kind::Mill
+                    | Kind::MarketGarden
+                    | Kind::Sheepfold
+            ),
         short_water,
     })
 }
@@ -2599,11 +2716,17 @@ fn morning_notes(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town) {
 }
 
 fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &Chapter) {
+    let ages = town.age_forecast(chapter);
+    let expected: u16 = ages.iter().sum();
     age_row(
         page,
         hud,
-        &format!("Tag {} · Heute erwartet", town.day),
-        town.age_forecast(chapter),
+        &format!(
+            "Tag {} · {expected} {} erwartet",
+            town.day,
+            if expected == 1 { "Gast" } else { "Gäste" }
+        ),
+        ages,
         false,
         town.chapter,
     );
@@ -2688,7 +2811,7 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
             hud,
             "water",
             &format!("{}/{}", production.used_water, production.water),
-            "Wasser verbraucht",
+            "Krüge Wasser gebraucht",
         );
         if production.olives > 0 || production.used_olives > 0 {
             super::screens::stat(
@@ -2696,7 +2819,7 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
                 hud,
                 "olive",
                 &format!("{}/{}", production.used_olives, production.olives),
-                "Oliven verbraucht",
+                "Oliven gebraucht",
             );
         }
     });
@@ -2747,9 +2870,10 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
                         tile,
                         hud,
                         format!(
-                            "{} {}",
+                            "{} {} {}",
                             supply[i],
-                            if live { "auf Lager" } else { "bereit" }
+                            stock_unit(service, supply[i]),
+                            if live { "übrig" } else { "bereit" }
                         ),
                         16.0,
                         Face::Bold,
@@ -2758,15 +2882,26 @@ fn supplies(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
                     label(
                         tile,
                         hud,
-                        format!(
-                            "{} {}",
-                            predicted[i],
-                            if live { "noch erwartet" } else { "erwartet" }
-                        ),
+                        match (predicted[i], live) {
+                            (1, false) => "1 Gast will das".to_owned(),
+                            (1, true) => "1 Gast will das noch".to_owned(),
+                            (n, false) => format!("{n} Gäste wollen das"),
+                            (n, true) => format!("{n} Gäste wollen das noch"),
+                        },
                         15.0,
                         Face::Body,
                         MUTED,
                     );
+                    if short {
+                        label(
+                            tile,
+                            hud,
+                            format!("{} fehlen", predicted[i] - supply[i]),
+                            15.0,
+                            Face::Bold,
+                            GOLD,
+                        );
+                    }
                     if predicted[i] > 0 {
                         meter(
                             tile,
@@ -2872,7 +3007,12 @@ fn day_plan(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
                     );
                 }
                 if weather.rainfall() > 0 {
-                    metric(day, hud, "water", format!("+{} Krüge", weather.rainfall()));
+                    metric(
+                        day,
+                        hud,
+                        "water",
+                        format!("+{} Krüge Wasser", weather.rainfall()),
+                    );
                 }
                 if weather == Weather::Heat {
                     metric(day, hud, "water", "+1 Krug Bedarf je Laden");
@@ -2934,9 +3074,10 @@ fn day_plan(page: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, chapter: &C
                 page,
                 hud,
                 format!(
-                    "Hilfst du in den ersten {} Sekunden, gibt es +{} Münzen und +{} Ansehen extra.",
+                    "Hilfst du in den ersten {} Sekunden, gibt es +{} {} und +{} Ansehen extra.",
                     crate::model::RUSH_SECONDS as u32,
                     crate::model::RUSH_COINS,
+                    chapter.region.currency(),
                     crate::model::RUSH_RENOWN
                 ),
                 15.0,
@@ -3108,45 +3249,61 @@ fn evening(
                     format!("Tagesrekord · {}", records.join(" · ")),
                 );
             }
-            if report.tally.street_bonus > 0
-                || report.tally.specialty_income > 0
-                || report.contract_bonus > 0
-                || report.tally.streak_bonus > 0
-            {
+            // The day's money as a sum that adds up to the big figure above.
+            let currency = Region::of(town.chapter).currency();
+            let tally = &report.tally;
+            let mut sources = Vec::new();
+            if tally.income > 0 {
+                sources.push(if tally.specialty_income > 0 {
+                    format!(
+                        "{} aus Verkäufen (davon {} für Lieblingsangebote)",
+                        tally.income, tally.specialty_income
+                    )
+                } else {
+                    format!("{} aus Verkäufen", tally.income)
+                });
+            }
+            if tally.caravan_income > 0 {
+                sources.push(format!("{} von Karawanen", tally.caravan_income));
+            }
+            let harbor_money = report.grant.saturating_sub(report.contract_bonus);
+            if harbor_money > 0 {
+                sources.push(format!("{harbor_money} Hafengeld"));
+            }
+            if report.contract_bonus > 0 {
+                sources.push(format!("{} Extra für heute", report.contract_bonus));
+            }
+            if sources.len() > 1 {
+                metric(
+                    page,
+                    hud,
+                    "coin",
+                    format!(
+                        "{} = {} {currency}",
+                        sources.join(" + "),
+                        tally.income + tally.caravan_income + report.grant
+                    ),
+                );
+            }
+            if tally.street_bonus > 0 || tally.streak_bonus > 0 {
                 page.spawn(row(14.0)).with_children(|bonuses| {
-                    if report.tally.streak_bonus > 0 {
+                    if tally.streak_bonus > 0 {
                         metric(
                             bonuses,
                             hud,
                             "guest_happy",
                             format!(
-                                "Serie ×{} · +{} Ansehen",
-                                report.tally.best_streak, report.tally.streak_bonus
+                                "{} zufriedene Gäste am Stück · +{} Ansehen",
+                                tally.best_streak, tally.streak_bonus
                             ),
                         );
                     }
-                    if report.tally.street_bonus > 0 {
+                    if tally.street_bonus > 0 {
                         metric(
                             bonuses,
                             hud,
                             "nili",
-                            format!("Gasse · +{} Ansehen", report.tally.street_bonus),
-                        );
-                    }
-                    if report.tally.specialty_income > 0 {
-                        metric(
-                            bonuses,
-                            hud,
-                            "bread",
-                            format!("Angebote · +{} Münzen", report.tally.specialty_income),
-                        );
-                    }
-                    if report.contract_bonus > 0 {
-                        metric(
-                            bonuses,
-                            hud,
-                            "check",
-                            format!("Tagesextra · +{} Münzen", report.contract_bonus),
+                            format!("Hilfe in der Gasse · +{} Ansehen", tally.street_bonus),
                         );
                     }
                 });
@@ -3185,7 +3342,10 @@ fn evening(
                                         label(
                                             reward,
                                             hud,
-                                            format!("+{bonus} Startmünzen"),
+                                            format!(
+                                                "+{bonus} {} Startgeld",
+                                                Region::of(index).currency()
+                                            ),
                                             17.0,
                                             Face::Bold,
                                             GOLD,
@@ -3199,7 +3359,7 @@ fn evening(
                                 hud,
                                 "coin",
                                 format!(
-                                    "{} Münzen Handelsumsatz in diesem Hafen",
+                                    "{} {currency} in diesem Hafen verdient",
                                     town.totals.income
                                 ),
                             );
@@ -3256,7 +3416,10 @@ fn evening(
                         page,
                         hud,
                         "coin",
-                        format!("Reisekasse · +{bonus} Startmünzen beim Hafenabschluss"),
+                        format!(
+                            "Schaffst du diesen Hafen, startest du im nächsten mit +{bonus} {}.",
+                            Region::of(next).currency()
+                        ),
                     );
                 }
             }
