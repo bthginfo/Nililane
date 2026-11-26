@@ -230,7 +230,7 @@ pub(crate) fn quest_dog(index: usize) -> bool {
     matches!(harbor_stage(index), 4 | 8 | 13 | 17 | 21 | 23)
 }
 
-#[cfg(test)]
+/// The building of this harbor that sells a service, preferring what can be built here.
 pub(crate) fn shop_for(service: crate::model::Service, chapter: &Chapter) -> Option<Kind> {
     chapter
         .allowed()
@@ -339,23 +339,12 @@ mod tests {
     #[test]
     fn later_harbors_mix_at_most_one_plain_counter_with_planned_goals() {
         let trade = |goal: &Goal| matches!(goal, Goal::Sale(..) | Goal::TradeUpgrade(..));
-        let introduced = |goal: &Goal| {
-            matches!(
-                goal,
-                Goal::Streak(_)
-                    | Goal::TourDay(_)
-                    | Goal::Rush(_)
-                    | Goal::FanDay(..)
-                    | Goal::SteadyMood(_)
-                    | Goal::Call(..)
-            )
-        };
         let mut kinds = std::collections::HashMap::new();
         for (index, chapter) in CHAPTERS.iter().enumerate() {
             let goals: Vec<_> = chapter.objectives(index).collect();
             if tutorial(index) {
                 assert!(
-                    goals.iter().all(|goal| !introduced(goal)),
+                    goals.iter().all(|goal| !goal.introduced()),
                     "{} stays simple",
                     chapter.district
                 );
@@ -385,7 +374,7 @@ mod tests {
                     chapter.district
                 );
             }
-            for goal in goals.iter().filter(|goal| introduced(goal)) {
+            for goal in goals.iter().filter(|goal| goal.introduced()) {
                 *kinds.entry(std::mem::discriminant(goal)).or_insert(0u32) += 1;
             }
         }

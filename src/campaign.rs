@@ -1,5 +1,7 @@
 #[path = "districts.rs"]
 mod districts;
+#[path = "objective_hints.rs"]
+mod hints;
 #[path = "japan_districts.rs"]
 mod japan;
 #[path = "nordic_districts.rs"]
@@ -346,6 +348,11 @@ impl Goal {
         }
     }
 
+    /// One short line on how to reach this goal in the given harbor.
+    pub fn hint(self, chapter: &Chapter) -> String {
+        hints::hint(self, chapter)
+    }
+
     /// A plain running total such as „60 Brot verkaufen“. Later harbors keep at most one
     /// of these and fill the rest with goals that ask for a plan.
     pub const fn plain_counter(self) -> bool {
@@ -359,6 +366,20 @@ impl Goal {
                 | Self::Specials(_)
                 | Self::CargoIncome(_)
                 | Self::CaravanIncome(_)
+        )
+    }
+
+    /// One of the newer goal kinds that ask for a plan rather than a running total. The
+    /// harbor brief introduces each the first time a region asks for it.
+    pub fn introduced(self) -> bool {
+        matches!(
+            self,
+            Self::Streak(_)
+                | Self::TourDay(_)
+                | Self::Rush(_)
+                | Self::FanDay(..)
+                | Self::SteadyMood(_)
+                | Self::Call(..)
         )
     }
 
