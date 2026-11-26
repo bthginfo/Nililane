@@ -520,7 +520,8 @@ fn walk(
                 }
             });
         });
-        let mut tasks = frame_node(Val::Px(296.0), 6.0, 10.0);
+        // Wide enough for both links in one row, so the goals start higher up.
+        let mut tasks = frame_node(Val::Px(384.0), 6.0, 10.0);
         tasks.position_type = PositionType::Absolute;
         tasks.right = Val::Px(16.0);
         tasks.top = Val::Px(14.0);
@@ -555,7 +556,7 @@ fn walk(
     }
     if let Some((guide, walkthrough)) = a.guide() {
         let mut tip = frame_node(
-            Val::Px(if hud.phone { 352.0 } else { 404.0 }),
+            Val::Px(if hud.phone { 352.0 } else { 484.0 }),
             if walkthrough { 5.0 } else { 3.0 },
             if walkthrough { 10.0 } else { 8.0 },
         );
@@ -3368,61 +3369,77 @@ fn finish(
     );
 }
 
+struct Goal {
+    art: &'static str,
+    title: String,
+    done: bool,
+    count: String,
+}
+
 fn objectives(p: &mut ChildSpawnerCommands, hud: &Hud, level: Level, island: &Island) {
+    let mut goals = Vec::new();
     for req in level.goals() {
         let done = island.progress(req).min(req.count);
-        let step = if req.tier > 1 {
+        let title = if req.tier > 1 {
             format!("{} · Stufe {}", req.kind.name(level.region), req.tier)
         } else {
             req.kind.name(level.region).to_owned()
         };
-        goal(
-            p,
-            hud,
-            build_icon(req.kind),
-            &step,
-            done >= req.count,
-            format!("{done}/{}", req.count),
-        );
+        goals.push(Goal {
+            art: build_icon(req.kind),
+            title,
+            done: done >= req.count,
+            count: format!("{done}/{}", req.count),
+        });
     }
     let (good, need) = level.reserve();
     let units = island.amount(good);
-    goal(
-        p,
-        hud,
-        good.icon(level.region),
-        good.name(level.region),
-        units >= need,
-        format!("{}/{need}", units.min(need)),
-    );
+    goals.push(Goal {
+        art: good.icon(level.region),
+        title: good.name(level.region).to_owned(),
+        done: units >= need,
+        count: format!("{}/{need}", units.min(need)),
+    });
     if level.plan().is_some() {
-        let finished = island.quest == Quest::Finished;
-        goal(
-            p,
-            hud,
-            "adventure_blueprint",
-            "Bauplan finden",
-            finished,
-            String::new(),
-        );
+        goals.push(Goal {
+            art: "adventure_blueprint",
+            title: "Bauplan finden".to_owned(),
+            done: island.quest == Quest::Finished,
+            count: String::new(),
+        });
     }
     if level.order_count() > 0 {
-        goal(
-            p,
-            hud,
-            "storehouse",
-            "Lieferungen zum Außenposten",
-            island.orders_delivered >= level.order_count(),
-            format!("{}/{}", island.orders_delivered, level.order_count()),
-        );
+        goals.push(Goal {
+            art: "storehouse",
+            title: "Lieferungen zum Außenposten".to_owned(),
+            done: island.orders_delivered >= level.order_count(),
+            count: format!("{}/{}", island.orders_delivered, level.order_count()),
+        });
     }
     if level.work_order().is_some() {
+        goals.push(Goal {
+            art: Good::Masterwork.icon(level.region),
+            title: "Meisterauftrag".to_owned(),
+            done: level.work_order_delivered(island.orders_delivered),
+            count: String::new(),
+        });
+    }
+    // What is still open comes first; finished goals fold into one line.
+    let (finished, open): (Vec<_>, Vec<_>) = goals.into_iter().partition(|goal| goal.done);
+    for item in &open {
+        goal(p, hud, item.art, &item.title, false, item.count.clone());
+    }
+    if open.is_empty() || finished.len() < 2 {
+        for item in &finished {
+            goal(p, hud, item.art, &item.title, true, item.count.clone());
+        }
+    } else {
         goal(
             p,
             hud,
-            Good::Masterwork.icon(level.region),
-            "Meisterauftrag",
-            level.work_order_delivered(island.orders_delivered),
+            "check",
+            &format!("{} Ziele erledigt", finished.len()),
+            true,
             String::new(),
         );
     }

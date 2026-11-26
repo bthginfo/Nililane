@@ -119,6 +119,10 @@ pub(crate) struct SummaryFill;
 #[derive(Component)]
 pub(crate) struct SummaryTrack;
 
+/// Parts of the summary that only matter once guests have spoken.
+#[derive(Component)]
+pub(crate) struct SummaryDetail;
+
 pub(super) fn summary(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town) {
     button_shell(
         p,
@@ -174,6 +178,7 @@ pub(super) fn summary(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town) {
         summary
             .spawn((
                 SummaryTrack,
+                SummaryDetail,
                 Node {
                     width: Val::Percent(100.0),
                     height: Val::Px(6.0),
@@ -195,10 +200,13 @@ pub(super) fn summary(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town) {
                 ));
             });
         summary
-            .spawn(Node {
-                justify_content: JustifyContent::SpaceBetween,
-                ..row(5.0)
-            })
+            .spawn((
+                SummaryDetail,
+                Node {
+                    justify_content: JustifyContent::SpaceBetween,
+                    ..row(5.0)
+                },
+            ))
             .with_children(|footer| {
                 footer.spawn(row(4.0)).with_children(|seen| {
                     seen.spawn((
@@ -239,6 +247,7 @@ pub fn refresh(
     mut icons: Query<(&SummaryIcon, &mut ImageNode)>,
     mut fill: Query<&mut Node, With<SummaryFill>>,
     mut track: Query<&mut BackgroundColor, With<SummaryTrack>>,
+    mut details: Query<&mut Node, (With<SummaryDetail>, Without<SummaryFill>)>,
 ) {
     if texts.is_empty() {
         return;
@@ -250,6 +259,17 @@ pub fn refresh(
         .feedback()
         .map_or_else(Responses::default, Responses::from_tally);
     let reaction = latest(town);
+    // Before the first voices the card stays a single slim line.
+    let display = if responses.total == 0 && reaction.is_none() {
+        Display::None
+    } else {
+        Display::Flex
+    };
+    for mut node in &mut details {
+        if node.display != display {
+            node.display = display;
+        }
+    }
     for (slot, mut text, mut color) in &mut texts {
         let (content, tint) = match slot {
             SummaryText::Score => (

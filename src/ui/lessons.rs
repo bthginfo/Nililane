@@ -313,6 +313,7 @@ pub fn update(
     window: Single<&Window, With<PrimaryWindow>>,
     camera: Query<(&Camera, &GlobalTransform), With<StreetCamera>>,
     buttons: FocusButtons,
+    hud: Res<Hud>,
     mut pieces: Query<(&Piece, &mut Node, &ComputedNode, Option<&mut Outline>)>,
 ) {
     let (Some(lesson), Some(town)) = (game.lesson, save.active_town()) else {
@@ -395,7 +396,14 @@ pub fn update(
             }
             Piece::Note => {
                 let size = (computed.size() / pixels).max(Vec2::new(364.0, 150.0));
-                let point = note_at(spot, size, screen);
+                // On tablets and desktops the note keeps clear of the status panel on the
+                // right (317 px wide, 22 px from the edge, see `screens.rs`).
+                let room = if hud.phone {
+                    screen
+                } else {
+                    Vec2::new((screen.x - 349.0).max(size.x + 24.0), screen.y)
+                };
+                let point = note_at(spot, size, room);
                 let left = Val::Px(point.x);
                 let top = Val::Px(point.y);
                 if (node.left, node.top) != (left, top) {
