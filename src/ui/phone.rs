@@ -513,27 +513,41 @@ pub(super) fn expedition(
     island: &Island,
     level: Level,
 ) {
-    let mut top = corner_node();
-    top.position_type = PositionType::Absolute;
-    top.left = Val::Px(14.0);
-    top.top = Val::Px(12.0);
-    card(p, top, INK).with_children(|r| {
-        icon(
-            r,
-            hud,
-            if (0.18..=0.82).contains(&island.phase) {
-                "sun"
-            } else {
-                "moon"
-            },
-            28.0,
-        );
-        label(r, hud, level.name, 24.0, Face::Serif, SAND);
-        if !island.completed {
-            let (met, total) = island.milestones(level);
-            icon(r, hud, "book", 22.0);
-            label(r, hud, format!("{met}/{total}"), 19.0, Face::Bold, GOLD);
-        }
+    let top = Node {
+        position_type: PositionType::Absolute,
+        left: Val::Px(14.0),
+        top: Val::Px(12.0),
+        padding: UiRect::axes(Val::Px(12.0), Val::Px(6.0)),
+        ..column(3.0)
+    };
+    card(p, top, INK).with_children(|status| {
+        status.spawn(row(8.0)).with_children(|r| {
+            icon(
+                r,
+                hud,
+                if (0.18..=0.82).contains(&island.phase) {
+                    "sun"
+                } else {
+                    "moon"
+                },
+                28.0,
+            );
+            label(r, hud, level.name, 24.0, Face::Serif, SAND);
+            if !island.completed {
+                let (met, total) = island.milestones(level);
+                icon(r, hud, "book", 22.0);
+                label(
+                    r,
+                    hud,
+                    format!("{met}/{total} Ziele"),
+                    19.0,
+                    Face::Bold,
+                    GOLD,
+                );
+            }
+        });
+        // The phone shows the stock too, so nobody has to open the map to count wood.
+        super::adventure::stock_row(status, hud, island, level);
     });
     pocket(p, hud, game, false, |menu| {
         let (command, title, art) = if island.completed {
