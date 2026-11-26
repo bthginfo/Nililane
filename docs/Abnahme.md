@@ -27,9 +27,22 @@
 - Nicht im Bild geprüft wurden Inselfanfare und Feuerwerk, Opfergabe und
   Herold, Matsuri und Thing sowie die Klänge, denn der Container hat kein
   Audiogerät. Die Klanglogik ist durch Tests abgedeckt.
+- Ein letzter Durchgang hat beide HUDs aufgeräumt. Die Sichtproben zeigen
+  offene Inselziele zuerst, eine schlanke Zufriedenheitskarte und Tipps, die
+  das Zielpanel freilassen. Tests, Clippy und Formatprüfung blieben grün.
+- `tools/build-android.sh` hat mit SDK 36, Build-Tools 36.0.0 und NDK r28c
+  beide Pakete gebaut:
+  - Tablet: `game.nililane`, versionCode 21, ARM64 und x86_64.
+  - Handy: `game.nililane.phone`, versionCode 9, ARM64.
+  Geprüft wurden `apksigner verify`, `zipalign -c -P 16 4` und die
+  16-KiB-Ausrichtung (0x4000) der ELF-Segmente.
+- Diese APKs tragen den lokalen Testschlüssel, nicht das bisherige
+  Veröffentlichungszertifikat. Sie lassen sich deshalb nicht als Update über
+  3.5.1 installieren. Mit dem Release-Keystore müssen sie neu signiert
+  werden.
 - Der Wasser-Shader verzichtet auf Schleifen über Arrays, weil Lavapipe daran
   scheiterte. Auf echten Android-Geräten und im Android-Emulator ist 3.6.0
-  noch nicht geprüft. Es gibt noch keine signierten 3.6.0-APKs.
+  noch nicht geprüft; der Container hat keine Hardware-Virtualisierung.
 
 ## Handelsfracht und Arbeitsaufträge 3.5.1
 
