@@ -337,10 +337,10 @@ impl Objective {
                 )
             }),
             Self::Challenge(challenge) => match challenge {
-                Challenge::Citizens(_) => format!(
-                    "Plane weitere „{}“ oder baue sie aus. Jede Stufe bringt einen Bürger.",
-                    Build::Harbor(level.home()).name(region)
-                ),
+                Challenge::Citizens(_) => {
+                    "Baue neue Wohnhäuser oder baue sie aus. Jede Stufe bringt einen Bürger."
+                        .to_owned()
+                }
                 Challenge::Busy(n) => {
                     format!("Gib {n} verschiedenen Werkstätten je einen Bürger und genug Waren.")
                 }
@@ -353,12 +353,9 @@ impl Objective {
                         })
                         .collect();
                     if open.is_empty() {
-                        format!("Je {n} Stück aus deinen Werkstätten. Alles fertig!")
+                        "Alles hergestellt!".to_owned()
                     } else {
-                        format!(
-                            "Je {n} Stück aus deinen Werkstätten. Noch offen: {}.",
-                            open.join(", ")
-                        )
+                        format!("Aus deinen Werkstätten: {}.", open.join(", "))
                     }
                 }
                 Challenge::Visitors(_) => {
@@ -451,7 +448,7 @@ fn build_hint(level: Level, island: &Island, goal: Requirement) -> String {
             " Dort wohnen Bürger.".to_owned()
         }
         Build::Harbor(crate::model::Kind::Storehouse) => {
-            " Das Lager wird größer und Nili trägt mehr.".to_owned()
+            " Mehr Platz im Lager, Nili trägt mehr.".to_owned()
         }
         kind => kind.recipe(1, region).map_or_else(String::new, |recipe| {
             format!(" Dort gibt es {}.", recipe.output.0.name(region))
