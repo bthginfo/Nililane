@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::construction::{Builder, BuildingSite};
 use super::encounters::Encounters;
+use super::goals::Tally;
 use super::levels::{Level, Requirement};
 use super::logistics::{Cargo, Courier, DroppedLoad, Haul};
 use super::port_trade::{Market, monument_name};
@@ -592,6 +593,9 @@ pub struct Island {
     pub base_crafted: u16,
     #[serde(default)]
     masterwork_lots: Vec<usize>,
+    /// What the richer island goals count; older saves start at zero.
+    #[serde(default)]
+    pub tally: Tally,
 }
 
 pub(super) fn load_goods<'de, D: serde::Deserializer<'de>>(
@@ -633,6 +637,7 @@ impl Island {
             fish_left: Vec::new(),
             base_crafted: 0,
             masterwork_lots: Vec::new(),
+            tally: Tally::default(),
         }
     }
 
@@ -853,6 +858,7 @@ impl Island {
             && let Some(Some(batch)) = self.batches.get_mut(lot)
         {
             batch.paused = false;
+            self.track_busy(layout.level);
         }
         true
     }
@@ -989,6 +995,7 @@ impl Island {
             let resume = batch.paused && batch.fishing.is_none();
             if resume {
                 batch.paused = false;
+                self.track_busy(map.level);
             }
             return resume;
         }
@@ -1040,6 +1047,7 @@ impl Island {
             fishing: school,
             paused: false,
         });
+        self.track_busy(map.level);
         true
     }
 
@@ -1122,6 +1130,8 @@ impl Island {
                 if batch.left == 0.0 {
                     let stored = self.add(batch.output.kind, batch.output.units);
                     batch.output.units -= stored;
+                    let made = &mut self.tally.made[batch.output.kind as usize];
+                    *made = made.saturating_add(stored);
                     if let Some(order) = order
                         && batch.output.kind == order.base
                         && self.lots[lot].is_some_and(|property| property.kind == order.workshop)
@@ -1150,10 +1160,9 @@ impl Island {
     }
 
     pub fn victory(&self, level: Level) -> bool {
-        let (stock, count) = level.reserve();
-        level.goals().all(|g| self.progress(g) >= g.count)
-            && self.amount(stock) >= count
-            && (level.plan().is_none() || self.quest == Quest::Finished)
-            && self.orders_delivered >= level.order_count()
+        level
+            .objectives()
+            .into_iter()
+            .all(|objective| self.reached(level, objective))
     }
 }

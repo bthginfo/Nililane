@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 
 use super::{
-    Adventure, Build, Good, IMPORT_PRICE, Island, Level, PLAN_PRICE, Quest, Target, Task, Terrain,
+    Adventure, Build, Challenge, EncounterStatus, Event, Good, IMPORT_PRICE, Island, Level,
+    Objective, PLAN_PRICE, Quest, Target, Task, Terrain,
     port_trade::{Export, Purchase},
 };
 use crate::model::Kind;
@@ -42,10 +43,13 @@ impl Adventure {
         guide
             .hands()
             .or_else(|| guide.sites())
+            .or_else(|| guide.visitors_waiting())
             .or_else(|| guide.goals())
+            .or_else(|| guide.challenges())
             .or_else(|| guide.quest())
             .or_else(|| guide.deliveries())
             .or_else(|| guide.reserve())
+            .or_else(|| guide.waiting())
     }
 }
 
@@ -74,6 +78,36 @@ impl Island {
             watch(good);
         }
         watch(level.reserve().0);
+        for challenge in level.challenges() {
+            if self.reached(level, Objective::Challenge(challenge)) {
+                continue;
+            }
+            match challenge {
+                Challenge::Chain(goods, n) => goods
+                    .into_iter()
+                    .filter(|&good| self.tally.made[good as usize] < n)
+                    .for_each(&mut watch),
+                Challenge::Harvest(good, _) => watch(good),
+                Challenge::Vein(_) => watch(Good::Ore),
+                Challenge::Crossings(_) => {
+                    if let Some(offer) = level.export(Export::Regular) {
+                        watch(offer.good);
+                    }
+                }
+                _ => {}
+            }
+        }
+        for slot in 0..level.encounter_count() {
+            let visible = matches!(
+                self.encounters.visits[slot].status,
+                EncounterStatus::Offered | EncounterStatus::Seeking
+            );
+            if visible
+                && let Some((good, _)) = self.encounter(level, slot).and_then(|spec| spec.cargo)
+            {
+                watch(good);
+            }
+        }
         for goal in level
             .goals()
             .filter(|goal| self.progress(*goal) < goal.count)
@@ -106,22 +140,12 @@ impl Island {
 
     /// Finished rows of the island's goal list, and how many rows there are.
     pub fn milestones(&self, level: Level) -> (usize, usize) {
-        let (stock, count) = level.reserve();
-        let rows: Vec<bool> = level
-            .goals()
-            .map(|goal| self.progress(goal) >= goal.count)
-            .chain([self.amount(stock) >= count])
-            .chain(level.plan().map(|_| self.quest == Quest::Finished))
-            .chain(
-                (level.order_count() > 0).then_some(self.orders_delivered >= level.order_count()),
-            )
-            .chain(
-                level
-                    .work_order()
-                    .map(|_| level.work_order_delivered(self.orders_delivered)),
-            )
-            .collect();
-        (rows.iter().filter(|&&done| done).count(), rows.len())
+        let rows = level.objectives();
+        let met = rows
+            .iter()
+            .filter(|&&objective| self.reached(level, objective))
+            .count();
+        (met, rows.len())
     }
 }
 
@@ -409,6 +433,267 @@ impl Guide<'_> {
     fn reserve(&self) -> Option<Advice> {
         let (good, count) = self.level.reserve();
         self.obtain(good, count, "den Vorrat", 0)
+    }
+
+    /// The richer goals, in the order the goal list shows them.
+    fn challenges(&self) -> Option<Advice> {
+        let island = self.island;
+        for challenge in self.level.challenges() {
+            if island.reached(self.level, Objective::Challenge(challenge)) {
+                continue;
+            }
+            let advice = match challenge {
+                Challenge::Citizens(_) => self.housing(),
+                Challenge::Busy(n) => self.together(n),
+                Challenge::Chain(goods, n) => goods
+                    .into_iter()
+                    .find(|&good| island.tally.made[good as usize] < n)
+                    .and_then(|good| self.produce(good, 0)),
+                Challenge::Visitors(_) => self.visitor(None, false),
+                // Helping whoever is here brings the next visitor, and with it the event.
+                Challenge::Event(event) => self
+                    .visitor(Some(event), false)
+                    .or_else(|| self.visitor(None, false)),
+                Challenge::Crossings(_) if island.market.crossing.is_some() => None,
+                Challenge::Crossings(_) => self.earn_marks(0),
+                Challenge::Vein(_) => self.vein(),
+                Challenge::Harvest(good, n) => self.harvest(good, n),
+            };
+            if advice.is_some() {
+                return advice;
+            }
+        }
+        None
+    }
+
+    /// A visitor an open goal waits for whom Nili can help right away. A fire does not
+    /// wait for the next building.
+    fn visitors_waiting(&self) -> Option<Advice> {
+        self.level
+            .challenges()
+            .into_iter()
+            .filter(|&challenge| {
+                !self
+                    .island
+                    .reached(self.level, Objective::Challenge(challenge))
+            })
+            .find_map(|challenge| match challenge {
+                Challenge::Visitors(_) => self.visitor(None, true),
+                Challenge::Event(event) => self.visitor(Some(event), true),
+                _ => None,
+            })
+    }
+
+    /// The next step with a visitor. `quick` skips visitors whose cargo is still missing.
+    fn visitor(&self, wanted: Option<Event>, quick: bool) -> Option<Advice> {
+        let island = self.island;
+        for slot in 0..self.level.encounter_count() {
+            let Some(spec) = island.encounter(self.level, slot) else {
+                continue;
+            };
+            if wanted.is_some_and(|event| event != spec.event) {
+                continue;
+            }
+            let missing = spec
+                .cargo
+                .filter(|&(good, units)| island.amount(good) < units);
+            let person = spec.author.split(" · ").next().unwrap_or(spec.author);
+            match island.encounters.visits[slot].status {
+                EncounterStatus::Offered if !quick || missing.is_none() => {
+                    return Advice::new(
+                        spec.icon(),
+                        format!("Besuch ist da. Sprich mit {person}."),
+                        Some(Target::Encounter(slot)),
+                    );
+                }
+                EncounterStatus::Seeking => {
+                    if let Some((good, units)) = missing {
+                        if quick {
+                            continue;
+                        }
+                        if let Some(advice) = self.obtain(good, units, "den Besuch", 0) {
+                            return Some(advice);
+                        }
+                        continue;
+                    }
+                    let text = match spec.event {
+                        Event::Fire => "Hol Wasser zum Löschen.".to_owned(),
+                        Event::Relic => "Hol das Fundstück vom Hang.".to_owned(),
+                        _ => format!("Hol die Fracht für {person} im Rathaus."),
+                    };
+                    return Advice::new(spec.icon(), text, Some(Target::EncounterSource(slot)));
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    /// More citizens: a new home early on, later an upgrade that saves a building plot.
+    fn housing(&self) -> Option<Advice> {
+        let island = self.island;
+        let level = self.level;
+        let home = Build::Harbor(level.home());
+        if self.site_for(home).is_some() {
+            return None;
+        }
+        let name = home.name(level.region);
+        let homes = island
+            .lots
+            .iter()
+            .flatten()
+            .filter(|p| p.kind == home)
+            .count();
+        let new_home = |lot| {
+            Advice::new(
+                "hammer",
+                format!("Mehr Bürger: Plane „{name}“ auf dem markierten Bauplatz."),
+                Some(Target::Plot(lot)),
+            )
+        };
+        if homes <= level.stage / 3
+            && let Some(lot) = self.free_plot(home)
+        {
+            return new_home(lot);
+        }
+        if let Some(lot) = island.smallest_home(level) {
+            let next = island.lots[lot]?.tier + 1;
+            return Advice::new(
+                "hammer",
+                format!("Baue „{name}“ auf Stufe {next} aus. Dann zieht ein Bürger ein."),
+                Some(Target::Plot(lot)),
+            );
+        }
+        self.free_plot(home).and_then(new_home)
+    }
+
+    /// Several different workshops at work at the same moment.
+    fn together(&self, count: u8) -> Option<Advice> {
+        let island = self.island;
+        let level = self.level;
+        let region = level.region;
+        let crafts = |kind: Build, tier: u8| {
+            kind.recipe(tier, region)
+                .is_some_and(|recipe| !recipe.need.is_empty())
+        };
+        let mut kinds = Vec::new();
+        let mut shops = Vec::new();
+        for lot in 0..island.lots.len() {
+            if let Some(property) = island.lots[lot]
+                && island
+                    .recipe_for(level, lot)
+                    .is_some_and(|recipe| !recipe.need.is_empty())
+                && !kinds.contains(&property.kind)
+            {
+                kinds.push(property.kind);
+                shops.push(lot);
+            }
+        }
+        let coming = island
+            .construction
+            .iter()
+            .flatten()
+            .filter(|site| {
+                crafts(site.property.kind, site.property.tier)
+                    && !kinds.contains(&site.property.kind)
+            })
+            .count();
+        let count = usize::from(count);
+        if shops.len() + coming < count {
+            let plan = Build::all(level)
+                .into_iter()
+                .filter(|&plan| {
+                    crafts(plan, 1)
+                        && !kinds.contains(&plan)
+                        && self.site_for(plan).is_none()
+                        && !island.locked(level, plan, 1)
+                        && self.free_plot(plan).is_some()
+                })
+                .min_by_key(|plan| plan.cost(1).iter().map(|&(_, units)| units).sum::<u16>())?;
+            return Advice::new(
+                "hammer",
+                format!(
+                    "Plane „{}“. Für {count} Werkstätten gleichzeitig fehlt noch eine.",
+                    plan.name(region)
+                ),
+                self.free_plot(plan).map(Target::Plot),
+            );
+        }
+        shops.sort_by_key(|&lot| std::cmp::Reverse(island.assignment(Task::Produce(lot))));
+        let lot = shops
+            .into_iter()
+            .take(count)
+            .find(|&lot| island.batch(lot).is_none_or(|batch| !batch.working()))?;
+        let good = island.recipe_for(level, lot)?.output.0;
+        self.operate(lot, good, 0)
+    }
+
+    fn vein(&self) -> Option<Advice> {
+        let island = self.island;
+        let id = (0..self.map.deposits.len())
+            .find(|&id| self.map.deposits[id].rich() && island.remaining(self.map, id) > 0)?;
+        if island.free_storage() == 0 {
+            return Advice::new("storehouse", FULL_STORE, Some(Target::Hall));
+        }
+        Advice::new(
+            Good::Ore.icon(self.level.region),
+            format!("Bau {} an der goldenen Erzader ab.", self.name(Good::Ore)),
+            Some(Target::Deposit(id)),
+        )
+    }
+
+    fn harvest(&self, good: Good, need: u16) -> Option<Advice> {
+        let island = self.island;
+        let missing = need.saturating_sub(island.tally.gathered[good as usize]);
+        if island.free_storage() == 0 {
+            return Advice::new("storehouse", FULL_STORE, Some(Target::Hall));
+        }
+        let id = island.available_near(self.map, good, self.here)?;
+        Advice::new(
+            good.icon(self.level.region),
+            format!("Sammle noch {missing} {}.", self.name(good)),
+            Some(Target::Deposit(id)),
+        )
+    }
+
+    /// When nothing can be done right now: how the first open goal works.
+    fn waiting(&self) -> Option<Advice> {
+        let (level, island) = (self.level, self.island);
+        let courier = island
+            .courier
+            .as_ref()
+            .is_some_and(|courier| courier.order.is_some());
+        // Goals already under way only need time.
+        let under_way = |objective: Objective| match objective {
+            Objective::Build(goal) => self.site_for(goal.kind).is_some(),
+            Objective::Orders(_) | Objective::Masterwork => courier,
+            Objective::Challenge(Challenge::Crossings(_)) => island.market.crossing.is_some(),
+            _ => false,
+        };
+        let open: Vec<Objective> = level
+            .objectives()
+            .into_iter()
+            .filter(|&objective| !island.reached(level, objective))
+            .collect();
+        if let Some(&objective) = open.iter().find(|&&objective| !under_way(objective)) {
+            return Advice::new(
+                objective.icon(level, island),
+                objective.hint(level, island),
+                None,
+            );
+        }
+        if island.market.crossing.is_some() {
+            return Advice::new(
+                "sea_trade",
+                "Das Handelsschiff ist unterwegs. Bei der Rückkehr zählt die Fahrt.",
+                None,
+            );
+        }
+        courier.then(|| Advice {
+            icon: "storehouse",
+            text: "Ein Bürger bringt die Lieferung gerade zum Außenposten.".to_owned(),
+            target: None,
+        })
     }
 
     /// How to get `need` units of `good` into the hall.

@@ -1,6 +1,7 @@
 mod advice;
 mod construction;
 mod encounters;
+mod goals;
 mod levels;
 mod logistics;
 mod port_trade;
@@ -25,6 +26,7 @@ use crate::{
 pub(crate) use advice::Advice;
 pub(crate) use construction::{BuildingSite, MAX_BUILD_CREW};
 pub(crate) use encounters::{Event, Status as EncounterStatus};
+pub(crate) use goals::{Challenge, Objective};
 pub(crate) use levels::{LEVELS, Level};
 pub(crate) use logistics::{DroppedLoad, RESOURCE_REACH};
 pub(crate) use port_trade::{Export, IMPORT_PRICE, IMPORT_UNITS, PLAN_PRICE, monument_name};
@@ -1712,32 +1714,13 @@ impl Milestones {
     }
 }
 
-/// Every goal row except the reserve, which rises and falls with production.
+/// Every goal row except the stock goal, which rises and falls with production.
 fn milestone_rows(island: &Island, level: Level) -> impl Iterator<Item = (String, bool)> + '_ {
-    let region = level.region;
     level
-        .goals()
-        .map(move |goal| {
-            let name = goal.kind.name(region);
-            let title = if goal.tier > 1 {
-                format!("{name} Stufe {}", goal.tier)
-            } else {
-                name.to_owned()
-            };
-            (title, island.progress(goal) >= goal.count)
-        })
-        .chain(level.plan().map(|_| {
-            (
-                "Bauplan gefunden".to_owned(),
-                island.quest == Quest::Finished,
-            )
-        }))
-        .chain((level.order_count() > 0).then(|| {
-            (
-                "Alle Lieferungen".to_owned(),
-                island.orders_delivered >= level.order_count(),
-            )
-        }))
+        .objectives()
+        .into_iter()
+        .filter(|objective| !matches!(objective, Objective::Stock(..)))
+        .map(move |objective| (objective.title(level), island.reached(level, objective)))
 }
 
 fn celebrate(adventure: &mut Adventure, game: &mut Game) {

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{Good, Island, Level, Twist};
+use super::{Good, Island, Level, Twist, goals::Challenge};
 
 pub const SLOTS: usize = 3;
 
@@ -24,16 +24,22 @@ pub struct Encounter {
     pub reward: (Good, u16),
 }
 
+impl Event {
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::Arrival => "ferry",
+            Self::Fire => "fire",
+            Self::Ruin => "hammer",
+            Self::Fever => "herb_garden",
+            Self::Festival => "star",
+            Self::Relic => "shrine",
+        }
+    }
+}
+
 impl Encounter {
     pub fn icon(self) -> &'static str {
-        match self.event {
-            Event::Arrival => "ferry",
-            Event::Fire => "fire",
-            Event::Ruin => "hammer",
-            Event::Fever => "herb_garden",
-            Event::Festival => "star",
-            Event::Relic => "shrine",
-        }
+        self.event.icon()
     }
 
     fn work(self) -> f32 {
@@ -173,6 +179,8 @@ impl Island {
                 Status::Working if self.encounters.progress(slot, spec) >= 1.0 => {
                     self.encounters.changed(slot, Status::Finished);
                     self.add(spec.reward.0, spec.reward.1);
+                    self.tally.helped = self.tally.helped.saturating_add(1);
+                    self.tally.events |= 1 << spec.event as u8;
                     changes.finished.push(slot);
                 }
                 Status::Finished if waited >= REARM_SECONDS => {
@@ -191,20 +199,33 @@ impl Island {
     }
 
     /// The next round whose event differs from the last one here and from the other places.
+    /// An event an open island goal asks for comes first.
     fn next_round(&self, level: Level, slot: usize) -> u8 {
         let previous = self.encounter(level, slot).map(|spec| spec.event);
         let others: Vec<_> = (0..level.encounter_count())
             .filter(|&other| other != slot)
             .filter_map(|other| self.encounter(level, other).map(|spec| spec.event))
             .collect();
-        let round = self.encounters.visits[slot].round;
-        (1..=6)
-            .map(|step| round.wrapping_add(step))
-            .find(|&next| {
-                level.encounter_in(slot, next).is_some_and(|spec| {
-                    Some(spec.event) != previous && !others.contains(&spec.event)
-                })
+        let wanted: Vec<Event> = level
+            .challenges()
+            .into_iter()
+            .filter_map(|challenge| match challenge {
+                Challenge::Event(event) if !self.tally.solved(event) => Some(event),
+                _ => None,
             })
+            .collect();
+        let round = self.encounters.visits[slot].round;
+        let fresh = |next: &u8, wish: bool| {
+            level.encounter_in(slot, *next).is_some_and(|spec| {
+                Some(spec.event) != previous
+                    && !others.contains(&spec.event)
+                    && (!wish || wanted.contains(&spec.event))
+            })
+        };
+        let mut rounds = (1..=6).map(|step| round.wrapping_add(step));
+        let wished = rounds.clone().find(|next| fresh(next, true));
+        wished
+            .or_else(|| rounds.find(|next| fresh(next, false)))
             .unwrap_or(round.wrapping_add(1))
     }
 

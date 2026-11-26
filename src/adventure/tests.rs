@@ -278,18 +278,6 @@ impl Expedition {
         }
         if Good::RAW.contains(&good) {
             while self.island.amount(good) < target {
-                while self.island.free_storage() < self.island.capacity() {
-                    let surplus = Good::ALL
-                        .into_iter()
-                        .filter(|&kind| {
-                            kind.uses_storage() && kind != good && self.island.amount(kind) > 0
-                        })
-                        .max_by_key(|&kind| self.island.amount(kind))
-                        .unwrap_or_else(|| {
-                            panic!("{}: Kein Platz für {good:?}", self.terrain.level.name)
-                        });
-                    assert!(self.island.discard_stock(surplus) > 0);
-                }
                 let index = self
                     .island
                     .available_near(&self.terrain, good, terrain::HALL_DOOR)
@@ -299,18 +287,7 @@ impl Expedition {
                             self.terrain.level.name
                         )
                     });
-                let deposit = self.terrain.deposits[index];
-                self.walk_to(deposit.at, reach(Target::Deposit(index)));
-                let before = self.island.amount(good);
-                assert!(self.island.carry_resource(&self.terrain, index).is_some());
-                assert_eq!(self.island.amount(good), before);
-                self.walk_to(terrain::HALL_DOOR, 1.15);
-                assert!(self.island.unload().is_some());
-                assert!(
-                    self.island.cargo.is_none(),
-                    "{}: Lager kann die Fracht nicht aufnehmen",
-                    self.terrain.level.name
-                );
+                self.haul(index, false);
             }
             return;
         }
@@ -399,6 +376,278 @@ impl Expedition {
         }
     }
 
+    /// Carries one load from node `index` to the hall. Makes room first by sorting out
+    /// other goods; `spare_none` also sorts out the node's own good when nothing else is left.
+    fn haul(&mut self, index: usize, spare_none: bool) {
+        let good = self.terrain.deposits[index].kind;
+        while self.island.free_storage() < self.island.capacity() {
+            let surplus = Good::ALL
+                .into_iter()
+                .filter(|&kind| {
+                    kind.uses_storage()
+                        && (kind != good || spare_none)
+                        && self.island.amount(kind) > 0
+                })
+                .max_by_key(|&kind| (kind != good, self.island.amount(kind)))
+                .unwrap_or_else(|| panic!("{}: Kein Platz für {good:?}", self.terrain.level.name));
+            assert!(self.island.discard_stock(surplus) > 0);
+        }
+        let deposit = self.terrain.deposits[index];
+        self.walk_to(deposit.at, reach(Target::Deposit(index)));
+        let before = self.island.amount(good);
+        assert!(self.island.carry_resource(&self.terrain, index).is_some());
+        assert_eq!(self.island.amount(good), before);
+        self.walk_to(terrain::HALL_DOOR, 1.15);
+        assert!(self.island.unload().is_some());
+        assert!(
+            self.island.cargo.is_none(),
+            "{}: Lager kann die Fracht nicht aufnehmen",
+            self.terrain.level.name
+        );
+    }
+
+    /// Pursues one of the island's richer goals the way a player would.
+    fn challenge(&mut self, challenge: Challenge) {
+        let level = self.terrain.level;
+        match challenge {
+            Challenge::Citizens(citizens) => self.house(citizens),
+            Challenge::Busy(count) => self.work_together(count),
+            Challenge::Chain(goods, units) => {
+                for good in goods {
+                    while self.island.tally.made[good as usize] < units {
+                        let more = units - self.island.tally.made[good as usize];
+                        self.supply(good, self.island.amount(good) + more);
+                    }
+                }
+            }
+            Challenge::Visitors(count) => self.help_visitors(None, count),
+            Challenge::Event(event) => self.help_visitors(Some(event), 0),
+            Challenge::Crossings(count) => {
+                while self.island.market.crossings < count {
+                    self.sail();
+                }
+            }
+            Challenge::Vein(units) => {
+                let vein = self
+                    .terrain
+                    .deposits
+                    .iter()
+                    .position(|deposit| deposit.rich())
+                    .unwrap_or_else(|| panic!("{}: keine Erzader", level.name));
+                while self.island.tally.vein < units {
+                    assert!(self.island.remaining(&self.terrain, vein) > 0);
+                    self.haul(vein, true);
+                }
+            }
+            Challenge::Harvest(good, units) => {
+                while self.island.tally.gathered[good as usize] < units {
+                    let index = self
+                        .island
+                        .available_near(&self.terrain, good, terrain::HALL_DOOR)
+                        .unwrap_or_else(|| panic!("{}: kein {good:?} mehr", level.name));
+                    self.haul(index, true);
+                }
+            }
+        }
+        assert!(
+            self.island.reached(level, Objective::Challenge(challenge)),
+            "{}: {challenge:?}",
+            level.name
+        );
+    }
+
+    /// More citizens: first one upgrade per home, then new homes, then more upgrades.
+    fn house(&mut self, citizens: u16) {
+        let level = self.terrain.level;
+        let home = Build::Harbor(level.home());
+        while self.island.staff() < citizens {
+            let smallest = self.island.smallest_home(level);
+            let vacant = (0..self.island.lots.len()).any(|lot| self.island.lots[lot].is_none());
+            match smallest {
+                Some(lot) if self.island.lots[lot].unwrap().tier < 2 || !vacant => {
+                    self.build(home, Some(lot))
+                }
+                _ => self.build(home, None),
+            };
+        }
+    }
+
+    /// Gives `count` different workshops a citizen and their goods, then starts them
+    /// all before any of them finishes.
+    fn work_together(&mut self, count: u8) {
+        let level = self.terrain.level;
+        let region = level.region;
+        let crafts = |kind: Build, tier: u8| {
+            kind.recipe(tier, region)
+                .is_some_and(|recipe| !recipe.need.is_empty() && !recipe.output.0.uses_storage())
+        };
+        let count = usize::from(count);
+        let mut lots = Vec::new();
+        loop {
+            lots.clear();
+            let mut kinds = Vec::new();
+            for lot in 0..self.island.lots.len() {
+                if let Some(property) = self.island.lots[lot]
+                    && crafts(property.kind, property.tier)
+                    && !self.island.makes_masterwork(lot)
+                    && !kinds.contains(&property.kind)
+                {
+                    kinds.push(property.kind);
+                    lots.push(lot);
+                }
+            }
+            if lots.len() >= count {
+                break;
+            }
+            let plan = Build::all(level)
+                .into_iter()
+                .filter(|&plan| {
+                    crafts(plan, 1) && !kinds.contains(&plan) && !self.island.locked(level, plan, 1)
+                })
+                .min_by_key(|plan| plan.cost(1).iter().map(|(_, units)| units).sum::<u16>())
+                .unwrap_or_else(|| panic!("{}: keine weitere Werkstatt", level.name));
+            self.build(plan, None);
+        }
+        lots.truncate(count);
+        let mut need: Vec<(Good, u16)> = Vec::new();
+        for &lot in &lots {
+            for (good, units) in self.island.recipe_for(level, lot).unwrap().need {
+                match need.iter_mut().find(|(kind, _)| *kind == good) {
+                    Some(entry) => entry.1 += units,
+                    None => need.push((good, units)),
+                }
+            }
+        }
+        for _ in 0..6 {
+            if self.island.ready(&need) {
+                break;
+            }
+            for &(good, units) in need.iter().rev() {
+                self.supply(good, units);
+            }
+        }
+        assert!(self.island.ready(&need), "{}: {need:?}", level.name);
+        for &lot in &lots {
+            assert!(self.island.assign(Task::Produce(lot), &self.terrain));
+            assert!(self.island.start_production(&self.terrain, lot));
+        }
+        assert!(
+            usize::from(self.island.tally.busy) >= count,
+            "{}",
+            level.name
+        );
+        let longest = lots
+            .iter()
+            .map(|&lot| self.island.batch(lot).unwrap().duration)
+            .fold(0.0, f32::max);
+        self.island.tick_production(&self.terrain, longest + 0.01);
+        for &lot in &lots {
+            assert!(self.island.batch(lot).is_none());
+            assert!(self.island.unassign(Task::Produce(lot)));
+        }
+        self.rounds += lots.len();
+    }
+
+    /// Helps visitors until `count` were helped or, with `wanted`, until that event was
+    /// solved. Others who come first get help too, so new rounds can bring the event.
+    fn help_visitors(&mut self, wanted: Option<Event>, count: u8) {
+        let level = self.terrain.level;
+        let mut waited = 0.0;
+        while match wanted {
+            Some(event) => !self.island.tally.solved(event),
+            None => self.island.tally.helped < count,
+        } {
+            let offered: Vec<usize> = (0..level.encounter_count())
+                .filter(|&slot| {
+                    self.island.encounters.visits[slot].status == EncounterStatus::Offered
+                })
+                .collect();
+            let pick = offered
+                .iter()
+                .copied()
+                .find(|&slot| {
+                    wanted.is_none_or(|event| {
+                        self.island.encounter(level, slot).unwrap().event == event
+                    })
+                })
+                .or_else(|| offered.first().copied());
+            if let Some(slot) = pick {
+                self.help(slot);
+            } else {
+                self.island.update_encounters(level, 2.0);
+                waited += 2.0;
+                assert!(waited < 3600.0, "{}: kein Besuch {wanted:?}", level.name);
+            }
+        }
+    }
+
+    fn help(&mut self, slot: usize) {
+        let level = self.terrain.level;
+        let spec = self.island.encounter(level, slot).unwrap();
+        let place = self.terrain.events[slot];
+        self.walk_to(place, reach(Target::Encounter(slot)));
+        self.island
+            .encounters
+            .changed(slot, EncounterStatus::Seeking);
+        if let Some((good, count)) = spec.cargo {
+            self.supply(good, count);
+        }
+        let source = match spec.event {
+            Event::Fire => (0..self.island.lots.len())
+                .filter(|&lot| {
+                    matches!(self.island.lots[lot], Some(Property { kind: Build::Harbor(kind), .. }) if kind.water_source())
+                })
+                .map(|lot| self.terrain.plots[lot])
+                .min_by(|a, b| a.distance(place).total_cmp(&b.distance(place)))
+                .unwrap_or(self.terrain.shore_intake),
+            Event::Relic => self.terrain.finds[slot],
+            _ => terrain::HALL_DOOR + Vec2::new(-0.53, 0.26),
+        };
+        self.walk_to(source, reach(Target::EncounterSource(slot)));
+        assert!(
+            self.island.encounter_pickup(level, slot),
+            "{}: {}",
+            level.name,
+            spec.title
+        );
+        self.walk_to(place, reach(Target::Encounter(slot)));
+        self.island
+            .encounters
+            .changed(slot, EncounterStatus::Working);
+        let helped = self.island.tally.helped;
+        for _ in 0..40 {
+            if self.island.encounters.visits[slot].status == EncounterStatus::Finished {
+                break;
+            }
+            self.island.update_encounters(level, 0.5);
+        }
+        assert_eq!(self.island.tally.helped, helped + 1, "{}", spec.title);
+        assert!(self.island.tally.solved(spec.event));
+        self.visits += 1;
+    }
+
+    /// Ships one regular trade load to the neighbour harbour and waits for the return.
+    fn sail(&mut self) {
+        let level = self.terrain.level;
+        let offer = level.export(Export::Regular).unwrap();
+        let crossings = self.island.market.crossings;
+        self.supply(offer.good, offer.units);
+        self.walk_to(terrain::HALL_DOOR, 1.15);
+        assert!(self.island.pack_export(level, Export::Regular));
+        self.walk_to(self.terrain.trade_pier, reach(Target::TradeHarbor));
+        assert!(self.island.launch_export(level));
+        assert!(
+            self.island
+                .tick_export(level, offer.seconds * 0.5)
+                .is_none()
+        );
+        assert_eq!(
+            self.island.tick_export(level, offer.seconds * 0.5 + 0.01),
+            Some(offer.marks)
+        );
+        assert_eq!(self.island.market.crossings, crossings + 1);
+    }
+
     fn supply_masterwork(&mut self, target: u16) {
         let level = self.terrain.level;
         let order = level.work_order().unwrap();
@@ -428,23 +677,8 @@ impl Expedition {
     }
 
     fn ensure_trade_marks(&mut self, target: u16) {
-        let level = self.terrain.level;
-        let offer = level.export(Export::Regular).unwrap();
         while self.island.market.marks < target {
-            self.supply(offer.good, offer.units);
-            self.walk_to(terrain::HALL_DOOR, 1.15);
-            assert!(self.island.pack_export(level, Export::Regular));
-            self.walk_to(self.terrain.trade_pier, reach(Target::TradeHarbor));
-            assert!(self.island.launch_export(level));
-            assert!(
-                self.island
-                    .tick_export(level, offer.seconds * 0.5)
-                    .is_none()
-            );
-            assert_eq!(
-                self.island.tick_export(level, offer.seconds * 0.5 + 0.01),
-                Some(offer.marks)
-            );
+            self.sail();
         }
     }
 
@@ -609,6 +843,9 @@ fn all_sixty_expeditions_have_walkable_goals_and_finish_with_real_production() {
                     .position(|p| p.is_some_and(|p| p.kind == goal.kind && p.tier < goal.tier));
                 run.build(goal.kind, slot);
             }
+        }
+        for challenge in level.challenges() {
+            run.challenge(challenge);
         }
         for index in 0..level.order_count() {
             let order = level.order(index).unwrap();
@@ -2145,4 +2382,425 @@ fn the_last_goal_plays_a_fanfare_and_the_summary_opens_after_a_beat() {
         process_work(&mut a, &mut game, &mut save, 0.18);
     }
     assert_eq!(a.screen, Screen::Walk);
+}
+
+/// Puts every building goal of `level` on the island at once.
+fn meet_building_goals(island: &mut Island, level: Level) {
+    for goal in level.goals() {
+        for _ in island.progress(goal)..goal.count {
+            let free = (0..island.lots.len())
+                .find(|&lot| island.lots[lot].is_none() && goal.kind.fits(level, lot))
+                .unwrap();
+            island.lots[free] = Some(Property {
+                kind: goal.kind,
+                tier: goal.tier,
+            });
+        }
+    }
+}
+
+#[test]
+fn first_islands_stay_simple_and_later_ones_mix_one_stock_goal_with_richer_goals() {
+    let mut mix = std::collections::BTreeMap::new();
+    for index in 0..LEVELS {
+        let level = Level::at(index);
+        let island = Island::new(level);
+        let rows = level.objectives();
+        let challenges = level.challenges();
+        for &row in &rows {
+            *mix.entry(row.family()).or_insert(0) += 1;
+            let hint = row.hint(level, &island);
+            assert!(!row.title(level).is_empty(), "{}: {row:?}", level.name);
+            assert!(
+                hint.ends_with(['.', '!']) && hint.chars().count() <= 100,
+                "{}: {hint}",
+                level.name
+            );
+            assert!(!island.reached(level, row), "{}: {row:?}", level.name);
+        }
+        let stock = rows
+            .iter()
+            .filter(|row| matches!(row, Objective::Stock(..)))
+            .count();
+        assert_eq!(stock, 1, "{}", level.name);
+        if level.stage == 0 {
+            assert!(challenges.is_empty(), "{}", level.name);
+            assert!(rows.iter().all(|row| row.plain()), "{}", level.name);
+            continue;
+        }
+        assert!(
+            (2..=4).contains(&challenges.len()),
+            "{}: {challenges:?}",
+            level.name
+        );
+        let families: Vec<_> = challenges
+            .iter()
+            .map(|&challenge| Objective::Challenge(challenge).family())
+            .collect();
+        for (i, family) in families.iter().enumerate() {
+            assert!(
+                !families[..i].contains(family),
+                "{}: {families:?}",
+                level.name
+            );
+        }
+        // Every twist comes with a goal that uses it.
+        let twist = match level.twist().unwrap() {
+            Twist::RichWoods | Twist::FertileSoil => "Ernte",
+            Twist::OreVein => "Erzader",
+            Twist::BusyHands => "Gleichzeitig",
+            Twist::FestiveMood => "Ereignis",
+            Twist::FairWind => "Handel",
+        };
+        assert!(families.contains(&twist), "{}: {families:?}", level.name);
+    }
+    println!("Zielmix: {mix:?}");
+    for family in [
+        "Bürger",
+        "Gleichzeitig",
+        "Warenkette",
+        "Besuch",
+        "Ereignis",
+        "Handel",
+        "Erzader",
+        "Ernte",
+    ] {
+        assert!(
+            mix.get(family).is_some_and(|&n| n >= 4),
+            "{family}: {mix:?}"
+        );
+    }
+}
+
+#[test]
+fn citizens_move_in_with_new_homes_and_upgrades_and_the_advice_offers_both() {
+    let index = 3;
+    let level = Level::at(index);
+    let citizens = Challenge::Citizens(5);
+    assert_eq!(level.challenges()[0], citizens);
+    let goal = Objective::Challenge(citizens);
+    let mut a = Adventure {
+        book: Book::default(),
+        ..Adventure::default()
+    };
+    a.open(index, true);
+    meet_building_goals(a.active_mut().unwrap(), level);
+    assert_eq!(a.active().unwrap().progress_of(level, goal).figure(), "2/5");
+    let advice = a.advice().unwrap();
+    assert!(advice.text.starts_with("Mehr Bürger"), "{advice:?}");
+    let Some(Target::Plot(lot)) = advice.target else {
+        panic!("{advice:?}");
+    };
+    let island = a.active_mut().unwrap();
+    assert!(island.lots[lot].is_none());
+    island.lots[lot] = Some(Property {
+        kind: Build::Harbor(level.home()),
+        tier: 1,
+    });
+    assert_eq!(island.progress_of(level, goal).figure(), "4/5");
+    let advice = a.advice().unwrap();
+    assert!(advice.text.contains("Stufe 2"), "{advice:?}");
+    let Some(Target::Plot(home)) = advice.target else {
+        panic!("{advice:?}");
+    };
+    a.active_mut().unwrap().lots[home].as_mut().unwrap().tier = 2;
+    assert!(a.active().unwrap().reached(level, goal));
+}
+
+#[test]
+fn only_different_workshops_working_at_the_same_moment_count_together() {
+    let level = Level::at(2);
+    let together = Challenge::Busy(2);
+    assert!(level.challenges().contains(&together));
+    let goal = Objective::Challenge(together);
+    let map = Terrain::new(level);
+    let mut island = Island::new(level);
+    for (lot, kind) in [
+        Build::Harbor(level.home()),
+        Build::Sawmill,
+        Build::Sawmill,
+        Build::Brickyard,
+        Build::Harbor(level.well()),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        island.lots[lot] = Some(Property { kind, tier: 1 });
+    }
+    for (good, units) in [
+        (Good::Wood, 9),
+        (Good::Food, 2),
+        (Good::Clay, 3),
+        (Good::Water, 1),
+    ] {
+        island.add(good, units);
+    }
+    // The well needs nothing, and two sawmills are one kind of workshop.
+    assert!(island.start_production(&map, 4));
+    assert!(island.start_production(&map, 1));
+    assert!(island.start_production(&map, 2));
+    assert_eq!(island.tally.busy, 1);
+    island.tick_production(&map, 60.0);
+    // One after the other does not count.
+    assert!(island.start_production(&map, 3));
+    assert_eq!(island.tally.busy, 1);
+    assert!(!island.reached(level, goal));
+    island.add(Good::Wood, 2);
+    island.add(Good::Food, 1);
+    assert!(island.start_production(&map, 1));
+    assert_eq!(island.tally.busy, 2);
+    let saved: Island = serde_json::from_slice(&serde_json::to_vec(&island).unwrap()).unwrap();
+    assert!(saved.reached(level, goal));
+}
+
+#[test]
+fn the_goods_chain_counts_what_workshops_make_even_when_it_is_used_up() {
+    let level = Level::at(5);
+    let chain = Challenge::Chain([Good::Boards, Good::Tools, Good::Meals], 5);
+    assert!(level.challenges().contains(&chain));
+    let goal = Objective::Challenge(chain);
+    let map = Terrain::new(level);
+    let mut island = Island::new(level);
+    island.lots[0] = Some(Property {
+        kind: Build::Sawmill,
+        tier: 1,
+    });
+    for _ in 0..2 {
+        island.add(Good::Wood, 2);
+        island.add(Good::Food, 1);
+        assert!(island.start_production(&map, 0));
+        island.tick_production(&map, 20.0);
+    }
+    assert_eq!(island.tally.made[Good::Boards as usize], 8);
+    // Boards used on a site still count for the chain.
+    island.stores[Good::Boards as usize] = 0;
+    assert_eq!(island.progress_of(level, goal).figure(), "1/3");
+    let hint = goal.hint(level, &island);
+    assert!(
+        hint.contains("Werkzeug 0/5") && !hint.contains("Bretter"),
+        "{hint}"
+    );
+    assert_eq!(goal.icon(level, &island), Good::Tools.icon(level.region));
+}
+
+#[test]
+fn helped_visitors_count_and_a_missed_event_comes_back_for_its_goal() {
+    let level = Level::at(2);
+    let fire = Challenge::Event(Event::Fire);
+    assert!(level.challenges().contains(&fire));
+    let goal = Objective::Challenge(fire);
+    let mut island = Island::new(level);
+    island.lots[0] = Some(Property {
+        kind: Build::Harbor(level.home()),
+        tier: 1,
+    });
+    assert_eq!(island.update_encounters(level, 60.0).offered, [0]);
+    assert_eq!(island.encounter(level, 0).unwrap().event, Event::Fire);
+    // Nobody comes and the fire goes out on its own: no help, no goal.
+    assert_eq!(island.update_encounters(level, 151.0).burned_out, [0]);
+    assert_eq!(island.tally.helped, 0);
+    assert!(!island.reached(level, goal));
+    // The next visitor brings something else, the one after that the fire again.
+    assert_eq!(island.update_encounters(level, 241.0).offered, [0]);
+    let other = island.encounter(level, 0).unwrap().event;
+    assert_ne!(other, Event::Fire);
+    island.encounters.changed(0, EncounterStatus::Working);
+    assert_eq!(island.update_encounters(level, 10.0).finished, [0]);
+    assert_eq!(island.tally.helped, 1);
+    assert!(island.tally.solved(other) && !island.reached(level, goal));
+    assert_eq!(island.update_encounters(level, 241.0).offered, [0]);
+    assert_eq!(island.encounter(level, 0).unwrap().event, Event::Fire);
+    island.encounters.changed(0, EncounterStatus::Working);
+    assert_eq!(island.update_encounters(level, 10.0).finished, [0]);
+    assert!(island.reached(level, goal));
+    let visitors = Objective::Challenge(Challenge::Visitors(2));
+    assert_eq!(island.progress_of(level, visitors).figure(), "2/2");
+    let saved: Island = serde_json::from_slice(&serde_json::to_vec(&island).unwrap()).unwrap();
+    assert_eq!(saved.tally, island.tally);
+}
+
+#[test]
+fn a_festival_goal_asks_to_help_the_visitor_who_is_here_and_the_festival_follows() {
+    let mut a = Adventure {
+        book: Book::default(),
+        ..Adventure::default()
+    };
+    a.open(3, true);
+    let level = a.terrain.as_ref().unwrap().level;
+    let festival = Objective::Challenge(Challenge::Event(Event::Festival));
+    assert!(level.objectives().contains(&festival));
+    let island = a.active_mut().unwrap();
+    meet_building_goals(island, level);
+    let home = island.smallest_home(level).unwrap();
+    island.lots[home].as_mut().unwrap().tier = 4;
+    assert_eq!(island.update_encounters(level, 60.0).offered, [0]);
+    assert_ne!(island.encounter(level, 0).unwrap().event, Event::Festival);
+    assert!(festival.hint(level, island).starts_with("Hilf erst"));
+    let advice = a.advice().unwrap();
+    assert_eq!(advice.target, Some(Target::Encounter(0)), "{advice:?}");
+    let island = a.active_mut().unwrap();
+    island.encounters.changed(0, EncounterStatus::Working);
+    assert_eq!(island.update_encounters(level, 10.0).finished, [0]);
+    assert!(island.update_encounters(level, 241.0).offered.contains(&0));
+    assert_eq!(island.encounter(level, 0).unwrap().event, Event::Festival);
+    assert_eq!(festival.hint(level, island), Event::Festival.how());
+}
+
+#[test]
+fn ore_from_the_golden_vein_and_gathered_food_count_for_their_goals() {
+    let level = Level::at(4);
+    assert_eq!(level.twist(), Some(Twist::OreVein));
+    let vein = Objective::Challenge(Challenge::Vein(26));
+    assert!(level.objectives().contains(&vein));
+    let map = Terrain::new(level);
+    let mut island = Island::new(level);
+    island.prepare_logistics(&map);
+    let rich = map.deposits.iter().position(|d| d.rich()).unwrap();
+    let plain = (0..map.deposits.len())
+        .find(|&id| map.deposits[id].kind == Good::Ore && id != rich)
+        .unwrap();
+    let load = island.carry_resource(&map, plain).unwrap().units;
+    assert_eq!(island.tally.vein, 0);
+    assert_eq!(island.tally.gathered[Good::Ore as usize], load);
+    island.cargo = None;
+    let load = island.carry_resource(&map, rich).unwrap().units;
+    assert_eq!(island.tally.vein, load);
+    assert_eq!(
+        island.progress_of(level, vein).figure(),
+        format!("{load}/26")
+    );
+
+    // Citizens who gather count as well.
+    let mut run = Expedition::start(6);
+    let level = run.terrain.level;
+    assert_eq!(level.twist(), Some(Twist::FertileSoil));
+    let harvest = Objective::Challenge(Challenge::Harvest(Good::Food, 44));
+    assert!(level.objectives().contains(&harvest));
+    run.build(Build::Harbor(level.home()), None);
+    let field = run
+        .island
+        .available_near(&run.terrain, Good::Food, terrain::HALL_DOOR)
+        .unwrap();
+    assert_eq!(run.island.tally.gathered[Good::Food as usize], 0);
+    assert!(run.island.assign(Task::Gather(field), &run.terrain));
+    for _ in 0..1600 {
+        run.island.tick_hauling(&run.terrain, 0.1);
+        if run.island.hauls[0].cargo.is_some() {
+            break;
+        }
+    }
+    let carried = run.island.hauls[0].cargo.unwrap().units;
+    assert_eq!(run.island.tally.gathered[Good::Food as usize], carried);
+    assert_eq!(
+        run.island.progress_of(level, harvest).figure(),
+        format!("{carried}/44")
+    );
+}
+
+#[test]
+fn trade_crossings_count_for_the_harbor_goal_named_after_the_neighbour() {
+    let level = Level::at(7);
+    assert_eq!(level.twist(), Some(Twist::FairWind));
+    let goal = Objective::Challenge(Challenge::Crossings(3));
+    assert!(level.objectives().contains(&goal));
+    assert_eq!(goal.title(level), "Handelsfahrten nach Paros");
+    let mut island = Island::new(level);
+    let offer = level.export(Export::Regular).unwrap();
+    island.add(offer.good, offer.units);
+    assert!(island.pack_export(level, Export::Regular));
+    assert!(island.launch_export(level));
+    assert_eq!(
+        island.tick_export(level, offer.seconds + 0.1),
+        Some(offer.marks)
+    );
+    assert_eq!(island.progress_of(level, goal).figure(), "1/3");
+    assert!(goal.hint(level, &island).contains("Handelshafen"));
+}
+
+#[test]
+fn older_saves_load_with_empty_goal_counts() {
+    let level = Level::at(5);
+    let mut island = Island::new(level);
+    island.tally.made[Good::Boards as usize] = 4;
+    let mut value = serde_json::to_value(&island).unwrap();
+    value.as_object_mut().unwrap().remove("tally");
+    let old: Island = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(old.tally, goals::Tally::default());
+    assert!(!old.victory(level));
+    // A tally saved with fewer goods or fields keeps what it has.
+    value["tally"] = serde_json::json!({ "made": [0, 0, 0, 0, 0, 0, 7] });
+    let partial: Island = serde_json::from_value(value).unwrap();
+    assert_eq!(partial.tally.made[Good::Boards as usize], 7);
+    assert_eq!(partial.tally.busy, 0);
+}
+
+#[test]
+fn advice_leads_to_busy_workshops_urgent_visitors_the_golden_vein_and_explains_waiting() {
+    let mut a = Adventure {
+        book: Book::default(),
+        ..Adventure::default()
+    };
+    a.open(2, true);
+    let level = a.terrain.as_ref().unwrap().level;
+    meet_building_goals(a.active_mut().unwrap(), level);
+    // Two workshops at once: the first one still needs a citizen.
+    let advice = a.advice().unwrap();
+    let Some(Target::Plot(lot)) = advice.target else {
+        panic!("{advice:?}");
+    };
+    assert!(advice.text.contains("braucht einen Bürger"), "{advice:?}");
+    let shop = a.active().unwrap().lots[lot].unwrap().kind;
+    assert!(
+        shop.recipe(1, level.region)
+            .is_some_and(|recipe| !recipe.need.is_empty())
+    );
+
+    // With all else done and no visitor yet, the line explains the open goal.
+    let island = a.active_mut().unwrap();
+    island.tally.busy = 2;
+    island.orders_delivered = level.order_count();
+    let (stock, count) = level.reserve();
+    island.add(stock, count);
+    let advice = a.advice().unwrap();
+    assert_eq!(advice.target, None, "{advice:?}");
+    assert_eq!(advice.text, Event::Fire.how());
+
+    // The fire for the island goal comes before anything else.
+    a.active_mut().unwrap().update_encounters(level, 60.0);
+    let advice = a.advice().unwrap();
+    assert_eq!(advice.target, Some(Target::Encounter(0)), "{advice:?}");
+    assert!(advice.text.contains("Myrto"), "{}", advice.text);
+    a.active_mut()
+        .unwrap()
+        .encounters
+        .changed(0, EncounterStatus::Seeking);
+    let advice = a.advice().unwrap();
+    assert_eq!(
+        advice.target,
+        Some(Target::EncounterSource(0)),
+        "{advice:?}"
+    );
+    assert!(a.target_position(Target::EncounterSource(0)).is_some());
+
+    // On an ore island the golden vein is next once enough citizens live there.
+    a.open(4, true);
+    let level = a.terrain.as_ref().unwrap().level;
+    let island = a.active_mut().unwrap();
+    meet_building_goals(island, level);
+    let home = island.smallest_home(level).unwrap();
+    island.lots[home].as_mut().unwrap().tier = 4;
+    let advice = a.advice().unwrap();
+    let Some(Target::Deposit(id)) = advice.target else {
+        panic!("{advice:?}");
+    };
+    assert!(
+        a.terrain.as_ref().unwrap().deposits[id].rich(),
+        "{advice:?}"
+    );
+    assert!(
+        a.active()
+            .unwrap()
+            .watched_goods(level)
+            .contains(&Good::Ore)
+    );
 }

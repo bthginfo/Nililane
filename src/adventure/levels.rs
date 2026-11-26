@@ -337,9 +337,10 @@ impl Level {
         };
         let tier = 1 + ((self.stage.saturating_sub(2)) / 2) as u8;
         [
+            // Later islands ask for citizens instead of more homes, see `Level::challenges`.
             Requirement {
                 kind: Harbor(self.home()),
-                count: 1 + (self.stage / 3) as u8,
+                count: 1,
                 tier: 1,
             },
             Requirement {
@@ -376,15 +377,11 @@ impl Level {
     pub fn goals(self) -> impl Iterator<Item = Requirement> {
         let [_, workshop, special] = self.requirements();
         let well = Build::Harbor(self.well());
-        let utilities = (self.stage >= 1 && workshop.kind != well).then_some(Requirement {
+        // The first islands find their well through the water they need.
+        let utilities = (self.stage >= 3 && workshop.kind != well).then_some(Requirement {
             kind: well,
             count: 1,
             tier: if self.stage >= 8 { 2 } else { 1 },
-        });
-        let mill = (self.stage >= 5 && workshop.kind != Build::Sawmill).then_some(Requirement {
-            kind: Build::Sawmill,
-            count: 1,
-            tier: if self.stage >= 10 { 3 } else { 2 },
         });
         let storehouse = Build::Harbor(Kind::Storehouse);
         let warehouse = (self.stage >= 3 && special.kind != storehouse).then_some(Requirement {
@@ -396,7 +393,6 @@ impl Level {
             .into_iter()
             .chain(self.support())
             .chain(utilities)
-            .chain(mill)
             .chain(warehouse)
             .chain((self.stage == CORE_HARBORS - 1).then_some(Requirement {
                 kind: Build::Monument,

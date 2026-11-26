@@ -3,7 +3,7 @@ use crate::{
     adventure::{
         Adventure, Build, BuildingSite, Command, EncounterStatus, Event, Export, Good,
         HALL_STORAGE, IMPORT_PRICE, IMPORT_UNITS, Island, LANDMARK_REACH, Level, MAX_BUILD_CREW,
-        PLAN_PRICE, Quest, Screen, Target, Task, Terrain, landmark_bonus, monument_name,
+        Objective, PLAN_PRICE, Quest, Screen, Target, Task, Terrain, landmark_bonus, monument_name,
     },
     campaign::{CORE_HARBORS, Region},
     world::StreetCamera,
@@ -34,6 +34,7 @@ pub(super) fn draw(root: &mut ChildSpawnerCommands, hud: &Hud, game: &Game, a: &
                 |p| {
                     label(p, hud, level.theme, 21.0, Face::Body, SAND);
                     twist_note(p, hud, level, 18.0);
+                    special_goals(p, hud, level, island);
                     let (art, hint) = match level.stage {
                         1 => (
                             "storehouse",
@@ -2628,7 +2629,9 @@ fn mission(
     island: &Island,
     level: Level,
 ) {
-    panels::modal(root, hud, 692.0, level.hall(), "Aufträge", "book", |p| {
+    // Wide on desktop, so the goal list with its hints fits in two columns.
+    let width = if hud.phone { 692.0 } else { 860.0 };
+    panels::modal(root, hud, width, level.hall(), "Aufträge", "book", |p| {
         if level.order_count() > 0 || level.plan().is_some() {
             p.spawn(Node {
                 flex_wrap: FlexWrap::Wrap,
@@ -2769,7 +2772,7 @@ fn mission(
                 }
             }
         } else {
-            objectives(p, hud, level, island);
+            explained_objectives(p, hud, level, island);
             if let Some(load) = island.cargo {
                 action(
                     p,
@@ -3541,67 +3544,47 @@ fn finish(
 }
 
 struct Goal {
+    objective: Objective,
     art: &'static str,
     title: String,
     done: bool,
     count: String,
 }
 
+/// The island's goal rows, open goals first.
+fn goal_rows(level: Level, island: &Island) -> (Vec<Goal>, Vec<Goal>) {
+    let (open, finished): (Vec<_>, Vec<_>) = level
+        .objectives()
+        .into_iter()
+        .map(|objective| {
+            let progress = island.progress_of(level, objective);
+            Goal {
+                objective,
+                art: match objective {
+                    Objective::Build(goal) => build_icon(goal.kind),
+                    _ => objective.icon(level, island),
+                },
+                title: objective.title(level),
+                done: progress.done(),
+                count: progress.figure(),
+            }
+        })
+        .partition(|goal| !goal.done);
+    (open, finished)
+}
+
 fn objectives(p: &mut ChildSpawnerCommands, hud: &Hud, level: Level, island: &Island) {
-    let mut goals = Vec::new();
-    for req in level.goals() {
-        let done = island.progress(req).min(req.count);
-        let title = if req.tier > 1 {
-            format!("{} · Stufe {}", req.kind.name(level.region), req.tier)
-        } else {
-            req.kind.name(level.region).to_owned()
-        };
-        goals.push(Goal {
-            art: build_icon(req.kind),
-            title,
-            done: done >= req.count,
-            count: format!("{done}/{}", req.count),
-        });
-    }
-    let (good, need) = level.reserve();
-    let units = island.amount(good);
-    goals.push(Goal {
-        art: good.icon(level.region),
-        title: good.name(level.region).to_owned(),
-        done: units >= need,
-        count: format!("{}/{need}", units.min(need)),
-    });
-    if level.plan().is_some() {
-        goals.push(Goal {
-            art: "adventure_blueprint",
-            title: "Bauplan finden".to_owned(),
-            done: island.quest == Quest::Finished,
-            count: String::new(),
-        });
-    }
-    if level.order_count() > 0 {
-        goals.push(Goal {
-            art: "storehouse",
-            title: "Lieferungen zum Außenposten".to_owned(),
-            done: island.orders_delivered >= level.order_count(),
-            count: format!("{}/{}", island.orders_delivered, level.order_count()),
-        });
-    }
-    if level.work_order().is_some() {
-        goals.push(Goal {
-            art: Good::Masterwork.icon(level.region),
-            title: "Meisterauftrag".to_owned(),
-            done: level.work_order_delivered(island.orders_delivered),
-            count: String::new(),
-        });
-    }
     // What is still open comes first; finished goals fold into one line.
-    let (finished, open): (Vec<_>, Vec<_>) = goals.into_iter().partition(|goal| goal.done);
+    let (open, finished) = goal_rows(level, island);
     for item in &open {
         goal(p, hud, item.art, &item.title, false, item.count.clone());
     }
+    finished_goals(p, hud, &open, &finished);
+}
+
+fn finished_goals(p: &mut ChildSpawnerCommands, hud: &Hud, open: &[Goal], finished: &[Goal]) {
     if open.is_empty() || finished.len() < 2 {
-        for item in &finished {
+        for item in finished {
             goal(p, hud, item.art, &item.title, true, item.count.clone());
         }
     } else {
@@ -3614,6 +3597,62 @@ fn objectives(p: &mut ChildSpawnerCommands, hud: &Hud, level: Level, island: &Is
             String::new(),
         );
     }
+}
+
+/// The goal list of the goals dialog: each open goal with one line on how it works.
+fn explained_objectives(p: &mut ChildSpawnerCommands, hud: &Hud, level: Level, island: &Island) {
+    let (open, finished) = goal_rows(level, island);
+    p.spawn(Node {
+        flex_wrap: FlexWrap::Wrap,
+        align_items: AlignItems::FlexStart,
+        row_gap: Val::Px(6.0),
+        column_gap: Val::Px(12.0),
+        width: Val::Percent(100.0),
+        ..default()
+    })
+    .with_children(|grid| {
+        for item in &open {
+            grid.spawn(Node {
+                width: Val::Percent(if hud.phone { 100.0 } else { 48.5 }),
+                align_items: AlignItems::FlexStart,
+                ..row(8.0)
+            })
+            .with_children(|cell| {
+                icon(cell, hud, item.art, 27.0);
+                cell.spawn(Node {
+                    flex_grow: 1.0,
+                    flex_shrink: 1.0,
+                    min_width: Val::Px(0.0),
+                    ..column(1.0)
+                })
+                .with_children(|words| {
+                    words.spawn(row(6.0)).with_children(|head| {
+                        head.spawn(Node {
+                            flex_grow: 1.0,
+                            flex_shrink: 1.0,
+                            min_width: Val::Px(0.0),
+                            ..default()
+                        })
+                        .with_children(|title| {
+                            label(title, hud, &item.title, 16.0, Face::Bold, SAND)
+                        });
+                        if !item.count.is_empty() {
+                            label(head, hud, item.count.clone(), 16.0, Face::Bold, GOLD);
+                        }
+                    });
+                    label(
+                        words,
+                        hud,
+                        item.objective.hint(level, island),
+                        14.0,
+                        Face::Body,
+                        MUTED,
+                    );
+                });
+            });
+        }
+    });
+    finished_goals(p, hud, &open, &finished);
 }
 
 fn goal(
@@ -3651,6 +3690,42 @@ fn goal(
             );
         }
     });
+}
+
+/// The island's richer goals for its brief, each with how it works.
+fn special_goals(p: &mut ChildSpawnerCommands, hud: &Hud, level: Level, island: &Island) {
+    let challenges = level.challenges();
+    if challenges.is_empty() {
+        return;
+    }
+    label(p, hud, "Besondere Ziele", 17.0, Face::Bold, GOLD);
+    for challenge in challenges {
+        let objective = Objective::Challenge(challenge);
+        p.spawn(row(9.0)).with_children(|r| {
+            icon(r, hud, objective.icon(level, island), 30.0);
+            r.spawn(Node {
+                flex_grow: 1.0,
+                flex_shrink: 1.0,
+                min_width: Val::Px(0.0),
+                ..column(0.0)
+            })
+            .with_children(|c| {
+                let title = match island.progress_of(level, objective).figure() {
+                    figure if figure.is_empty() => objective.title(level),
+                    figure => format!("{} · {figure}", objective.title(level)),
+                };
+                label(c, hud, title, 17.0, Face::Bold, SAND);
+                label(
+                    c,
+                    hud,
+                    objective.hint(level, island),
+                    15.0,
+                    Face::Body,
+                    MUTED,
+                );
+            });
+        });
+    }
 }
 
 /// The island's twist as one short line with its name.

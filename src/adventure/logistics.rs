@@ -263,6 +263,11 @@ impl Island {
         let left = self.remaining.get_mut(site)?;
         let units = (*left).min(capacity);
         *left -= units;
+        let gathered = &mut self.tally.gathered[deposit.kind as usize];
+        *gathered = gathered.saturating_add(units);
+        if deposit.rich() {
+            self.tally.vein = self.tally.vein.saturating_add(units);
+        }
         (units > 0).then_some(Cargo {
             kind: deposit.kind,
             units,
