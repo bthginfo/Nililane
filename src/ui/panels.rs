@@ -1559,55 +1559,89 @@ fn price_cards(
                         ..row(4.0)
                     })
                     .with_children(|head| {
-                        head.spawn(row(5.0)).with_children(|name| {
-                            label(name, hud, price.label(), 19.0, Face::Bold, SAND);
-                            if best == Some(price) {
-                                icon(name, hud, "star", 19.0);
-                            }
-                        });
+                        label(head, hud, price.label(), 19.0, Face::Bold, SAND);
                         if current == price {
                             icon(head, hud, "check", 24.0);
                         } else if Some(price) == suggested {
                             icon(head, hud, "nili", 27.0);
                         }
                     });
+                // Plain words and a sum that adds up: price per sale, who buys, who
+                // leaves, and the takings with the extra from the chosen offer.
+                let each = price.coins(service);
+                let base = u32::from(sales) * each;
+                let extra = coins.saturating_sub(base);
+                metric(choice, hud, "coin", format!("{each} pro Kauf"));
                 metric(
                     choice,
                     hud,
-                    "coin",
-                    format!("{} je Verkauf", price.coins(service)),
+                    "guest_happy",
+                    if sales == 1 {
+                        "1 Gast kauft".to_owned()
+                    } else {
+                        format!("{sales} Gäste kaufen")
+                    },
                 );
-                // The best card reads in gold, so the money is easy to compare at a glance.
-                choice.spawn(row(5.0)).with_children(|line| {
-                    icon(line, hud, "guest_happy", 24.0);
-                    label(
-                        line,
-                        hud,
-                        format!(
-                            "≈ {sales} {} · {coins} {currency}",
-                            if sales == 1 { "Verkauf" } else { "Verkäufe" }
-                        ),
-                        16.0,
-                        Face::Body,
-                        if best == Some(price) { GOLD } else { SAND },
-                    );
-                });
-                meter(choice, coins as f32 / top as f32, GOLD);
                 if misses > 0 {
+                    choice.spawn(row(5.0)).with_children(|line| {
+                        icon(line, hud, "guest_down", 24.0);
+                        label(
+                            line,
+                            hud,
+                            if misses == 1 {
+                                "1 Gast geht leer aus".to_owned()
+                            } else {
+                                format!("{misses} Gäste gehen leer aus")
+                            },
+                            15.0,
+                            Face::Body,
+                            MUTED,
+                        );
+                    });
+                }
+                meter(choice, coins as f32 / top as f32, GOLD);
+                choice
+                    .spawn(Node {
+                        align_items: AlignItems::Center,
+                        flex_wrap: FlexWrap::Wrap,
+                        ..row(6.0)
+                    })
+                    .with_children(|total| {
+                        label(
+                            total,
+                            hud,
+                            format!("{coins} {currency}"),
+                            21.0,
+                            Face::Bold,
+                            if best == Some(price) { GOLD } else { SAND },
+                        );
+                        if best == Some(price) {
+                            total.spawn(row(3.0)).with_children(|badge| {
+                                icon(badge, hud, "star", 16.0);
+                                label(badge, hud, "meiste Münzen", 14.0, Face::Bold, GOLD);
+                            });
+                        }
+                    });
+                label(
+                    choice,
+                    hud,
+                    if extra > 0 {
+                        format!("{sales} × {each} + {extra} Extra fürs Angebot")
+                    } else {
+                        format!("{sales} × {each}")
+                    },
+                    13.5,
+                    Face::Body,
+                    MUTED,
+                );
+                if Some(price) == suggested && current != price {
                     label(
                         choice,
                         hud,
-                        format!(
-                            "{misses} {} ohne Kauf",
-                            if misses == 1 {
-                                "Gast geht"
-                            } else {
-                                "Gäste gehen"
-                            }
-                        ),
-                        14.0,
-                        Face::Body,
-                        MUTED,
+                        "Nilis Tipp: Mehr Gäste kaufen und sind zufrieden",
+                        13.5,
+                        Face::Bold,
+                        SAND,
                     );
                 }
             });

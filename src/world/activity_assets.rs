@@ -113,6 +113,86 @@ impl Profile {
     pub fn seating(self) -> bool {
         self.craft == Craft::Table
     }
+
+    /// Whether the work happens inside the building. Then nobody stands at a bench in
+    /// front of it; the building itself shows the work through its door and roof.
+    pub fn indoors(self) -> bool {
+        use Craft::*;
+        match self.craft {
+            // The sawmill saws indoors; the woodlot and the boatyard work in the open.
+            Saw => self.variation == 1,
+            Home | Bake | Clay | Store | Press | Bath | Write | Lantern | Weave | Dye | Mill
+            | Barrel | Glass | Scent | Brick | Forge => true,
+            Draw | Garden | Table | Offering | Market | Nets | Hive | Signal => false,
+        }
+    }
+
+    /// What a busy building gives off while people work inside.
+    pub fn sign(self) -> Sign {
+        use Craft::*;
+        match self.craft {
+            Home => Sign::Hearth,
+            Bake | Clay | Brick => Sign::Smoke,
+            Forge | Glass => Sign::Sparks,
+            Saw | Barrel => Sign::Chips,
+            Press | Mill => Sign::Dust,
+            Bath | Dye => Sign::Steam,
+            _ => Sign::Glow,
+        }
+    }
+}
+
+/// The visible trace of work inside a building.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub(super) enum Sign {
+    /// A thin plume from the hearth of a home.
+    Hearth,
+    /// Kiln and oven smoke from the roof, with firelight in the door.
+    Smoke,
+    /// Sparks and smoke from the forge chimney, with firelight in the door.
+    Sparks,
+    /// Wood chips flying out of the door.
+    Chips,
+    /// Flour or pressing dust drifting out of the door.
+    Dust,
+    /// Light steam from vats and basins.
+    Steam,
+    /// Only a lit doorway.
+    Glow,
+}
+
+impl Sign {
+    /// How many pieces the effect animates.
+    pub fn pieces(self) -> u8 {
+        match self {
+            Sign::Hearth => 3,
+            Sign::Smoke | Sign::Chips => 5,
+            Sign::Sparks => 7,
+            Sign::Dust | Sign::Steam => 4,
+            Sign::Glow => 0,
+        }
+    }
+
+    /// A fire inside lights the doorway by day as well.
+    pub fn fire(self) -> bool {
+        matches!(self, Sign::Smoke | Sign::Sparks)
+    }
+
+    /// The mesh of one piece of the effect.
+    pub fn piece(self) -> Mesh {
+        let mut b = Batch::default();
+        match self {
+            Sign::Hearth | Sign::Smoke => {
+                b.gem(Vec3::ZERO, 0.24, 0.20, 0.22, 0.4, [212, 207, 198]);
+            }
+            Sign::Steam => b.gem(Vec3::ZERO, 0.21, 0.16, 0.20, 0.9, [238, 242, 242]),
+            Sign::Dust => b.gem(Vec3::ZERO, 0.17, 0.12, 0.16, 0.2, [242, 234, 214]),
+            Sign::Sparks => b.gem(Vec3::ZERO, 0.045, 0.045, 0.045, 0.0, [255, 176, 72]),
+            Sign::Chips => b.slab(Vec3::ZERO, v(0.10, 0.022, 0.055), [214, 168, 112]),
+            Sign::Glow => {}
+        }
+        b.mesh()
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -706,6 +786,208 @@ pub(super) fn station(profile: Profile, region: Region) -> Station {
         parts,
         person,
         visitor,
+    }
+}
+
+/// The yard beside a building where its people step out to work: a woodpile, sacks,
+/// bricks, an anvil, pots, crates or a line with cloth that moves in the wind.
+pub(super) struct Yard {
+    pub still: Mesh,
+    /// Cloth, laundry or lanterns hanging from a pivot, swaying in the wind.
+    pub hanging: Vec<(Mesh, Vec3)>,
+}
+
+fn hanging_cloth(tint: Tint, width: f32, drop: f32) -> Mesh {
+    let mut b = Batch::default();
+    b.slab(v(0.0, -drop * 0.5, 0.0), v(width, drop, 0.018), tint);
+    b.slab(
+        v(0.0, -0.01, 0.0),
+        v(width * 0.92, 0.03, 0.03),
+        shift(tint, -22),
+    );
+    b.mesh()
+}
+
+fn paper_lantern(tint: Tint) -> Mesh {
+    let mut b = Batch::default();
+    b.beam(v(0.0, 0.0, 0.0), v(0.0, -0.10, 0.0), 0.012, [70, 50, 40]);
+    b.frustum(v(0.0, -0.30, 0.0), 0.075, 0.095, 0.10, 8, tint);
+    b.frustum(v(0.0, -0.20, 0.0), 0.095, 0.07, 0.08, 8, tint);
+    b.mesh()
+}
+
+fn line(b: &mut Batch, width: f32, height: f32, wood: Tint) {
+    for x in [-width * 0.5, width * 0.5] {
+        b.beam(v(x, 0.0, 0.0), v(x, height, 0.0), 0.05, wood);
+    }
+    b.beam(
+        v(-width * 0.5, height - 0.04, 0.0),
+        v(width * 0.5, height - 0.04, 0.0),
+        0.014,
+        [228, 218, 196],
+    );
+}
+
+pub(super) fn yard(craft: Craft, region: Region) -> Yard {
+    use Craft::*;
+    let wood: Tint = match region {
+        Region::Japan => [112, 78, 58],
+        Region::Nordic => [104, 78, 58],
+        Region::Oasis => [150, 104, 70],
+        _ => [128, 90, 58],
+    };
+    let mut b = Batch::default();
+    let mut hanging = Vec::new();
+    let logs = |b: &mut Batch| {
+        for (row, count) in [(0, 3), (1, 2), (2, 1)] {
+            for i in 0..count {
+                let x = (i as f32 - (count as f32 - 1.0) * 0.5) * 0.15;
+                let y = 0.07 + row as f32 * 0.12;
+                b.beam(
+                    v(x, y, -0.32),
+                    v(x, y, 0.32),
+                    0.12,
+                    shift(wood, (i * 7 + row * 5) as i16 - 6),
+                );
+                b.frustum(v(x, y - 0.06, 0.32), 0.05, 0.05, 0.004, 6, [214, 182, 130]);
+            }
+        }
+    };
+    let sacks = |b: &mut Batch| {
+        for (x, z, h) in [(-0.16, 0.0, 0.0), (0.16, 0.04, 0.0), (0.0, 0.02, 0.2)] {
+            b.gem(v(x, 0.13 + h, z), 0.16, 0.14, 0.13, x + z, [218, 198, 156]);
+        }
+    };
+    let crates = |b: &mut Batch| {
+        b.block(
+            v(-0.12, 0.14, 0.0),
+            v(0.28, 0.28, 0.28),
+            Quat::from_rotation_y(0.2),
+            shift(wood, 18),
+        );
+        b.block(
+            v(0.18, 0.11, 0.06),
+            v(0.22, 0.22, 0.22),
+            Quat::from_rotation_y(-0.3),
+            shift(wood, 28),
+        );
+        b.block(
+            v(-0.06, 0.36, 0.02),
+            v(0.18, 0.16, 0.18),
+            Quat::from_rotation_y(0.6),
+            shift(wood, 10),
+        );
+    };
+    let pots = |b: &mut Batch, clay: Tint| {
+        for (i, x) in [-0.2_f32, 0.02, 0.22].into_iter().enumerate() {
+            let h = 0.22 + i as f32 * 0.05;
+            b.frustum(
+                v(x, 0.0, (i as f32 - 1.0) * 0.06),
+                0.07,
+                0.11,
+                h * 0.6,
+                8,
+                shift(clay, i as i16 * 6),
+            );
+            b.frustum(
+                v(x, h * 0.6, (i as f32 - 1.0) * 0.06),
+                0.11,
+                0.05,
+                h * 0.4,
+                8,
+                shift(clay, i as i16 * 6 + 8),
+            );
+        }
+    };
+    match craft {
+        Saw | Home => {
+            logs(&mut b);
+            if craft == Home {
+                line(&mut b, 0.9, 0.62, wood);
+                for (i, tint) in [[244, 240, 228], [126, 162, 196], [230, 196, 150]]
+                    .into_iter()
+                    .enumerate()
+                {
+                    let x = -0.28 + i as f32 * 0.28;
+                    hanging.push((hanging_cloth(tint, 0.2, 0.26), v(x, 0.58, 0.0)));
+                }
+            }
+        }
+        Barrel => {
+            for (x, z) in [(-0.16, 0.0), (0.16, 0.05), (0.0, -0.18)] {
+                b.frustum(v(x, 0.0, z), 0.12, 0.13, 0.15, 10, wood);
+                b.frustum(v(x, 0.15, z), 0.13, 0.12, 0.15, 10, shift(wood, 10));
+                b.frustum(v(x, 0.14, z), 0.135, 0.135, 0.025, 10, [80, 76, 74]);
+            }
+        }
+        Bake | Mill | Press => sacks(&mut b),
+        Brick => {
+            for layer in 0..4 {
+                for i in 0..3 {
+                    let turn = if layer % 2 == 0 {
+                        0.0
+                    } else {
+                        std::f32::consts::FRAC_PI_2
+                    };
+                    let offset = (i as f32 - 1.0) * 0.1;
+                    let at = if layer % 2 == 0 {
+                        v(offset, 0.035 + layer as f32 * 0.07, 0.0)
+                    } else {
+                        v(0.0, 0.035 + layer as f32 * 0.07, offset)
+                    };
+                    b.block(
+                        at,
+                        v(0.28, 0.065, 0.09),
+                        Quat::from_rotation_y(turn),
+                        shift([176, 96, 70], (layer * 5 + i * 3) as i16 - 6),
+                    );
+                }
+            }
+        }
+        Forge | Glass => {
+            let iron = [74, 72, 76];
+            b.frustum(v(0.0, 0.0, 0.0), 0.09, 0.07, 0.22, 6, wood);
+            b.slab(v(0.0, 0.26, 0.0), v(0.30, 0.08, 0.12), iron);
+            b.slab(v(0.18, 0.27, 0.0), v(0.08, 0.05, 0.07), iron);
+            b.frustum(v(0.32, 0.0, 0.14), 0.12, 0.13, 0.26, 10, shift(wood, -12));
+            b.frustum(v(0.32, 0.25, 0.14), 0.11, 0.11, 0.012, 10, [70, 112, 128]);
+        }
+        Clay => pots(&mut b, [182, 106, 74]),
+        Scent => pots(&mut b, [204, 170, 120]),
+        Dye | Bath | Weave => {
+            b.frustum(v(-0.32, 0.0, 0.12), 0.17, 0.2, 0.2, 12, wood);
+            let water = if craft == Dye {
+                [70, 66, 140]
+            } else {
+                [112, 178, 190]
+            };
+            b.frustum(v(-0.32, 0.19, 0.12), 0.18, 0.18, 0.012, 12, water);
+            line(&mut b, 1.0, 0.72, wood);
+            let colors: [Tint; 3] = if craft == Bath {
+                [[244, 240, 228], [236, 232, 220], [226, 220, 204]]
+            } else {
+                [[58, 72, 150], [176, 58, 52], [222, 168, 52]]
+            };
+            for (i, tint) in colors.into_iter().enumerate() {
+                let x = -0.32 + i as f32 * 0.32;
+                hanging.push((hanging_cloth(tint, 0.24, 0.36), v(x, 0.68, 0.0)));
+            }
+        }
+        Lantern => {
+            line(&mut b, 0.9, 0.78, wood);
+            for (i, tint) in [[244, 222, 176], [222, 92, 70], [244, 222, 176]]
+                .into_iter()
+                .enumerate()
+            {
+                hanging.push((paper_lantern(tint), v(-0.28 + i as f32 * 0.28, 0.74, 0.0)));
+            }
+        }
+        Store | Write => crates(&mut b),
+        _ => crates(&mut b),
+    }
+    Yard {
+        still: b.mesh(),
+        hanging,
     }
 }
 

@@ -1258,14 +1258,26 @@ pub(crate) fn animate(
             let Task::Produce(lot) = job else {
                 return false;
             };
-            island
-                .workers
-                .iter()
-                .position(|&candidate| candidate == job)
-                == Some(worker.0)
-                && island.site(lot).is_none()
-                && island.batch(lot).is_some_and(|batch| batch.working())
-                && super::activity::adventure_spot(terrain, &island.lots, lot).is_some()
+            if island.site(lot).is_some() || island.walking_worker(worker.0).is_some() {
+                return false;
+            }
+            // Indoor crafts keep their people inside; the building shows the work.
+            let indoors = island
+                .lots
+                .get(lot)
+                .copied()
+                .flatten()
+                .is_some_and(|property| {
+                    super::activity_assets::Profile::of(property.kind).indoors()
+                });
+            indoors
+                || island
+                    .workers
+                    .iter()
+                    .position(|&candidate| candidate == job)
+                    == Some(worker.0)
+                    && island.batch(lot).is_some_and(|batch| batch.working())
+                    && super::activity::adventure_spot(terrain, &island.lots, lot).is_some()
         });
         *visibility = if at_bench {
             Visibility::Hidden
@@ -2503,6 +2515,14 @@ fn civic(region: Region) -> Mesh {
     b.slab(v(0.0, 1.66, 0.72), v(2.72, 0.175, 0.60), c.coast);
     super::architecture::stoop(&mut b, v(0.0, 0.0, 1.14), 1.24, 0.26, 0.39, 3, c.coast);
     b.mesh()
+}
+
+/// Height of a workshop's roof, for smoke and sparks rising from it.
+pub(super) fn workshop_roof(region: Region, kind: Build, tier: u8) -> f32 {
+    use bevy::render::mesh::MeshAabb;
+    workshop(region, kind, tier)
+        .compute_aabb()
+        .map_or(2.0, |bounds| bounds.center.y + bounds.half_extents.y)
 }
 
 fn workshop(region: Region, kind: Build, tier: u8) -> Mesh {
