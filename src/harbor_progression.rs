@@ -1,6 +1,6 @@
-use super::{Chapter, Goal::*, Region};
+use super::{Chapter, Goal, Goal::*, Region, harbor_stage};
 use crate::errands::Job;
-use crate::model::{Kind, Kind::*, Service::*};
+use crate::model::{Age, Assortment, Calling, Kind, Kind::*, Service::*};
 
 const fn prefix<const N: usize>(plans: &[Kind]) -> [Kind; N] {
     let mut result = [plans[0]; N];
@@ -475,6 +475,189 @@ const fn nordic(mut ch: Chapter, stage: usize) -> Chapter {
         _ => {}
     }
     ch
+}
+
+/// The first three Greek ports and the first two of every later region teach the basics,
+/// so they keep their simple goals.
+pub(crate) const fn tutorial(index: usize) -> bool {
+    index < 3 || harbor_stage(index) < 2
+}
+
+/// Later harbors keep at most one plain counter such as „60 Brot verkaufen“. Every further
+/// counter becomes a goal that asks for a plan, picked from what the harbor offers. Where a
+/// trade order already starts with a few plain sales, no other counter is kept.
+pub(super) const fn enrich(mut ch: Chapter, index: usize) -> Chapter {
+    if tutorial(index) {
+        return ch;
+    }
+    let mut kept = crate::campaign_orders::trade_stage(harbor_stage(index));
+    let mut slot = 0;
+    let mut i = 0;
+    while i < ch.goals.len() {
+        if ch.goals[i].plain_counter() {
+            if kept {
+                let goal = richer(&ch, index, slot);
+                ch.goals[i] = goal;
+                slot += 1;
+            }
+            kept = true;
+        }
+        i += 1;
+    }
+    ch
+}
+
+/// How many kinds of richer goal [`richer`] chooses from.
+const RICHER: usize = 6;
+
+/// A goal built on a system this harbor already has: a streak of happy guests, a busy
+/// day of tours, two good days in a row, favourites for one age group, a quick rescue or
+/// the region's own call. `slot` tells several picks for the same harbor apart.
+pub(crate) const fn richer(ch: &Chapter, index: usize, slot: usize) -> Goal {
+    let stage = harbor_stage(index);
+    let region = index / super::REGION_SIZE;
+    let start = (stage * 5 + slot * 2 + region * 3) % RICHER;
+    let mut step = 0;
+    while step < RICHER {
+        if let Some(goal) = pick(ch, index, (start + step) % RICHER, slot)
+            && !taken(ch, goal)
+        {
+            return goal;
+        }
+        step += 1;
+    }
+    Streak(streak_target(stage))
+}
+
+const fn streak_target(stage: usize) -> u32 {
+    8 + stage as u32 / 2
+}
+
+const fn pick(ch: &Chapter, index: usize, kind: usize, slot: usize) -> Option<Goal> {
+    let stage = harbor_stage(index);
+    let late = stage >= 12;
+    match kind {
+        0 => Some(Streak(streak_target(stage))),
+        // The North has no shade tour, and its quay only needs clearing in rough weather.
+        1 if ch.region as usize == Region::Nordic as usize => {
+            if stage >= 4 {
+                Some(TourDay(3))
+            } else {
+                None
+            }
+        }
+        1 => Some(TourDay(3 + late as u32)),
+        2 => Some(SteadyMood(70 + stage as u32 / 2)),
+        3 if offers_choice(ch) => {
+            // Adults make up three of every seven guests, children and elders two each.
+            let (age, count) = match (stage + slot) % 3 {
+                0 if stage >= Age::Senior.stage() => (Age::Senior, 2 + stage / 6),
+                1 => (Age::Adult, 3 + stage / 5),
+                _ => (Age::Child, 2 + stage / 6),
+            };
+            Some(FanDay(age, count as u32))
+        }
+        // Incidents start in the fourth harbor of a region.
+        4 if stage >= 3 => Some(Rush(1 + (stage >= 16) as u32)),
+        5 => calling(ch, stage, 3 + stage as u32 / 8),
+        _ => None,
+    }
+}
+
+/// The region's own errand, if this harbor can build for it.
+const fn calling(ch: &Chapter, stage: usize, count: u32) -> Option<Goal> {
+    match ch.region {
+        Region::Greece if allows(ch, Shrine) => Some(Call(Calling::Offering, count)),
+        Region::Rome if allows(ch, Forum) => Some(Call(Calling::Herald, count)),
+        Region::Japan if allows(ch, Temple) => Some(Bell(count)),
+        Region::Nordic if allows(ch, Boatyard) => Some(Voyages(count)),
+        // Caravans start in Bir Talin; in Dar Jawahir the caravanserai makes way for carpets.
+        Region::Oasis if stage >= 4 && stage != 19 && allows(ch, Caravanserai) => {
+            Some(Caravans(count))
+        }
+        _ => None,
+    }
+}
+
+/// Some shop here lets the player choose an offer for one age group.
+const fn offers_choice(ch: &Chapter) -> bool {
+    let mut i = 0;
+    while i < Kind::ALL.len() {
+        let kind = Kind::ALL[i];
+        if Assortment::supported(kind) && allows(ch, kind) && wanted(ch, kind) {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+const fn wanted(ch: &Chapter, kind: Kind) -> bool {
+    let Some(service) = kind.service() else {
+        return false;
+    };
+    let mut i = 0;
+    while i < ch.locals.len() {
+        if ch.locals[i] as usize == service as usize {
+            return true;
+        }
+        i += 1;
+    }
+    let mut i = 0;
+    while i < ch.guests.len() {
+        if ch.guests[i] as usize == service as usize {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+/// The harbor starts with this building or can build it.
+const fn allows(ch: &Chapter, kind: Kind) -> bool {
+    let mut i = 0;
+    while i < ch.starts.len() {
+        if ch.starts[i].1 as usize == kind as usize {
+            return true;
+        }
+        i += 1;
+    }
+    let Some(set) = ch.building_set else {
+        return false;
+    };
+    let mut i = 0;
+    while i < set.len() {
+        if set[i] as usize == kind as usize {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+/// The harbor already asks for this, or for something very close to it.
+const fn taken(ch: &Chapter, goal: Goal) -> bool {
+    let mut i = 0;
+    while i < ch.goals.len() {
+        let other = ch.goals[i];
+        let same = match goal {
+            Streak(_) => matches!(other, Streak(_)),
+            TourDay(_) => matches!(other, TourDay(_) | RouteVariety(_)),
+            SteadyMood(_) => matches!(other, SteadyMood(_) | GoodDay(_)),
+            FanDay(..) => matches!(other, FanDay(..) | Specials(_) | FavoriteMenu(..)),
+            Rush(_) => matches!(other, Rush(_)),
+            Call(..) => matches!(other, Call(..)),
+            Bell(_) => matches!(other, Bell(_)),
+            Voyages(_) => matches!(other, Voyages(_)),
+            Caravans(_) => matches!(other, Caravans(_) | SpiceRoutes(_)),
+            _ => false,
+        };
+        if same {
+            return true;
+        }
+        i += 1;
+    }
+    false
 }
 
 #[cfg(test)]

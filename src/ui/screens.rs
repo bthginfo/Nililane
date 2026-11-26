@@ -988,34 +988,7 @@ pub fn goal(p: &mut ChildSpawnerCommands, hud: &Hud, town: &Town, goal: Goal) {
                 ..row(8.0)
             })
             .with_children(|row| {
-                let image = match goal {
-                    Goal::Build(k, _) | Goal::Upgrade(k, _) | Goal::Pair(k, _, _) => kind_icon(k),
-                    Goal::Serve(s, _) | Goal::Produce(s, _) => service_icon(s),
-                    Goal::Sale(order, _) | Goal::TradeUpgrade(order) => kind_icon(order.shop),
-                    Goal::Dogs(_) => "dog",
-                    Goal::Clean(_) => "scraps",
-                    Goal::GuestCare(age, ..) | Goal::FavoriteMenu(age, _) => age.icon(),
-                    Goal::Rebuild(order) => kind_icon(order.new),
-                    Goal::Renown(_) => "star",
-                    Goal::Help(_) => "nili",
-                    Goal::Earn(_) => "coin",
-                    Goal::FeastGuests(_) => "ferry",
-                    Goal::Variety(_) => "book",
-                    Goal::MarketDay(_) => "coin",
-                    Goal::Water(_) => "water",
-                    Goal::Harvest(_) => "rice_paddy",
-                    Goal::Bell(_) => "temple_bell",
-                    Goal::Catch(_) => "fishery",
-                    Goal::Voyages(_) => "sea_trade",
-                    Goal::CargoIncome(_) | Goal::CaravanIncome(_) => "coin",
-                    Goal::Caravans(_) | Goal::SpiceRoutes(_) => "caravan",
-                    Goal::Route(job, _) => job.icon(),
-                    Goal::RouteVariety(_) => "nili",
-                    Goal::FerryDay(_) => "ferry",
-                    Goal::GoodDay(_) => "mood",
-                    Goal::Specials(_) => "star",
-                    Goal::Residents(_) => "house",
-                };
+                let image = super::goal_icon(goal);
                 row.spawn(row_node()).with_children(|line| {
                     line.spawn((
                         GoalBadge(goal, image),

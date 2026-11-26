@@ -9,11 +9,13 @@ mod oasis;
 #[path = "harbor_progression.rs"]
 mod progression;
 
+pub(crate) use progression::{richer, tutorial};
+
 use crate::{
     campaign_orders::{RebuildOrder, TradeOrder, extra_goals},
     errands::Job,
     layout::Layout,
-    model::{Age, Assortment, DAY_SECONDS, Favor, Kind, Service, Weather},
+    model::{Age, Assortment, Calling, DAY_SECONDS, Favor, Kind, Service, Weather},
 };
 
 pub const REGION_SIZE: usize = 24;
@@ -189,6 +191,18 @@ pub enum Goal {
     GuestCare(Age, u32, u32),
     FavoriteMenu(Age, u32),
     Rebuild(RebuildOrder),
+    /// Happy guests in a row on one day, before anyone leaves empty-handed.
+    Streak(u32),
+    /// Different kinds of tour Nili walks on a single day.
+    TourDay(u32),
+    /// Incidents solved in time for the rush bonus.
+    Rush(u32),
+    /// Favourite offers one age group buys on a single day.
+    FanDay(Age, u32),
+    /// Share of happy guests held on two days in a row, in percent.
+    SteadyMood(u32),
+    /// Nili's call at the shrine, the forum or the temple.
+    Call(Calling, u32),
 }
 
 impl Goal {
@@ -223,7 +237,13 @@ impl Goal {
             | Self::GuestCare(_, _, n)
             | Self::FavoriteMenu(_, n)
             | Self::Upgrade(_, n)
-            | Self::Pair(_, _, n) => n,
+            | Self::Pair(_, _, n)
+            | Self::Streak(n)
+            | Self::TourDay(n)
+            | Self::Rush(n)
+            | Self::FanDay(_, n)
+            | Self::SteadyMood(n)
+            | Self::Call(_, n) => n,
             Self::Sale(order, false) => order.basic,
             Self::Sale(order, true) => order.special_sales,
             Self::TradeUpgrade(order) => u32::from(order.special.tier()),
@@ -310,7 +330,58 @@ impl Goal {
             Self::Rebuild(order) => {
                 format!("{} durch {} ersetzen", order.old.name(), order.new.name())
             }
+            Self::Streak(_) => "Zufriedene Gäste in Folge".into(),
+            Self::TourDay(_) => "Verschiedene Touren an einem Tag".into(),
+            Self::Rush(_) => "Zwischenfälle schnell lösen".into(),
+            Self::FanDay(age, _) => {
+                format!("Lieblingsangebote für {} an einem Tag", age_plural(age))
+            }
+            Self::SteadyMood(_) => "Zwei Tage in Folge zufrieden (%)".into(),
+            Self::Call(calling, _) => match calling {
+                Calling::Bell => "Tempelglocke läuten",
+                Calling::Offering => "Opfergaben bringen",
+                Calling::Herald => "Herold rufen",
+            }
+            .into(),
         }
+    }
+
+    /// A plain running total such as „60 Brot verkaufen“. Later harbors keep at most one
+    /// of these and fill the rest with goals that ask for a plan.
+    pub const fn plain_counter(self) -> bool {
+        matches!(
+            self,
+            Self::Serve(..)
+                | Self::Produce(..)
+                | Self::Earn(_)
+                | Self::Renown(_)
+                | Self::Help(_)
+                | Self::Specials(_)
+                | Self::CargoIncome(_)
+                | Self::CaravanIncome(_)
+        )
+    }
+
+    /// A small errand in the street, like petting the dog, rather than a harbor goal.
+    pub fn street_task(self) -> bool {
+        matches!(self, Self::Dogs(_) | Self::Clean(_))
+    }
+
+    /// Counted only once the day is over, because a bad evening can still undo it.
+    pub fn settles_at_dusk(self) -> bool {
+        matches!(
+            self,
+            Self::GuestCare(..) | Self::GoodDay(_) | Self::SteadyMood(_)
+        )
+    }
+}
+
+/// „für Kinder“, „für Erwachsene“, „für ältere Gäste“.
+fn age_plural(age: Age) -> &'static str {
+    match age {
+        Age::Child => "Kinder",
+        Age::Adult => "Erwachsene",
+        Age::Senior => "ältere Gäste",
     }
 }
 
@@ -729,6 +800,7 @@ pub static CHAPTERS: [Chapter; CHAPTER_COUNT] = {
             _ => Shift::Day,
         };
         chapters[index] = progression::revise(chapters[index], harbor_stage(index));
+        chapters[index] = progression::enrich(chapters[index], index);
         index += 1;
     }
     chapters
